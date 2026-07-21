@@ -1,0 +1,101 @@
+import Foundation
+
+/// Z.ai 런타임 — 원본 openusage `ZAIProvider` 의 refresh 로직을 그대로 이식하되,
+/// UI 위젯 서술자(WidgetDescriptor)·아이콘 시스템·APIKeyManaging 은 제외하고 A-mon 슬림 `Provider` 를 쓴다.
+@MainActor
+final class ZAIProvider: ProviderRuntime {
+    let provider = Provider(
+        id: "zai",
+        displayName: "Z.ai",
+        symbol: "z.square.fill",
+        accentHex: "#3a6df0",
+        links: [
+            ProviderLink(label: "Dashboard", url: "https://z.ai/manage-apikey/coding-plan/personal/my-plan"),
+            ProviderLink(label: "API Keys", url: "https://z.ai/manage-apikey/apikey-list")
+        ]
+    )
+
+    let authStore: ZAIAuthStore
+    let usageClient: ZAIUsageClient
+    let now: @Sendable () -> Date
+
+    init(
+        authStore: ZAIAuthStore = ZAIAuthStore(),
+        usageClient: ZAIUsageClient = ZAIUsageClient(),
+        now: @escaping @Sendable () -> Date = { Date() }
+    ) {
+        self.authStore = authStore
+        self.usageClient = usageClient
+        self.now = now
+    }
+
+    func hasLocalCredentials() async -> Bool {
+        // Same source as `refresh()`: a stored or environment-exported API key.
+        await loadOffMainActor { [authStore] in authStore.loadAPIKey() } != nil
+    }
+
+    func refresh() async -> ProviderSnapshot {
+        guard let auth = await loadOffMainActor({ [authStore] in authStore.loadAPIKey() }) else {
+            return ProviderSnapshot.error(provider: provider, error: ZAIAuthError.missingKey)
+        }
+
+        // The quota endpoint is required; the subscription endpoint is best-effort (plan name only),
+        // so a failure there must not blank out the meters. Both are fetched, and whatever the quota
+        // returns is mapped alongside the plan name if the subscription succeeded.
+        let quota = await load { try await usageClient.fetchQuota(apiKey: auth.apiKey) }
+        let subscription = await loadOptional { try await usageClient.fetchSubscription(apiKey: auth.apiKey) }
+
+        switch quota {
+        case .success(let body):
+            // A valid key whose account has no GLM Coding Plan gets a 2xx with `success:false`. Surface
+            // that as a clear provider warning (the header's amber notice) rather than three blank "No
+            // data" meters that don't explain why nothing's there.
+            if ZAIUsageMapper.isNoCodingPlan(body) {
+                return ProviderSnapshot.error(provider: provider, error: ZAIUsageError.noCodingPlan)
+            }
+            let mapped = ZAIUsageMapper.map(quotaBody: body, subscriptionBody: optionalBody(subscription))
+            return ProviderSnapshot.make(provider: provider, plan: mapped.plan, lines: mapped.lines, refreshedAt: now())
+        case .authFailure:
+            return ProviderSnapshot.error(provider: provider, error: ZAIAuthError.invalidKey)
+        case .failed(let error):
+            return ProviderSnapshot.error(provider: provider, error: error)
+        }
+    }
+
+    /// Run the required quota call and classify the outcome: the body on 2xx, an auth failure on
+    /// 401/403, or a typed failure for any other non-2xx, transport error, or empty body.
+    private func load(_ call: () async throws -> HTTPResponse) async -> QuotaResult {
+        do {
+            let response = try await call()
+            if response.statusCode == 401 || response.statusCode == 403 { return .authFailure }
+            guard (200..<300).contains(response.statusCode) else {
+                return .failed(.requestFailed(response.statusCode))
+            }
+            return .success(response.body)
+        } catch {
+            return .failed(.connectionFailed)
+        }
+    }
+
+    /// Run the optional subscription call — never throws into the snapshot: a transport error, a
+    /// non-2xx, or an auth failure all just mean "no plan name this refresh".
+    private func loadOptional(_ call: () async throws -> HTTPResponse) async -> HTTPResponse? {
+        do {
+            let response = try await call()
+            guard (200..<300).contains(response.statusCode) else { return nil }
+            return response
+        } catch {
+            return nil
+        }
+    }
+
+    private func optionalBody(_ response: HTTPResponse?) -> Data? {
+        response?.body
+    }
+}
+
+private enum QuotaResult {
+    case success(Data)
+    case authFailure
+    case failed(ZAIUsageError)
+}
