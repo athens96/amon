@@ -1,0 +1,24 @@
+# SwiftPM
+.build/
+Package.resolved
+
+# 번들 산출물
+*.app
+
+# Xcode
+DerivedData/
+*.xcuserstate
+*.xcodeproj/xcuserdata/
+
+# macOS
+.DS_Store
+
+# OMC 세션 상태
+.omc/
+
+# 배포 패키지
+dist/
+
+# vim swap / 임시 zip
+*.swp
+*.zip
