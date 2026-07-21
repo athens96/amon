@@ -23,13 +23,14 @@ VERSION    := $(shell /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionStr
 DIST_DIR   := dist
 STAGE      := $(DIST_DIR)/AI-Monitor-$(VERSION)
 ZIP        := $(DIST_DIR)/AI-Monitor-$(VERSION).zip
+PKG        := $(DIST_DIR)/A-mon-$(VERSION).pkg
 
 SERVER ?=
 NOTES  ?=
 
 PLIST := Resources/Info.plist
 
-.PHONY: build app run clean universal dist publish version set-version
+.PHONY: build app run clean universal dist pkg installer publish version set-version
 
 ## 현재 앱 버전 출력 (CFBundleShortVersionString + build 번호)
 version:
@@ -92,6 +93,17 @@ dist: universal
 
 ## 릴리즈 업로드 — 백엔드에 zip 등록 (자동 업데이트 배포)
 ##   make publish TOKEN=<admin JWT> [SERVER=https://...] [NOTES="설명"]
+pkg: universal
+	codesign --force --deep --sign - $(APP_BUNDLE)
+	chmod +x scripts/pkg/postinstall
+	rm -f $(PKG)
+	pkgbuild --component $(APP_BUNDLE) --install-location /Applications \
+	  --identifier com.athens96.amon --version $(VERSION) \
+	  --scripts scripts/pkg $(PKG)
+	@echo "PKG installer: $(PKG)"
+
+installer: pkg
+
 publish: dist
 	@if [ -z "$(TOKEN)" ]; then echo "❌ TOKEN=<admin JWT> 가 필요합니다"; exit 1; fi
 	@if [ -z "$(SERVER)" ]; then echo "❌ SERVER=https://... 가 필요합니다"; exit 1; fi

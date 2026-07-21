@@ -11,7 +11,7 @@ struct SettingsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 18) {
                 // ── 기본 설정 ────────────────────────────────────────────
                 SettingsCategoryHeader(icon: "gearshape", title: "기본 설정")
 
@@ -76,7 +76,7 @@ struct SettingsView: View {
                     Spacer()
                 }
             }
-            .padding(20)
+            .padding(16)
         }
     }
 }
@@ -87,21 +87,12 @@ private struct SettingsCategoryHeader: View {
     let title: String
 
     var body: some View {
-        HStack(spacing: 9) {
-            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .fill(MenuBarContentView.accent.opacity(0.13))
-                .frame(width: 28, height: 28)
-                .overlay {
-                    Image(systemName: icon)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(MenuBarContentView.accent)
-                }
-            Text(title.uppercased())
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(.secondary)
-            Rectangle()
-                .fill(Color(nsColor: .separatorColor))
-                .frame(height: 0.5)
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .foregroundStyle(MenuBarContentView.accent)
+                .frame(width: 16)
+            Text(title)
+                .font(.amonSection)
         }
     }
 }

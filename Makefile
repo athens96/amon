@@ -9,8 +9,8 @@
 #
 # 개별 플랫폼: make mac-build / mac-dist / mac-run · win-build / win-dist
 
-.PHONY: build dist run scan version set-version \
-        mac-build mac-dist mac-run mac-scan win-build win-dist win-scan
+.PHONY: build dist installer run scan version set-version \
+        mac-build mac-dist mac-installer mac-run mac-scan win-build win-dist win-installer win-scan
 
 version:
 	@printf "macOS   : "; $(MAKE) -s -C macos version
@@ -27,6 +27,7 @@ set-version:
 
 build: mac-build win-build
 dist: mac-dist win-dist
+installer: mac-installer win-installer
 run: mac-run
 
 ## 두 스캐너를 나란히 실행 — 결과 숫자가 같아야 한다 (같은 로그, 같은 규칙)
@@ -38,6 +39,9 @@ mac-build:
 
 mac-dist:
 	$(MAKE) -C macos dist
+
+mac-installer:
+	$(MAKE) -C macos installer
 
 mac-run:
 	$(MAKE) -C macos run
@@ -53,6 +57,9 @@ win-build:
 
 win-dist:
 	$(MAKE) -C windows dist
+
+win-installer:
+	$(MAKE) -C windows installer
 
 win-scan:
 	@echo "── Windows 스캐너 (Go, 이 머신 경로로 실행) ──"

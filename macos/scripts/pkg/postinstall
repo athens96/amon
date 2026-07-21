@@ -1,0 +1,8 @@
+#!/bin/bash
+set -eu
+
+APP="/Applications/AIMonitor.app"
+pkill -x AIMonitor 2>/dev/null || true
+xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
+chown -R root:wheel "$APP"
+exit 0
