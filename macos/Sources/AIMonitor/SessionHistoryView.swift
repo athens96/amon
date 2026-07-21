@@ -41,7 +41,7 @@ struct SessionHistoryView: View {
                 emptyState
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 0) {
+                    VStack(spacing: 8) {
                         ForEach(visible) { record in
                             Button { selected = record } label: {
                                 SessionHistoryRow(record: record)
@@ -50,7 +50,7 @@ struct SessionHistoryView: View {
                             .help("클릭하면 요청·응답 전체를 봅니다")
                         }
                     }
-                    .padding(.horizontal, 18)
+                    .padding(12)
                 }
             }
         }
@@ -81,13 +81,17 @@ struct SessionHistoryView: View {
                 if let provider { ProviderMark(provider: provider, size: 11) }
                 Text(title).font(.amonCaption.weight(selected ? .semibold : .regular))
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 6)
-            .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(selected ? MenuBarContentView.accent : Color.clear)
-                    .frame(height: 2)
-            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(
+                Capsule().fill(selected ? MenuBarContentView.accent.opacity(0.15) : Color.clear)
+            )
+            .overlay(
+                Capsule().strokeBorder(
+                    selected ? MenuBarContentView.accent.opacity(0.55) : Color(nsColor: .separatorColor),
+                    lineWidth: selected ? 1 : 0.5
+                )
+            )
             .foregroundStyle(selected ? MenuBarContentView.accent : Color.secondary)
         }
         .buttonStyle(.plain)
@@ -183,12 +187,9 @@ private struct SessionHistoryRow: View {
 
             tokenBreakdown
         }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 12)
-        .background(Color.primary.opacity(hovering ? 0.045 : 0))
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: 0.5)
-        }
+        .padding(10)
+        .background(Color.primary.opacity(hovering ? 0.07 : 0.04))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
     }

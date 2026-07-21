@@ -156,7 +156,7 @@ struct DashboardView: View {
 
     private var allView: some View {
         ScrollView {
-            VStack(spacing: 16) {
+            VStack(spacing: 12) {
                 todayHeroCard
                 CurrentActivitySection(onOpenSession: { liveSessionDetail = $0 })
                 summaryRow
@@ -183,7 +183,7 @@ struct DashboardView: View {
                 hiddenNotice
                 grandTotalFooter
             }
-            .padding(18)
+            .padding(12)
         }
     }
 
@@ -232,7 +232,7 @@ struct DashboardView: View {
             tabStrip
             Divider()
             ScrollView {
-                VStack(spacing: 16) {
+                VStack(spacing: 12) {
                     if let tab = tabs.first(where: { $0.id == selectedTabID }) {
                         detail(for: tab)
                     } else {
@@ -243,7 +243,7 @@ struct DashboardView: View {
 
                     hiddenNotice
                 }
-                .padding(18)
+                .padding(12)
             }
         }
     }
@@ -290,7 +290,7 @@ struct DashboardView: View {
                     .help(tab.title)
                 }
             }
-            .padding(.horizontal, 18)
+            .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
     }
@@ -368,81 +368,62 @@ struct DashboardView: View {
         }
     }
 
-    /// 오늘 사용량을 주 지표와 네 개의 축으로 나눈 계기판.
+    /// 오늘 전체 로컬 토큰 — 가장 크게 강조 (기존 사용량 화면의 히어로 유지).
+    /// 카드를 클릭하면 큰 숫자가 전체/입력/출력/캐시로 순환하고, 아래 구성 행은
+    /// 항상 표시된다(항목 클릭 시 해당 축으로 바로 이동).
     private var todayHeroCard: some View {
-        HStack(spacing: 18) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("TODAY")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(MenuBarContentView.warmAccent)
-                Text(heroMetric.label)
-                    .font(.amonBody.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(TokenFormat.compact(heroValue(heroMetric)))
-                        .font(.system(size: 38, weight: .bold, design: .rounded))
-                        .foregroundStyle(MenuBarContentView.accent)
-                        .contentTransition(.numericText())
-                        .minimumScaleFactor(0.55)
-                        .lineLimit(1)
-                    dayDeltaBadge
-                }
-                Text("\(TokenFormat.grouped(heroValue(heroMetric))) tokens")
-                    .font(.amonCaption)
-                    .foregroundStyle(.tertiary)
+        VStack(spacing: 4) {
+            Text(heroMetric == .total ? "오늘 사용량" : "오늘 사용량 · \(heroMetric.label)")
+                .font(.amonBody)
+                .foregroundStyle(.secondary)
+                .contentTransition(.opacity)
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Text(TokenFormat.grouped(heroValue(heroMetric)))
+                    .font(.system(size: 38, weight: .bold, design: .rounded))
+                    .foregroundStyle(MenuBarContentView.accent)
+                    .contentTransition(.numericText())
+                    .minimumScaleFactor(0.5)
+                    .lineLimit(1)
+                dayDeltaBadge
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            Text("토큰 · \(TokenFormat.compact(heroValue(heroMetric)))")
+                .font(.amonCaption)
+                .foregroundStyle(.tertiary)
 
-            Rectangle()
-                .fill(Color(nsColor: .separatorColor))
-                .frame(width: 0.5, height: 92)
-
-            LazyVGrid(
-                columns: [GridItem(.flexible()), GridItem(.flexible())],
-                alignment: .leading,
-                spacing: 10
-            ) {
+            HStack(spacing: 12) {
                 ForEach(HeroMetric.allCases, id: \.rawValue) { metric in
                     heroStat(metric)
                 }
             }
-            .frame(width: 220)
+            .padding(.top, 4)
         }
         .frame(maxWidth: .infinity)
-        .padding(16)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .overlay(alignment: .leading) {
-            Rectangle().fill(MenuBarContentView.accent).frame(width: 4)
+        .padding(.vertical, 16)
+        .background(MenuBarContentView.accent.opacity(0.10))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.snappy) { heroMetric = heroMetric.next }
         }
-        .overlay {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .help("클릭하면 전체 → 입력 → 출력 → 캐시 순환")
     }
 
     /// 히어로 카드 하단 구성 항목 — 라벨 + 콤팩트 값. 현재 큰 숫자로 표시 중인
-    /// 선택한 축은 A-mon 액센트로 강조되고, 클릭하면 그 축으로 바로 전환된다.
+    /// 축은 바이올렛으로 강조되고, 클릭하면 그 축으로 바로 전환된다.
     private func heroStat(_ metric: HeroMetric) -> some View {
         let isActive = metric == heroMetric
         return Button {
             withAnimation(.snappy) { heroMetric = metric }
         } label: {
-            VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
                 Text(metric.label)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(isActive ? MenuBarContentView.accent : Color.secondary.opacity(0.7))
                 Text(TokenFormat.compact(heroValue(metric)))
-                    .font(.amonBody.weight(isActive ? .bold : .medium))
+                    .fontWeight(isActive ? .semibold : .medium)
                     .monospacedDigit()
                     .foregroundStyle(isActive ? MenuBarContentView.accent : Color.secondary)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 5)
-            .padding(.horizontal, 7)
-            .background(
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(isActive ? MenuBarContentView.accent.opacity(0.10) : Color.clear)
-            )
             .font(.amonCaption)
         }
         .buttonStyle(.plain)
@@ -591,11 +572,15 @@ private struct UnifiedProviderCard: View {
                 linksRow
             }
         }
-        .padding(.horizontal, 2)
-        .padding(.vertical, 14)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: 0.5)
-        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                )
+        )
     }
 
     private func isProgress(_ line: MetricLine) -> Bool {
@@ -1027,11 +1012,15 @@ private struct LocalToolCard: View {
                 }
             }
         }
-        .padding(.horizontal, 2)
-        .padding(.vertical, 14)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: 0.5)
-        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                )
+        )
     }
 }
 

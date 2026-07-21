@@ -6,12 +6,13 @@
 //
 // 세션 기록(종료 세션 + 요청·응답 전문)은 macOS 와 동일 규칙으로 수집하되,
 // systray 에는 창이 없어 목록·상세 화면은 로컬 브라우저 페이지로 제공한다
-// (internal/webui). 프로바이더 라이브 쿼터(9종)는 Windows 자격증명 소스 정리 후
-// 후속 버전에서 이식한다.
+// (internal/webui). Claude·Codex CLI 자격증명이 있으면 라이브 세션/주간 한도도
+// 함께 조회해 네이티브 팝업에 표시한다.
 package main
 
 import (
 	"bytes"
+	"context"
 	_ "embed"
 	"encoding/binary"
 	"encoding/json"
@@ -31,6 +32,7 @@ import (
 
 	"github.com/athens96/amon/windows/internal/config"
 	"github.com/athens96/amon/windows/internal/popup"
+	"github.com/athens96/amon/windows/internal/provider"
 	"github.com/athens96/amon/windows/internal/scan"
 	"github.com/athens96/amon/windows/internal/session"
 	"github.com/athens96/amon/windows/internal/update"
@@ -48,18 +50,19 @@ const scanInterval = 10 * time.Minute
 
 // menu — 갱신이 필요한 트레이 메뉴 항목 모음.
 type menu struct {
-	today    *systray.MenuItem   // 오늘 합계
-	tools    []*systray.MenuItem // 도구별 4줄
-	status   *systray.MenuItem   // 마지막 스캔·보고 상태
-	install  *systray.MenuItem   // 새 버전 설치 (발견 시에만 표시)
-	sessions *systray.MenuItem   // 세션 기록 (브라우저)
-	refresh  *systray.MenuItem
-	sendNow  *systray.MenuItem
-	openCfg  *systray.MenuItem
-	openWeb  *systray.MenuItem
-	quit     *systray.MenuItem
-	open     chan struct{}
-	panel    *popup.Window
+	today     *systray.MenuItem   // 오늘 합계
+	tools     []*systray.MenuItem // 도구별 4줄
+	status    *systray.MenuItem   // 마지막 스캔·보고 상태
+	install   *systray.MenuItem   // 새 버전 설치 (발견 시에만 표시)
+	sessions  *systray.MenuItem   // 세션 기록 (브라우저)
+	refresh   *systray.MenuItem
+	sendNow   *systray.MenuItem
+	openCfg   *systray.MenuItem
+	openWeb   *systray.MenuItem
+	quit      *systray.MenuItem
+	open      chan struct{}
+	panel     *popup.Window
+	providers *provider.Manager
 }
 
 func main() {
@@ -70,7 +73,7 @@ func onReady() {
 	systray.SetIcon(trayIcon)
 	systray.SetTooltip("A-mon — AI 사용량 수집기")
 
-	m := &menu{open: make(chan struct{}, 1), panel: popup.New()}
+	m := &menu{open: make(chan struct{}, 1), panel: popup.New(), providers: provider.NewManager()}
 	systray.SetOnClick(func() {
 		select {
 		case m.open <- struct{}{}:
@@ -131,6 +134,7 @@ func loop(m *menu) {
 			pending = checkUpdate(m)
 			maybeAutoInstall(m, pending)
 		case <-m.refresh.ClickedCh:
+			m.providers.Invalidate()
 			cycle(m, hub, ds, false)
 			pending = checkUpdate(m)
 			maybeAutoInstall(m, pending)
@@ -139,12 +143,13 @@ func loop(m *menu) {
 		case <-m.install.ClickedCh:
 			installUpdate(m, pending)
 		case <-m.open:
-			summaries := cycle(m, hub, ds, false)
-			m.panel.Toggle(dashboardData(summaries, hub.store.Load()))
+			_, data := cycle(m, hub, ds, false)
+			m.panel.Toggle(data)
 		case <-m.panel.Refresh:
+			m.providers.Invalidate()
 			cycle(m, hub, ds, false)
 		case <-m.panel.Sessions:
-			summaries := cycle(m, hub, ds, false)
+			summaries, _ := cycle(m, hub, ds, false)
 			hub.openDashboard(summaries, "sessions")
 		case <-m.panel.Config:
 			showSettings(m.panel)
@@ -167,7 +172,7 @@ func loop(m *menu) {
 			systray.Quit()
 			return
 		case <-m.sessions.ClickedCh:
-			summaries := cycle(m, hub, ds, false)
+			summaries, _ := cycle(m, hub, ds, false)
 			hub.openDashboard(summaries, "sessions")
 		case <-m.openCfg.ClickedCh:
 			showSettings(m.panel)
@@ -185,22 +190,26 @@ func loop(m *menu) {
 
 // cycle — 한 스캔 주기: 사용량 스캔·메뉴 갱신 → 세션 스캔·기록 보고 → usage.db 적재 +
 // (설정됨·내용 변경시) 에이전트 대시보드 업로드.
-func cycle(m *menu, hub *sessionHub, ds *dashSync, periodic bool) []scan.ToolSummary {
+func cycle(m *menu, hub *sessionHub, ds *dashSync, periodic bool) ([]scan.ToolSummary, popup.Data) {
 	summaries := scanAndRefresh(m, periodic)
 	records := hub.scan()
 	ds.persist(summaries, records)
-	data := dashboardData(summaries, records)
+	snapshots := m.providers.Fetch(context.Background())
+	data := dashboardData(summaries, records, snapshots)
 	m.panel.Update(data)
 	systray.SetIcon(statusIcon(trayIcon, data.Active, totalToday(summaries)))
 	tip := fmt.Sprintf("A-mon | 오늘 %s tokens", data.Today)
 	if data.Active > 0 {
 		tip += fmt.Sprintf(" | LIVE %d", data.Active)
 	}
+	if quota := quotaTooltip(snapshots); quota != "" {
+		tip += " | " + quota
+	}
 	systray.SetTooltip(tip)
-	return summaries
+	return summaries, data
 }
 
-func dashboardData(summaries []scan.ToolSummary, records []session.Record) popup.Data {
+func dashboardData(summaries []scan.ToolSummary, records []session.Record, snapshots []provider.Snapshot) popup.Data {
 	var today, allTime, input, output, cache int64
 	data := popup.Data{Updated: time.Now().Format("15:04"), Status: "업데이트 " + time.Now().Format("15:04")}
 	for _, s := range summaries {
@@ -213,6 +222,17 @@ func dashboardData(summaries []scan.ToolSummary, records []session.Record) popup
 	}
 	data.Today, data.AllTime = compact(today), compact(allTime)
 	data.Input, data.Output, data.Cache = compact(input), compact(output), compact(cache)
+	for _, snapshot := range snapshots {
+		item := popup.Provider{Name: snapshot.Name, Plan: snapshot.Plan, Status: snapshot.Status}
+		for _, metric := range snapshot.Metrics {
+			item.Metrics = append(item.Metrics, popup.ProviderMetric{
+				Label: metric.Label, Used: metric.UsedPercent,
+				Remaining: fmt.Sprintf("%.0f%% 남음", metric.RemainingPercent()),
+				Reset:     resetLabel(metric.ResetsAt),
+			})
+		}
+		data.Providers = append(data.Providers, item)
+	}
 	for _, rec := range records {
 		active := recordActive(rec)
 		if active {
@@ -232,6 +252,39 @@ func dashboardData(summaries []scan.ToolSummary, records []session.Record) popup
 		data.Sessions = append(data.Sessions, popup.Session{Label: label, Provider: rec.Provider, Ended: ended, Active: active})
 	}
 	return data
+}
+
+func quotaTooltip(snapshots []provider.Snapshot) string {
+	var name, label string
+	remaining := 101.0
+	for _, snapshot := range snapshots {
+		for _, metric := range snapshot.Metrics {
+			if value := metric.RemainingPercent(); value < remaining {
+				name, label, remaining = snapshot.Name, metric.Label, value
+			}
+		}
+	}
+	if remaining > 100 {
+		return ""
+	}
+	return fmt.Sprintf("%s %s %.0f%% 남음", name, label, remaining)
+}
+
+func resetLabel(reset time.Time) string {
+	if reset.IsZero() {
+		return ""
+	}
+	remaining := time.Until(reset)
+	switch {
+	case remaining <= 0:
+		return "곧 갱신"
+	case remaining < time.Hour:
+		return fmt.Sprintf("%d분", max(1, int(remaining.Minutes())))
+	case remaining < 24*time.Hour:
+		return fmt.Sprintf("%d시간", int(remaining.Hours()))
+	default:
+		return fmt.Sprintf("%d일", int(remaining.Hours()/24))
+	}
 }
 
 func totalToday(summaries []scan.ToolSummary) int64 {
@@ -300,10 +353,10 @@ func statusIcon(ico []byte, active int, today int64) []byte {
 	draw.Draw(canvas, bounds, base, bounds.Min, draw.Src)
 	dot := color.RGBA{R: 135, G: 145, B: 140, A: 255}
 	if today > 0 {
-		dot = color.RGBA{R: 37, G: 139, B: 112, A: 255}
+		dot = color.RGBA{R: 97, G: 97, B: 255, A: 255}
 	}
 	if active > 0 {
-		dot = color.RGBA{R: 21, G: 190, B: 126, A: 255}
+		dot = color.RGBA{R: 97, G: 97, B: 255, A: 255}
 	}
 	cx, cy, radius := bounds.Max.X-6, bounds.Max.Y-6, 5
 	for y := cy - radius - 1; y <= cy+radius+1; y++ {

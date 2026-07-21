@@ -9,7 +9,7 @@ APP     := A-mon
 VERSION := 0.3.30
 LDFLAGS := -H windowsgui -s -w -X main.appVersion=$(VERSION)
 
-.PHONY: build build-arm64 scan tidy dist clean
+.PHONY: build build-arm64 scan tidy dist installer clean
 
 tidy:
 	go mod tidy
@@ -26,6 +26,13 @@ scan:
 dist: build build-arm64
 	cd dist && zip -q $(APP)-windows-$(VERSION).zip $(APP)-amd64.exe $(APP)-arm64.exe
 	@ls -la dist/*.zip
+
+installer: build
+	mkdir -p cmd/installer/payload
+	cp dist/$(APP)-amd64.exe cmd/installer/payload/A-mon.exe
+	GOOS=windows GOARCH=amd64 go build -tags installer -ldflags "-H windowsgui -s -w -X main.version=$(VERSION)" -o dist/$(APP)-Setup-$(VERSION).exe ./cmd/installer
+	rm -rf cmd/installer/payload
+	@ls -la dist/$(APP)-Setup-$(VERSION).exe
 
 clean:
 	rm -rf dist

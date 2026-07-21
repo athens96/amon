@@ -20,12 +20,23 @@ type Session struct {
 	Active                 bool
 }
 
+type ProviderMetric struct {
+	Label, Remaining, Reset string
+	Used                    float64
+}
+
+type Provider struct {
+	Name, Plan, Status string
+	Metrics            []ProviderMetric
+}
+
 type Data struct {
 	Today, AllTime, Input, Output, Cache string
 	Updated, Status                      string
 	Active                               int
 	Tools                                []Tool
 	Sessions                             []Session
+	Providers                            []Provider
 }
 
 type Settings struct {
@@ -53,8 +64,8 @@ type Window struct {
 }
 
 const (
-	width  = 420
-	height = 610
+	width  = 496
+	height = 540
 
 	wmShow     = 0x8001
 	wmRefresh  = 0x8002
@@ -273,17 +284,18 @@ func windowProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 			handleSettingsClick(hwnd, w, x, y)
 			return 0
 		}
-		if y >= height-58 && y <= height-12 {
+		if x >= 440 {
 			switch {
-			case x >= 16 && x < 112:
-				signal(w.Refresh)
-			case x >= 120 && x < 226:
+			case y >= 16 && y < 64:
+			case y >= 76 && y < 124:
 				signal(w.Sessions)
-			case x >= 234 && x < 330:
+			case y >= 136 && y < 184:
 				signal(w.Config)
-			case x >= 338 && x < 404:
+			case y >= 476 && y < 528:
 				signal(w.Quit)
 			}
+		} else if x >= 390 && x < 430 && y >= 12 && y < 48 {
+			signal(w.Refresh)
 		}
 		return 0
 	case 0x0100: // WM_KEYDOWN
@@ -308,6 +320,26 @@ func signal(ch chan struct{}) {
 
 func handleSettingsClick(hwnd uintptr, w *Window, x, y int) {
 	w.mu.Lock()
+	if x >= 440 {
+		switch {
+		case y >= 16 && y < 64:
+			w.settingsView = false
+			w.mu.Unlock()
+			pInvalidateRect.Call(hwnd, 0, 1)
+			return
+		case y >= 76 && y < 124:
+			w.mu.Unlock()
+			signal(w.Sessions)
+			return
+		case y >= 476 && y < 528:
+			w.mu.Unlock()
+			signal(w.Quit)
+			return
+		default:
+			w.mu.Unlock()
+			return
+		}
+	}
 	switch {
 	case y >= 82 && y < 145:
 		w.settings.AutoUpdate = !w.settings.AutoUpdate
@@ -319,9 +351,9 @@ func handleSettingsClick(hwnd uintptr, w *Window, x, y int) {
 		w.mu.Unlock()
 		signal(w.Advanced)
 		return
-	case y >= height-58 && y <= height-12 && x < 202:
+	case y >= height-58 && y <= height-12 && x < 216:
 		w.settingsView = false
-	case y >= height-58 && y <= height-12 && x >= 210:
+	case y >= height-58 && y <= height-12 && x >= 224 && x < 432:
 		settings := w.settings
 		w.settingsView = false
 		w.mu.Unlock()
@@ -362,7 +394,7 @@ func paint(hwnd uintptr, w *Window) {
 	defer pEndPaint.Call(hwnd, uintptr(unsafe.Pointer(&ps)))
 	var bounds rect
 	pGetClientRect.Call(hwnd, uintptr(unsafe.Pointer(&bounds)))
-	fill(hdc, bounds, rgb(248, 249, 248))
+	fill(hdc, bounds, rgb(28, 28, 36))
 	w.mu.RLock()
 	data := w.data
 	settings := w.settings
@@ -384,56 +416,135 @@ func paint(hwnd uintptr, w *Window) {
 	fontSmall := font(-12, 400)
 	defer pDeleteObject.Call(fontSmall)
 
-	text(hdc, fontTitle, 18, 16, 220, 44, rgb(31, 36, 33), "A-mon", 0)
+	paintRail(hdc, fontBody, false)
+	text(hdc, fontTitle, 18, 12, 220, 44, rgb(230, 230, 239), "A-mon", 0)
 	status := data.Status
 	if data.Active > 0 {
 		status = "LIVE  " + status
 	}
-	text(hdc, fontSmall, 220, 19, 402, 42, rgb(67, 112, 98), status, 2)
+	text(hdc, fontSmall, 220, 15, 382, 42, rgb(154, 154, 176), status, 2)
+	button(hdc, fontStrong, rect{390, 12, 430, 48}, "↻", false)
 
-	rounded(hdc, rect{16, 54, 404, 153}, rgb(232, 244, 239), 12)
-	text(hdc, fontSmall, 32, 70, 190, 92, rgb(92, 105, 99), "오늘 사용량", 0)
-	text(hdc, fontHero, 30, 91, 250, 137, rgb(20, 111, 89), data.Today, 0)
-	text(hdc, fontSmall, 250, 75, 386, 96, rgb(92, 105, 99), "전체 누적", 2)
-	text(hdc, fontStrong, 250, 98, 386, 124, rgb(31, 36, 33), data.AllTime, 2)
+	rounded(hdc, rect{16, 56, 424, 140}, rgb(38, 38, 47), 10)
+	text(hdc, fontSmall, 30, 67, 190, 88, rgb(154, 154, 176), "오늘 사용량", 0)
+	text(hdc, fontHero, 28, 84, 250, 127, rgb(230, 230, 239), data.Today, 0)
+	text(hdc, fontSmall, 260, 70, 408, 91, rgb(154, 154, 176), "전체 누적", 2)
+	text(hdc, fontStrong, 260, 94, 408, 118, rgb(230, 230, 239), data.AllTime, 2)
 
 	metrics := []struct{ label, value string }{{"입력", data.Input}, {"출력", data.Output}, {"캐시", data.Cache}}
 	for i, m := range metrics {
-		x := int32(16 + i*132)
-		text(hdc, fontSmall, x, 168, x+118, 188, rgb(105, 112, 108), m.label, 0)
-		text(hdc, fontStrong, x, 187, x+118, 210, rgb(31, 36, 33), m.value, 0)
+		x := int32(16 + i*138)
+		text(hdc, fontSmall, x, 148, x+124, 168, rgb(154, 154, 176), m.label, 0)
+		text(hdc, fontStrong, x, 167, x+124, 190, rgb(230, 230, 239), m.value, 0)
 	}
 
-	text(hdc, fontStrong, 16, 225, 220, 248, rgb(31, 36, 33), "도구", 0)
-	y := int32(252)
+	if len(data.Providers) > 0 {
+		paintProviderDashboard(hdc, fontBody, fontStrong, fontSmall, data)
+	} else {
+		paintLocalDashboard(hdc, fontBody, fontStrong, fontSmall, data)
+	}
+}
+
+func paintProviderDashboard(hdc, fontBody, fontStrong, fontSmall uintptr, data Data) {
+	text(hdc, fontStrong, 16, 199, 260, 221, rgb(230, 230, 239), "프로바이더 한도", 0)
+	y := int32(224)
+	for i, provider := range data.Providers {
+		if i >= 2 {
+			break
+		}
+		providerCard(hdc, fontStrong, fontSmall, y, provider)
+		y += 56
+	}
+
+	localHeader, toolY, toolLimit := int32(339), int32(364), 2
+	sessionHeader, sessionY, sessionLimit := int32(434), int32(458), 2
+	if len(data.Providers) == 1 {
+		localHeader, toolY, toolLimit = 283, 308, 3
+		sessionHeader, sessionY, sessionLimit = 414, 438, 3
+	}
+	text(hdc, fontStrong, 16, localHeader, 220, localHeader+22, rgb(230, 230, 239), "로컬 사용량", 0)
+	y = toolY
+	for i, tool := range data.Tools {
+		if i >= toolLimit {
+			break
+		}
+		rounded(hdc, rect{16, y, 424, y + 31}, rgb(38, 38, 47), 8)
+		text(hdc, fontBody, 28, y+5, 220, y+27, rgb(230, 230, 239), tool.Name, 0)
+		text(hdc, fontSmall, 215, y+6, 412, y+26, rgb(154, 154, 176), tool.Today+"  /  "+tool.Total, 2)
+		y += 33
+	}
+
+	text(hdc, fontStrong, 16, sessionHeader, 220, sessionHeader+22, rgb(230, 230, 239), "최근 세션", 0)
+	paintSessions(hdc, fontBody, fontSmall, data.Sessions, sessionY, sessionLimit)
+}
+
+func paintLocalDashboard(hdc, fontBody, fontStrong, fontSmall uintptr, data Data) {
+	text(hdc, fontStrong, 16, 199, 220, 221, rgb(230, 230, 239), "도구", 0)
+	y := int32(224)
 	for i, tool := range data.Tools {
 		if i >= 5 {
 			break
 		}
-		fill(hdc, rect{16, y, 404, y + 34}, rgb(255, 255, 255))
-		text(hdc, fontBody, 28, y+7, 220, y+29, rgb(42, 48, 45), tool.Name, 0)
-		text(hdc, fontSmall, 215, y+8, 392, y+28, rgb(100, 108, 103), tool.Today+"  /  "+tool.Total, 2)
-		y += 36
+		rounded(hdc, rect{16, y, 424, y + 31}, rgb(38, 38, 47), 8)
+		text(hdc, fontBody, 28, y+5, 220, y+27, rgb(230, 230, 239), tool.Name, 0)
+		text(hdc, fontSmall, 215, y+6, 412, y+26, rgb(154, 154, 176), tool.Today+"  /  "+tool.Total, 2)
+		y += 33
 	}
 
-	text(hdc, fontStrong, 16, 439, 220, 462, rgb(31, 36, 33), "최근 세션", 0)
-	y = 466
-	for i, s := range data.Sessions {
-		if i >= 3 {
+	text(hdc, fontStrong, 16, 394, 220, 416, rgb(230, 230, 239), "최근 세션", 0)
+	paintSessions(hdc, fontBody, fontSmall, data.Sessions, 420, 3)
+}
+
+func providerCard(hdc, fontStrong, fontSmall uintptr, y int32, provider Provider) {
+	rounded(hdc, rect{16, y, 424, y + 52}, rgb(38, 38, 47), 8)
+	text(hdc, fontStrong, 28, y+3, 215, y+24, rgb(230, 230, 239), provider.Name, 0)
+	text(hdc, fontSmall, 216, y+3, 412, y+24, rgb(154, 154, 176), provider.Plan, 2)
+	if len(provider.Metrics) == 0 {
+		text(hdc, fontSmall, 28, y+26, 412, y+47, rgb(154, 154, 176), provider.Status, 0)
+		return
+	}
+	for i, metric := range provider.Metrics {
+		if i >= 2 {
 			break
 		}
-		if s.Active {
-			rounded(hdc, rect{16, y + 5, 22, y + 11}, rgb(22, 153, 115), 6)
+		x := int32(28 + i*194)
+		label := metric.Label
+		if metric.Reset != "" {
+			label += " · " + metric.Reset
 		}
-		text(hdc, fontBody, 29, y, 275, y+22, rgb(42, 48, 45), s.Label, 0)
-		text(hdc, fontSmall, 278, y+1, 400, y+21, rgb(105, 112, 108), s.Provider+"  "+s.Ended, 2)
-		y += 27
+		text(hdc, fontSmall, x, y+23, x+112, y+40, rgb(154, 154, 176), label, 0)
+		text(hdc, fontSmall, x+104, y+23, x+182, y+40, rgb(230, 230, 239), metric.Remaining, 2)
+		progressBar(hdc, rect{x, y + 43, x + 182, y + 47}, metric.Used)
 	}
+}
 
-	button(hdc, fontStrong, rect{16, height - 58, 112, height - 12}, "새로고침", false)
-	button(hdc, fontStrong, rect{120, height - 58, 226, height - 12}, "세션 기록", true)
-	button(hdc, fontStrong, rect{234, height - 58, 330, height - 12}, "설정", false)
-	button(hdc, fontStrong, rect{338, height - 58, 404, height - 12}, "종료", false)
+func progressBar(hdc uintptr, bounds rect, used float64) {
+	rounded(hdc, bounds, rgb(58, 58, 74), 4)
+	if used <= 0 {
+		return
+	}
+	if used > 100 {
+		used = 100
+	}
+	width := int32(float64(bounds.Right-bounds.Left) * used / 100)
+	if width < 4 {
+		width = 4
+	}
+	rounded(hdc, rect{bounds.Left, bounds.Top, bounds.Left + width, bounds.Bottom}, rgb(97, 97, 255), 4)
+}
+
+func paintSessions(hdc, fontBody, fontSmall uintptr, sessions []Session, y int32, limit int) {
+	for i, session := range sessions {
+		if i >= limit {
+			break
+		}
+		if session.Active {
+			rounded(hdc, rect{16, y + 5, 22, y + 11}, rgb(97, 97, 255), 6)
+		}
+		text(hdc, fontBody, 29, y, 270, y+22, rgb(230, 230, 239), session.Label, 0)
+		text(hdc, fontSmall, 273, y+1, 424, y+21, rgb(154, 154, 176), session.Provider+"  "+session.Ended, 2)
+		y += 25
+	}
 }
 
 func paintSettings(hdc uintptr, settings Settings) {
@@ -446,46 +557,47 @@ func paintSettings(hdc uintptr, settings Settings) {
 	fontSmall := font(-12, 400)
 	defer pDeleteObject.Call(fontSmall)
 
-	text(hdc, fontTitle, 18, 16, 220, 44, rgb(31, 36, 33), "설정", 0)
-	text(hdc, fontSmall, 220, 19, 402, 42, rgb(96, 105, 100), "변경 후 저장", 2)
+	paintRail(hdc, fontBody, true)
+	text(hdc, fontTitle, 18, 16, 220, 44, rgb(230, 230, 239), "설정", 0)
+	text(hdc, fontSmall, 220, 19, 424, 42, rgb(154, 154, 176), "변경 후 저장", 2)
 
-	text(hdc, fontStrong, 16, 57, 220, 78, rgb(79, 88, 83), "일반", 0)
+	text(hdc, fontStrong, 16, 57, 220, 78, rgb(230, 230, 239), "일반", 0)
 	settingRow(hdc, fontStrong, fontSmall, 16, 82, "자동 업데이트", "새 버전을 자동으로 설치합니다", settings.AutoUpdate)
 	settingRow(hdc, fontStrong, fontSmall, 16, 158, "세션 정보 공유", "연결된 서버에 세션 요약을 전송합니다", settings.ShareSessions)
 
-	text(hdc, fontStrong, 16, 233, 220, 254, rgb(79, 88, 83), "데이터 소스", 0)
+	text(hdc, fontStrong, 16, 233, 220, 254, rgb(230, 230, 239), "데이터 소스", 0)
 	settingRow(hdc, fontStrong, fontSmall, 16, 258, "로그 경로 자동 감지", "Claude, Codex 등 기본 위치를 사용합니다", settings.AutomaticPaths)
 
-	text(hdc, fontStrong, 16, 338, 220, 359, rgb(79, 88, 83), "서버 연결", 0)
-	rounded(hdc, rect{16, 365, 404, 400}, rgb(255, 255, 255), 7)
+	text(hdc, fontStrong, 16, 338, 220, 359, rgb(230, 230, 239), "서버 연결", 0)
+	rounded(hdc, rect{16, 365, 424, 400}, rgb(38, 38, 47), 8)
 	connection := "로컬 전용"
-	connectionColor := rgb(102, 110, 106)
+	connectionColor := rgb(154, 154, 176)
 	if settings.ServerConnected {
 		connection = "서버 연결됨"
-		connectionColor = rgb(21, 137, 104)
+		connectionColor = rgb(97, 97, 255)
 	}
-	text(hdc, fontBody, 28, 371, 392, 395, connectionColor, connection, 0)
+	text(hdc, fontBody, 28, 371, 412, 395, connectionColor, connection, 0)
 
-	rounded(hdc, rect{16, 410, 404, 462}, rgb(238, 241, 239), 8)
-	text(hdc, fontStrong, 28, 420, 250, 443, rgb(47, 55, 51), "고급 설정", 0)
-	text(hdc, fontSmall, 235, 421, 390, 443, rgb(94, 103, 98), "서버 주소 · 개별 경로  >", 2)
+	rounded(hdc, rect{16, 410, 424, 462}, rgb(38, 38, 47), 8)
+	text(hdc, fontStrong, 28, 420, 250, 443, rgb(230, 230, 239), "고급 설정", 0)
+	text(hdc, fontSmall, 235, 421, 412, 443, rgb(154, 154, 176), "서버 주소 · 개별 경로  >", 2)
 
-	button(hdc, fontStrong, rect{16, height - 58, 202, height - 12}, "돌아가기", false)
-	button(hdc, fontStrong, rect{210, height - 58, 404, height - 12}, "저장", true)
+	button(hdc, fontStrong, rect{16, height - 58, 216, height - 12}, "돌아가기", false)
+	button(hdc, fontStrong, rect{224, height - 58, 424, height - 12}, "저장", true)
 }
 
 func settingRow(hdc, strong, small uintptr, x, y int32, title, description string, enabled bool) {
-	rounded(hdc, rect{x, y, 404, y + 63}, rgb(255, 255, 255), 8)
-	text(hdc, strong, x+12, y+9, 315, y+31, rgb(38, 45, 41), title, 0)
-	text(hdc, small, x+12, y+32, 320, y+53, rgb(101, 110, 105), description, 0)
-	toggle(hdc, 340, y+19, enabled)
+	rounded(hdc, rect{x, y, 424, y + 63}, rgb(38, 38, 47), 8)
+	text(hdc, strong, x+12, y+9, 335, y+31, rgb(230, 230, 239), title, 0)
+	text(hdc, small, x+12, y+32, 340, y+53, rgb(154, 154, 176), description, 0)
+	toggle(hdc, 360, y+19, enabled)
 }
 
 func toggle(hdc uintptr, x, y int32, enabled bool) {
-	track := rgb(188, 196, 192)
+	track := rgb(58, 58, 74)
 	knobX := x + 7
 	if enabled {
-		track = rgb(24, 137, 108)
+		track = rgb(97, 97, 255)
 		knobX = x + 27
 	}
 	rounded(hdc, rect{x, y, x + 48, y + 26}, track, 18)
@@ -493,12 +605,32 @@ func toggle(hdc uintptr, x, y int32, enabled bool) {
 }
 
 func button(hdc, f uintptr, r rect, label string, primary bool) {
-	color, fg := rgb(238, 241, 239), rgb(47, 55, 51)
+	color, fg := rgb(38, 38, 47), rgb(230, 230, 239)
 	if primary {
-		color, fg = rgb(24, 137, 108), rgb(255, 255, 255)
+		color, fg = rgb(97, 97, 255), rgb(255, 255, 255)
 	}
-	rounded(hdc, r, color, 8)
+	rounded(hdc, r, color, 10)
 	text(hdc, f, r.Left, r.Top+13, r.Right, r.Bottom, fg, label, 1)
+}
+
+func paintRail(hdc, fontHandle uintptr, settings bool) {
+	fill(hdc, rect{440, 0, width, height}, rgb(38, 38, 47))
+	fill(hdc, rect{439, 0, 440, height}, rgb(58, 58, 74))
+	railItem(hdc, fontHandle, rect{448, 16, 488, 56}, "⌂", !settings)
+	railItem(hdc, fontHandle, rect{448, 76, 488, 116}, "≡", false)
+	railItem(hdc, fontHandle, rect{448, 136, 488, 176}, "⚙", settings)
+	railItem(hdc, fontHandle, rect{448, 480, 488, 520}, "×", false)
+}
+
+func railItem(hdc, fontHandle uintptr, r rect, label string, selected bool) {
+	background := rgb(38, 38, 47)
+	foreground := rgb(154, 154, 176)
+	if selected {
+		background = rgb(97, 97, 255)
+		foreground = rgb(255, 255, 255)
+	}
+	rounded(hdc, r, background, 8)
+	text(hdc, fontHandle, r.Left, r.Top+9, r.Right, r.Bottom, foreground, label, 1)
 }
 
 func rounded(hdc uintptr, r rect, color uint32, radius int32) {

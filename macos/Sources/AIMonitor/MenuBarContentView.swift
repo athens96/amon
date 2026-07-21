@@ -1,274 +1,264 @@
 import SwiftUI
 
-/// 메뉴바 아이콘에서 열리는 A-mon 워크스페이스.
-/// 좌측 내비게이션과 넓은 콘텐츠 영역을 분리해 세 화면의 구조를 일관되게 유지한다.
+/// 상태바 아이콘을 클릭하면 나타나는 패널.
+///
+/// 헤더(제목·보기 방식·새로고침) + 본문 + 오른쪽 화면 내비게이션 + 푸터.
 struct MenuBarContentView: View {
-    static let preferredSize = CGSize(width: 720, height: 600)
-    private static let sidebarWidth: CGFloat = 164
+    /// SwiftUI 루트와 AppKit `NSPopover`가 함께 쓰는 실제 팝업 크기.
+    /// 오른쪽 내비게이션을 추가할 때 한쪽만 바뀌어 내용이 압축되지 않게 단일 기준으로 둔다.
+    static let preferredSize = CGSize(width: 496, height: 540)
+    private static let mainContentWidth: CGFloat = 440
+    private static let navigationRailWidth: CGFloat = 55
 
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var providers: LiveProvidersManager
     @EnvironmentObject private var settings: AppSettings
 
+    /// 팝오버 화면 — 통합 대시보드(로컬 사용량 + 라이브 쿼터, 현재 활동 섹션 포함) ·
+    /// 세션 기록(종료된 세션) · 설정.
     enum Screen: Hashable, CaseIterable { case dashboard, history, settings }
     @State private var screen: Screen = .dashboard
 
-    static let accent = Color(red: 0x12 / 255, green: 0x91 / 255, blue: 0x78 / 255)
-    static let warmAccent = Color(red: 0xef / 255, green: 0x7d / 255, blue: 0x4a / 255)
+    /// 브랜드 1차 색상 — Interactive Violet (#6161ff). docs/DESIGN.html 참조.
+    static let accent = Color(red: 0x61 / 255, green: 0x61 / 255, blue: 0xff / 255)
 
     var body: some View {
         HStack(spacing: 0) {
-            sidebar
-            Rectangle()
-                .fill(Color(nsColor: .separatorColor))
-                .frame(width: 0.5)
-
             VStack(spacing: 0) {
-                topBar
+                header
+                Divider()
 
                 if state.availableUpdate != nil {
                     updateBanner
+                    Divider()
                 }
 
-                Group {
-                    switch screen {
-                    case .dashboard: DashboardView()
-                    case .history: SessionHistoryView()
-                    case .settings: SettingsView()
-                    }
+                switch screen {
+                case .dashboard: DashboardView()
+                case .history: SessionHistoryView()
+                case .settings: SettingsView()
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(nsColor: .underPageBackgroundColor).opacity(0.42))
+
+                Divider()
+                footer
             }
+            .frame(width: Self.mainContentWidth)
+
+            Divider()
+            navigationRail
         }
         .frame(width: Self.preferredSize.width, height: Self.preferredSize.height)
         .task { state.scanOnAppear() }
     }
 
-    private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            brand
-
-            VStack(spacing: 4) {
-                ForEach(Screen.allCases, id: \.self) { item in
-                    navigationButton(item)
-                }
-            }
-            .padding(.horizontal, 10)
-            .padding(.top, 22)
-
-            Spacer()
-
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(state.isScanning ? Self.warmAccent : Self.accent)
-                        .frame(width: 7, height: 7)
-                    Text(state.isScanning ? "데이터 읽는 중" : "로컬 수집 정상")
-                        .font(.amonCaption.weight(.medium))
-                }
-                if let last = state.lastScan {
-                    Text("마지막 스캔 \(last.formatted(date: .omitted, time: .shortened))")
-                        .font(.amonCaption)
-                        .foregroundStyle(.tertiary)
-                }
-                Text("v\(AppInfo.shortVersion)")
-                    .font(.amonCaption)
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(14)
-        }
-        .frame(width: Self.sidebarWidth)
-        .background(Color(nsColor: .windowBackgroundColor))
-    }
-
-    private var brand: some View {
-        HStack(spacing: 10) {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Self.accent)
-                .frame(width: 34, height: 34)
-                .overlay {
-                    Image(systemName: "waveform.path.ecg")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(.white)
-                }
+    /// 새 버전 감지 시 상단 배너 (알림 → 클릭 시 설치).
+    private var updateBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.down.circle.fill")
+                .foregroundStyle(Self.accent)
             VStack(alignment: .leading, spacing: 1) {
-                Text("A-mon")
-                    .font(.system(size: 16, weight: .bold))
-                Text("AI activity")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
+                Text("새 버전 v\(state.availableUpdate?.version ?? "") 있음")
+                    .font(.amonBody.weight(.semibold))
+                if let err = state.updateError {
+                    Text(err).font(.amonCaption).foregroundStyle(.orange).lineLimit(1)
+                } else {
+                    Text("현재 \(AppInfo.shortVersion)")
+                        .font(.amonCaption).foregroundStyle(.secondary)
+                }
             }
-        }
-        .padding(.horizontal, 14)
-        .padding(.top, 18)
-    }
-
-    private func navigationButton(_ item: Screen) -> some View {
-        let selected = screen == item
-        return Button {
-            withAnimation(.easeOut(duration: 0.16)) { screen = item }
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: item.symbolName)
-                    .font(.system(size: 14, weight: .semibold))
-                    .frame(width: 18)
-                Text(item.title)
-                    .font(.amonBody.weight(selected ? .semibold : .regular))
-                Spacer()
-            }
-            .foregroundStyle(selected ? Self.accent : Color.secondary)
-            .padding(.horizontal, 10)
-            .frame(height: 36)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(selected ? Self.accent.opacity(0.12) : Color.clear)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(item.helpText)
-        .accessibilityAddTraits(selected ? .isSelected : [])
-    }
-
-    private var topBar: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(screen.title)
-                    .font(.system(size: 20, weight: .bold))
-                Text(screen.subtitle)
-                    .font(.amonCaption)
-                    .foregroundStyle(.secondary)
-            }
-
             Spacer()
+            Button {
+                state.installUpdate()
+            } label: {
+                if state.isInstallingUpdate {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text("설치")
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Self.accent)
+            .controlSize(.small)
+            .disabled(state.isInstallingUpdate)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(Self.accent.opacity(0.08))
+    }
+
+    /// 새로고침 진행 여부(스피너 애니메이션용) — 로컬 스캔·쿼터 조회 둘 다 반영.
+    private var isBusy: Bool {
+        state.isScanning || providers.isRefreshing
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            Text(headerTitle)
+                .font(.amonTitle)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .layoutPriority(1)
 
             if screen == .dashboard {
                 dashboardModeToggle
             }
 
+            Spacer()
+
             if screen != .settings {
-                refreshButton
+                // 새로고침 — 로컬 스캔 + 라이브 쿼터 재조회를 함께.
+                Button {
+                    state.scan()
+                    Task { await providers.manualRefresh() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .rotationEffect(.degrees(isBusy ? 360 : 0))
+                        .animation(
+                            isBusy
+                                ? .linear(duration: 0.9).repeatForever(autoreverses: false)
+                                : .default,
+                            value: isBusy
+                        )
+                }
+                .buttonStyle(.borderless)
+                .disabled(isBusy)
+                .help("다시 스캔 + 쿼터 새로고침")
+                .accessibilityLabel("다시 스캔 및 쿼터 새로고침")
             }
+
         }
-        .padding(.horizontal, 18)
-        .frame(height: 72)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(Color(nsColor: .separatorColor)).frame(height: 0.5)
-        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
     }
 
-    private var isBusy: Bool { state.isScanning || providers.isRefreshing }
-
-    private var refreshButton: some View {
-        Button {
-            state.scan()
-            Task { await providers.manualRefresh() }
-        } label: {
-            Image(systemName: "arrow.clockwise")
-                .font(.system(size: 13, weight: .semibold))
-                .frame(width: 30, height: 30)
-                .rotationEffect(.degrees(isBusy ? 360 : 0))
-                .animation(
-                    isBusy ? .linear(duration: 0.9).repeatForever(autoreverses: false) : .default,
-                    value: isBusy
-                )
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-        .disabled(isBusy)
-        .help("사용량과 쿼터 새로고침")
-    }
-
+    /// macOS segmented Picker는 좁은 폭에서 접근성 라벨까지 시각적으로 렌더링해
+    /// 한글을 한 글자씩 세로로 압축한다. 아이콘 버튼 두 개로 같은 2-state 선택을 표현한다.
     private var dashboardModeToggle: some View {
         HStack(spacing: 2) {
-            dashboardModeButton(mode: "all", symbol: "square.grid.2x2", help: "전체 보기")
-            dashboardModeButton(mode: "each", symbol: "rectangle.3.group", help: "도구별 보기")
+            dashboardModeButton(
+                mode: "all",
+                symbol: "chart.bar.xaxis",
+                label: "전체 종합",
+                help: "모든 프로바이더의 AI 사용량을 종합해 보기"
+            )
+            dashboardModeButton(
+                mode: "each",
+                symbol: "rectangle.3.group.fill",
+                label: "프로바이더별",
+                help: "프로바이더별 AI 사용량을 개별로 보기"
+            )
         }
         .padding(2)
-        .frame(width: 68, height: 30)
+        .frame(width: 68, height: 26)
         .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color.secondary.opacity(0.10))
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(Color.secondary.opacity(0.12))
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .stroke(Color.secondary.opacity(0.18), lineWidth: 0.5)
+        )
+        .fixedSize(horizontal: true, vertical: false)
+        .layoutPriority(1)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("AI 사용량 보기")
+        .accessibilityValue(settings.dashboardMode == "all" ? "전체" : "개별")
     }
 
-    private func dashboardModeButton(mode: String, symbol: String, help: String) -> some View {
+    private func dashboardModeButton(mode: String, symbol: String, label: String, help: String) -> some View {
         let selected = settings.dashboardMode == mode
-        return Button { settings.dashboardMode = mode } label: {
+        return Button {
+            settings.dashboardMode = mode
+        } label: {
             Image(systemName: symbol)
                 .font(.system(size: 12, weight: .semibold))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .foregroundStyle(selected ? Color.white : Color.secondary)
+                .help(help)
                 .background(
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
                         .fill(selected ? Self.accent : Color.clear)
                 )
         }
         .buttonStyle(.plain)
         .help(help)
+        .accessibilityLabel(label)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    private var updateBanner: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "arrow.down.circle.fill")
-                .foregroundStyle(Self.warmAccent)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("A-mon v\(state.availableUpdate?.version ?? "") 사용 가능")
-                    .font(.amonBody.weight(.semibold))
-                Text(state.updateError ?? "현재 버전 \(AppInfo.shortVersion)")
-                    .font(.amonCaption)
-                    .foregroundStyle(state.updateError == nil ? Color.secondary : Color.orange)
-                    .lineLimit(1)
+    /// 팝오버 오른쪽의 화면 전환 아이콘. 선택된 화면은 브랜드 색 배경으로 표시한다.
+    private var navigationRail: some View {
+        VStack(spacing: 8) {
+            ForEach(Screen.allCases, id: \.self) { item in
+                Button {
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        screen = item
+                    }
+                } label: {
+                    Image(systemName: item.symbolName)
+                        .font(.system(size: 17, weight: .semibold))
+                        .frame(width: 40, height: 40)
+                        .foregroundStyle(screen == item ? Self.accent : Color.secondary)
+                        .help(item.helpText)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(screen == item ? Self.accent.opacity(0.14) : Color.clear)
+                        )
+                }
+                .buttonStyle(.plain)
+                .help(item.helpText)
+                .accessibilityLabel(item.title)
+                .accessibilityAddTraits(screen == item ? .isSelected : [])
             }
             Spacer()
-            Button("설치") { state.installUpdate() }
-                .buttonStyle(.borderedProminent)
-                .tint(Self.warmAccent)
-                .controlSize(.small)
-                .disabled(state.isInstallingUpdate)
         }
-        .padding(.horizontal, 18)
-        .frame(height: 48)
-        .background(Self.warmAccent.opacity(0.10))
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(Self.warmAccent.opacity(0.22)).frame(height: 0.5)
+        .padding(.top, 10)
+        .frame(width: Self.navigationRailWidth)
+    }
+
+    private var headerTitle: String {
+        screen.title
+    }
+
+    private var footer: some View {
+        HStack {
+            if let last = state.lastScan {
+                Text("스캔: \(last.formatted(date: .omitted, time: .shortened))")
+                    .font(.amonCaption)
+                    .foregroundStyle(.tertiary)
+            } else {
+                Text(" ")
+                    .font(.amonCaption)
+            }
+            Spacer()
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
     }
 }
 
 private extension MenuBarContentView.Screen {
     var title: String {
         switch self {
-        case .dashboard: return "Overview"
-        case .history: return "Sessions"
-        case .settings: return "Preferences"
-        }
-    }
-
-    var subtitle: String {
-        switch self {
-        case .dashboard: return "오늘의 사용량과 남은 쿼터"
-        case .history: return "최근 작업 흐름과 대화 기록"
-        case .settings: return "수집 경로와 연결 관리"
+        case .dashboard: return "AI 사용량"
+        case .history: return "세션 정보"
+        case .settings: return "설정"
         }
     }
 
     var symbolName: String {
         switch self {
-        case .dashboard: return "chart.bar.xaxis"
+        case .dashboard: return "chart.bar.fill"
         case .history: return "clock.arrow.circlepath"
-        case .settings: return "slider.horizontal.3"
+        case .settings: return "gearshape.fill"
         }
     }
 
     var helpText: String {
         switch self {
-        case .dashboard: return "사용량과 쿼터"
-        case .history: return "세션 기록"
-        case .settings: return "A-mon 설정"
+        case .dashboard: return "AI 사용량과 프로바이더 쿼터 보기"
+        case .history: return "종료된 AI 세션 정보 보기"
+        case .settings: return "A-mon 설정 열기"
         }
     }
 }
