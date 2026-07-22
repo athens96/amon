@@ -1,6 +1,6 @@
 import Foundation
 
-/// 서버 보고 상태 (UI 표시용).
+/// 작업 결과 상태 (UI 표시용).
 enum ReportOutcome: Equatable {
     case idle
     case sending

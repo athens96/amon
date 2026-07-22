@@ -22,10 +22,10 @@ final class AppState: ObservableObject {
     /// Claude Code 라이브 세션/서브에이전트 폴링 관리자 — 훅이 써 둔 로컬 상태 파일을 읽는다.
     let liveActivity = LiveActivityManager()
 
-    /// 종료된 세션 기록(Claude Code + Codex) — 로컬 저장소에 적재하고 팀 서버로 보고한다.
+    /// 종료된 세션 기록(Claude Code + Codex) — 로컬 저장소에 적재한다.
     let sessionHistory = SessionHistoryManager()
 
-    /// 로컬 사용량 SQLite 저장 계층 — 스캔 결과·세션을 적재하고, 에이전트 대시보드 업로드의 소스.
+    /// 로컬 사용량 SQLite 저장 계층 — 스캔 결과·세션을 적재한다.
     let usageStore = UsageStore.shared
 
     /// 도구별 사용량 요약. 초기값은 빈 요약(스캔 전).
@@ -34,9 +34,6 @@ final class AppState: ObservableObject {
 
     @Published var isScanning = false
     @Published var lastScan: Date? = nil
-
-    /// 에이전트 대시보드 업로드 상태.
-    @Published var dashboardOutcome: ReportOutcome = .idle
 
     /// 라이브 세션 훅 설치("지금 설정 적용") 결과 상태.
     @Published var liveOutcome: ReportOutcome = .idle
@@ -50,14 +47,11 @@ final class AppState: ObservableObject {
     /// 나중에 상태 로직이 이 값을 바꾸면 메뉴바 아이콘이 해당 스테이지로 교체된다.
     @Published var iconStage: Int = 0
 
-    /// 자동 스캔·전송 주기 (초). 앱이 떠 있는 동안 이 간격으로 재전송한다.
+    /// 자동 스캔 주기 (초).
     private let autoReportInterval: TimeInterval = 600  // 10분
     /// 패널 오픈 재스캔 최소 간격 — 직전 스캔이 이보다 최근이면 생략(과도 스캔 방지).
     private let appearThrottle: TimeInterval = 15
     private var autoTask: Task<Void, Never>?
-    /// 라이브 세션 보고 디바운스 — 폴링 변경이 잦아도 이 지연 뒤 1회만 전송한다.
-    private var liveReportTask: Task<Void, Never>?
-    private let liveReportDebounce: TimeInterval = 4
 
     init() {
         // 콜드 스타트: 직전 스캔 결과가 SQLite 에 있으면 즉시 렌더해 빈 화면을 피한다.
@@ -73,22 +67,15 @@ final class AppState: ObservableObject {
             }
         }
 
-        // 라이브 세션 스냅샷이 바뀔 때마다 디바운스 후 서버로 보고한다.
-        liveActivity.onChanged = { [weak self] sessions in
-            self?.scheduleLiveReport(sessions)
-        }
-
-        // 새로 적재된 세션 기록: ① 로컬 SQLite 미러에 upsert(토글 무관) ② 서버 보고(토글 시).
+        // 새로 적재된 세션 기록을 로컬 SQLite 미러에 upsert한다.
         sessionHistory.onChanged = { [weak self] records in
             guard let self else { return }
             Task.detached(priority: .utility) { [store = usageStore] in
                 store.upsert(sessions: records)
             }
-            Task { await self.reportHistory(records) }
         }
 
-        // 앱 실행 즉시 1회 스캔·전송하고, 이후 주기 타이머를 건다.
-        // (패널을 한 번도 안 열어도 백그라운드로 계속 보고된다.)
+        // 앱 실행 즉시 1회 스캔하고 이후 주기 타이머를 건다.
         startAutoReport()
         // 라이브 쿼터도 실행 즉시 감지·조회 + 5분 주기 — 팝오버를 안 열어도
         // 캘리브레이션 표본이 쌓이고 한도 임박 알림이 동작한다.
@@ -102,8 +89,7 @@ final class AppState: ObservableObject {
             liveActivity.cursorPath = settings.cursorPath
             liveActivity.start()
         }
-        // 세션 기록은 공유 토글과 무관하게 로컬로 계속 쌓는다(Codex 는 훅이 없어도
-        // 로그만으로 수집된다). 서버 보고만 토글에 따라 갈린다 — reportHistory 참조.
+        // 세션 기록은 로컬로 계속 쌓는다(Codex 는 훅이 없어도 로그만으로 수집된다).
         sessionHistory.claudePath = settings.claudePath
         sessionHistory.codexPath = settings.codexPath
         sessionHistory.cursorPath = settings.cursorPath
@@ -138,8 +124,6 @@ final class AppState: ObservableObject {
             liveActivity.cursorPath = settings.cursorPath
             liveActivity.start()
         } else {
-            liveReportTask?.cancel()
-            liveReportTask = nil
             liveActivity.stop()
             _ = HookInstaller.uninstall()
             liveOutcome = .idle
@@ -161,54 +145,10 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// 라이브 세션 스냅샷 변경을 디바운스해 1회 보고로 합친다. 직전 예약을 취소하고
-    /// 다시 건다(기존 스로틀 패턴과 동일).
-    private func scheduleLiveReport(_ sessions: [LiveSession]) {
-        liveReportTask?.cancel()
-        let delay = liveReportDebounce
-        liveReportTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(delay))
-            if Task.isCancelled { return }
-            await self?.reportLive(sessions)
-        }
-    }
-
-    /// 라이브 세션 스냅샷을 서버로 보고한다(서버 설정이 돼 있을 때만). 실패는 조용히 —
-    /// 다음 변경 때 재시도된다(보고 실패는 UI 를 방해하지 않는다).
-    func reportLive(_ sessions: [LiveSession]) async {
-        guard settings.reportConfigured else { return }
-        do {
-            try await LiveActivityReporter.send(
-                serverURL: settings.serverURL,
-                userKey: settings.userKey,
-                sessions: sessions
-            )
-        } catch {
-            // 라이브 세션 보고 실패는 UI 를 방해하지 않는다.
-        }
-    }
-
-    /// 새로 적재된 세션 기록을 서버로 보고한다. 라이브 공유 토글이 꺼져 있으면
-    /// 로컬 기록만 쌓고 보고하지 않는다(기록도 세션 내용을 담기 때문).
-    /// 실패는 조용히 — 다음 갱신(60초)에 같은 기록이 다시 delta 로 잡히진 않으므로
-    /// 유실될 수 있으나, 기록은 로컬 저장소에 남아 있다.
-    func reportHistory(_ records: [SessionRecord]) async {
-        guard settings.liveActivityEnabled, settings.reportConfigured else { return }
-        do {
-            try await SessionHistoryReporter.send(
-                serverURL: settings.serverURL,
-                userKey: settings.userKey,
-                sessions: records
-            )
-        } catch {
-            // 세션 기록 보고 실패는 UI 를 방해하지 않는다.
-        }
-    }
-
     /// 모든 도구 오늘 총 토큰.
     var grandToday: Int { summaries.reduce(0) { $0 + $1.today.total } }
 
-    /// 오늘 입력/출력/캐시(읽기+쓰기) 합 — 서버 보고·구성 표시용.
+    /// 오늘 입력/출력/캐시(읽기+쓰기) 합 — 구성 표시용.
     var grandTodayInput: Int { summaries.reduce(0) { $0 + $1.today.input } }
     var grandTodayOutput: Int { summaries.reduce(0) { $0 + $1.today.output } }
     var grandTodayCache: Int {
@@ -321,62 +261,12 @@ final class AppState: ObservableObject {
                 CursorUsageEvents.merge(into: &results, result: events)
             }
             let merged = results
-            // 스캔 결과를 로컬 SQLite 에 적재 (스냅샷 업로드·다음 콜드 스타트의 소스).
+            // 스캔 결과를 로컬 SQLite 에 적재한다.
             store.upsert(summaries: merged)
             await MainActor.run {
                 self.summaries = merged
                 self.lastScan = Date()
                 self.isScanning = false
-                // 에이전트 대시보드 동기화(서버 연동 설정됨 + 내용 변경 시).
-                self.syncAgentDashboard()
-            }
-        }
-    }
-
-    /// 로컬 usage.db 스냅샷을 에이전트 대시보드 서버로 업로드한다.
-    /// 별도 토글 없이 서버 연동(URL+유저 키) 설정이 곧 전송 동의다.
-    /// - 자동(스캔 사이클 끝): 서버 설정됨 + 직전 업로드 대비 내용 변경 시에만 전송.
-    /// - 수동("지금 전송"): 변경 감지 없이 즉시 시도.
-    func syncAgentDashboard(manual: Bool = false) {
-        guard settings.reportConfigured else {
-            if manual { dashboardOutcome = .failure("서버 URL과 유저 키를 먼저 입력하세요") }
-            return
-        }
-        if case .sending = dashboardOutcome { return }
-
-        let serverURL = settings.serverURL
-        let userKey = settings.userKey
-        let lastSig = settings.dashboardLastUploadSHA
-        dashboardOutcome = .sending
-
-        Task { [store = usageStore] in
-            // 논리 콘텐츠 서명(generated_at 제외)으로 변경 감지 — 파일 SHA 는 스캔마다
-            // generated_at 이 바뀌어 항상 달라지므로 쓸 수 없다. 자동은 변경 시에만,
-            // 수동("지금 전송")은 항상 전송한다.
-            let sig = await Task.detached(priority: .utility) { store.contentSignature() }.value
-            if !manual, !sig.isEmpty, sig == lastSig {
-                self.dashboardOutcome = .idle
-                return
-            }
-
-            let tmp = FileManager.default.temporaryDirectory
-                .appendingPathComponent("amon-usage-upload-\(UUID().uuidString).db")
-            defer { try? FileManager.default.removeItem(at: tmp) }
-            let snapshot = await Task.detached(priority: .utility) {
-                store.snapshot(to: tmp)
-            }.value
-            guard let snapshot else {
-                self.dashboardOutcome = .failure("스냅샷 생성 실패")
-                return
-            }
-            do {
-                _ = try await AgentDashboardReporter.send(
-                    serverURL: serverURL, userKey: userKey, snapshot: snapshot
-                )
-                if !sig.isEmpty { self.settings.dashboardLastUploadSHA = sig }
-                self.dashboardOutcome = .success(Date())
-            } catch {
-                self.dashboardOutcome = .failure(error.localizedDescription)
             }
         }
     }

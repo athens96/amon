@@ -15,9 +15,7 @@ macOS 메뉴바 앱(`../macos`)의 Windows 대응 — **하단 트레이 상주 
     `OPENCODE_DB`(파일)/`OPENCODE_DATA_DIR` 우선. opencode.db(SQLite) 우선,
     파일 storage 폴백
   - Cursor `%APPDATA%\Cursor\User\globalStorage\state.vscdb`
-- 서버 자동 보고: `POST {server}/api/v1/ai-usage/report` — macOS 앱과 동일 계약
-  (`{user_key, days:[{date,tool,input,output,cache}]}`, 최근 7일 배치)
-- 트레이 메뉴: 오늘/누적 합계 · 도구별 상세(hover 툴팁) · 새로고침 · 지금 보고 ·
+- 트레이 메뉴: 오늘/누적 합계 · 도구별 상세(hover 툴팁) · 새로고침 ·
   설정 파일 열기 · 웹 대시보드 열기
 
 파싱 규칙은 macOS `UsageScanner.swift` 와 1:1 동일하다 (2026-07 dedup 수정 반영).
@@ -31,7 +29,6 @@ macOS 메뉴바 앱(`../macos`)의 Windows 대응 — **하단 트레이 상주 
 ```json
 {
   "server_url": "https://monitor.example.com",
-  "user_key": "웹 내정보 설정에서 발급한 키",
   "paths": { "claude": "", "codex": "", "opencode": "", "cursor": "" }
 }
 ```

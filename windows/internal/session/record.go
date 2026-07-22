@@ -51,8 +51,7 @@ type Record struct {
 	TotalTokens  int64            `json:"total_tokens"`
 	Models       map[string]int64 `json:"models"`
 	AgentCount   int              `json:"agent_count"`
-	// SourcePath — 이 세션의 원본 로그 경로. **로컬 전용** — 상세(전문)를 열 때만
-	// 쓰고 서버 보고에서는 제거한다(report.go). omitempty 라 비우면 키가 빠진다.
+	// SourcePath — 이 세션의 원본 로그 경로. **로컬 전용** — 상세(전문)를 열 때만 쓴다.
 	SourcePath string `json:"source_path,omitempty"`
 }
 

@@ -8,7 +8,7 @@ private let SQLITE_TRANSIENT_STORE = unsafeBitCast(-1, to: sqlite3_destructor_ty
 /// A-mon 로컬 사용량 저장 계층 (`usage.db`).
 ///
 /// 스캔 결과(도구별 요약)와 종료 세션 기록을 SQLite 에 적재하고, UI 는 여기서 로드해
-/// 스캔 전에도 즉시 렌더한다. 에이전트 대시보드 업로드는 이 DB 의 일관 스냅샷을 보낸다.
+/// 스캔 전에도 즉시 렌더한다.
 ///
 /// 스키마(SPEC §1): meta / usage_daily(date,tool,model) / tool_totals(tool) / sessions(id).
 /// 외부 의존성 0 원칙에 따라 시스템 SQLite3 C API 를 직접 쓴다. 모든 공개 메서드는
@@ -312,7 +312,7 @@ final class UsageStore: @unchecked Sendable {
         return summaries
     }
 
-    // MARK: - 논리 콘텐츠 서명 (업로드 변경 감지)
+    // MARK: - 논리 콘텐츠 서명
 
     /// usage_daily/tool_totals/sessions 를 결정적 순서로 직렬화한 SHA-256(hex).
     /// meta(= generated_at 포함)는 제외하므로 매 스캔 generated_at 이 바뀌어도 내용이
@@ -359,7 +359,7 @@ final class UsageStore: @unchecked Sendable {
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
-    // MARK: - 업로드 스냅샷
+    // MARK: - 로컬 스냅샷
 
     /// `VACUUM INTO` 로 일관 스냅샷을 만든다. 성공 시 대상 URL, 실패 시 nil.
     /// 대상 파일이 이미 있으면 지운다(VACUUM INTO 는 기존 파일을 덮어쓰지 못한다).

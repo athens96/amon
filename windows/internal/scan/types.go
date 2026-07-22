@@ -36,7 +36,7 @@ func (u *TokenUsage) Add(v TokenUsage) {
 
 // ToolSummary — 한 도구에 대한 스캔 결과 요약.
 type ToolSummary struct {
-	Tool        string // 서버 보고 식별자: claudeCode | codex | openCode | cursor | gemini | qwen | copilot (맥과 동일)
+	Tool        string // 로컬 저장 식별자: claudeCode | codex | openCode | cursor | gemini | qwen | copilot (맥과 동일)
 	DisplayName string
 	Usage       TokenUsage            // 전체 누적
 	Today       TokenUsage            // 오늘(로컬 자정 이후)

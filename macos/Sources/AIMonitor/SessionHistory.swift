@@ -29,8 +29,7 @@ struct SessionRecord: Codable, Equatable, Identifiable {
     var models: [String: Int]
     var agentCount: Int
     /// 이 세션의 원본 로그 경로(Claude 트랜스크립트 · Codex rollout · Cursor state.vscdb).
-    /// **로컬 전용** — 세션 상세를 열 때만 쓰고 서버 보고에서는 제외한다
-    /// (`SessionHistoryReporter`). 옛 기록엔 없을 수 있어 Optional.
+    /// **로컬 전용** — 세션 상세를 열 때만 쓴다. 옛 기록엔 없을 수 있어 Optional.
     var sourcePath: String?
 
     /// 같은 세션이 두 번 적재되지 않도록 하는 키(프로바이더 간 id 충돌 방지).

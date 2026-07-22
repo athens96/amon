@@ -236,60 +236,11 @@ enum HeadlessScan {
             .appendingPathComponent("amon-store-snapshot.db")
         if let snap = store.snapshot(to: tmp) {
             let size = (try? Data(contentsOf: snap).count) ?? 0
-            let sha = AgentDashboardReporter.sha256(of: snap) ?? "?"
-            print("snapshot: \(size) bytes, sha256=\(sha.prefix(12))…")
+            print("snapshot: \(size) bytes")
             try? FileManager.default.removeItem(at: snap)
         } else {
             print("❌ 스냅샷 실패")
         }
-    }
-
-    /// `--agent-upload <serverURL> <userKey>` — 스캔→적재→스냅샷→멀티파트 업로드를 검증한다.
-    /// 로컬 목 서버로 멀티파트 바디 구성·전송을 실검증할 때 쓴다.
-    static func agentUpload() {
-        let defaults = UserDefaults.standard
-        func path(_ tool: AITool) -> String {
-            defaults.string(forKey: "path.\(tool.rawValue)") ?? tool.defaultPath
-        }
-        var serverURL = defaults.string(forKey: "server.url") ?? ""
-        var userKey = defaults.string(forKey: "server.userKey") ?? ""
-        let args = CommandLine.arguments
-        if let i = args.firstIndex(of: "--agent-upload") {
-            if args.count > i + 1 { serverURL = args[i + 1] }
-            if args.count > i + 2 { userKey = args[i + 2] }
-        }
-
-        let results = UsageScanner.scanAll(
-            claude: path(.claudeCode), codex: path(.codex),
-            openCode: path(.openCode), cursor: path(.cursor),
-            gemini: path(.gemini), qwen: path(.qwen), copilot: path(.copilot)
-        )
-        let store = UsageStore()
-        store.upsert(summaries: results)
-        let sessions = SessionHistoryStore.load()
-        if !sessions.isEmpty { store.upsert(sessions: sessions) }
-
-        let tmp = FileManager.default.temporaryDirectory
-            .appendingPathComponent("amon-usage-upload-\(UUID().uuidString).db")
-        defer { try? FileManager.default.removeItem(at: tmp) }
-        guard let snap = store.snapshot(to: tmp) else { print("❌ 스냅샷 실패"); return }
-        let sha = AgentDashboardReporter.sha256(of: snap) ?? "?"
-        print("→ POST \(AgentDashboardReporter.endpoint(from: serverURL)?.absoluteString ?? "(nil)")")
-        print("  snapshot sha256=\(sha.prefix(12))…")
-
-        let sem = DispatchSemaphore(value: 0)
-        Task {
-            do {
-                let bytes = try await AgentDashboardReporter.send(
-                    serverURL: serverURL, userKey: userKey, snapshot: snap
-                )
-                print("✅ 업로드 성공 (서버 저장 \(bytes) bytes)")
-            } catch {
-                print("❌ 업로드 실패: \(error.localizedDescription)")
-            }
-            sem.signal()
-        }
-        sem.wait()
     }
 
     /// `--check-update <serverURL>` — 최신 버전 확인 결과 출력(검증용).

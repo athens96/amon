@@ -57,13 +57,12 @@ public sealed class AppController : ObservableObject, IDisposable
     public bool IsBusy { get => _isBusy; private set { if (Set(ref _isBusy, value)) (RefreshCommand as AsyncCommand)?.RaiseCanExecuteChanged(); } }
     public bool SettingsVisible { get => _settingsVisible; set => Set(ref _settingsVisible, value); }
     public bool AutoUpdate { get => _config.AutoUpdate; set { _config.AutoUpdate = value; Raise(); } }
-    public bool ShareSessions { get => _config.ShareSessions; set { _config.ShareSessions = value; Raise(); } }
     public bool AutomaticPaths
     {
         get => string.IsNullOrWhiteSpace(_config.Paths.Claude) && string.IsNullOrWhiteSpace(_config.Paths.Codex) && string.IsNullOrWhiteSpace(_config.Paths.OpenCode) && string.IsNullOrWhiteSpace(_config.Paths.Cursor);
         set { if (value) _config.Paths = new ToolPaths(); Raise(); }
     }
-    public bool ServerConnected => !string.IsNullOrWhiteSpace(_config.ServerUrl) && !string.IsNullOrWhiteSpace(_config.UserKey);
+    public bool ServerConnected => !string.IsNullOrWhiteSpace(_config.ServerUrl);
     public string ServerStatus => ServerConnected ? "서버 연결됨" : "로컬 전용";
     public string TrayTooltip
     {

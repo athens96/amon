@@ -227,7 +227,7 @@ enum HookInstaller {
 #
 # payload["hook_event_name"] 로 디스패치한다(argv 가 아니라 JSON 필드 기준 — 항상 존재).
 # 세션별 상태를 ~/Library/Application Support/A-mon/live/<session_id>.json 에 원자적으로
-# 유지하고, macOS 앱이 이 디렉토리를 폴링해 서버로 보고한다.
+# 유지하고, macOS 앱이 이 디렉토리를 폴링해 로컬 화면에 표시한다.
 #
 # 개인정보 규칙: tool_input["prompt"] 는 절대 읽거나 저장하거나 전송하지 않는다.
 # 오직 description(1줄 요약)만 보관한다.

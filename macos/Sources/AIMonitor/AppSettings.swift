@@ -14,10 +14,8 @@ final class AppSettings: ObservableObject {
     @Published var qwenPath: String { didSet { persist(.qwen, qwenPath) } }
     @Published var copilotPath: String { didSet { persist(.copilot, copilotPath) } }
 
-    /// 사용량 보고 서버 (웹 AI 모니터) 베이스 URL. 예: https://monitor.example.com
+    /// 앱 업데이트 서버 베이스 URL. 예: https://monitor.example.com
     @Published var serverURL: String { didSet { defaults.set(serverURL, forKey: "server.url") } }
-    /// 웹 내정보 설정에서 발급한 유저 키. 이 키로 사용량이 계정에 집계된다.
-    @Published var userKey: String { didSet { defaults.set(userKey, forKey: "server.userKey") } }
 
     /// 메뉴바 아이콘 선택 (0 ~ AppIcons.count-1).
     @Published var iconIndex: Int { didSet { defaults.set(iconIndex, forKey: "icon.index") } }
@@ -93,18 +91,9 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(hideInactiveAccounts, forKey: "ui.hideInactive") }
     }
 
-    /// Claude Code 라이브 세션·서브에이전트 팀 공유. 프로젝트명·브랜치·실행 중인
-    /// 서브에이전트 종류/1줄 설명이 팀에 공유되므로 옵트인(기본 끔). 켜면 Claude Code
-    /// 훅이 설치된다.
+    /// Claude Code 라이브 세션·서브에이전트 로컬 표시. 켜면 Claude Code 훅이 설치된다.
     @Published var liveActivityEnabled: Bool {
         didSet { defaults.set(liveActivityEnabled, forKey: "live.enabled") }
-    }
-
-    /// 마지막 업로드 성공 시의 논리 콘텐츠 서명(UsageStore.contentSignature, hex) —
-    /// 내용이 바뀌었을 때만 재전송한다. 파일 바이트 SHA 가 아님(generated_at 때문에 매번 달라짐).
-    var dashboardLastUploadSHA: String {
-        get { defaults.string(forKey: "dashboard.lastSHA") ?? "" }
-        set { defaults.set(newValue, forKey: "dashboard.lastSHA") }
     }
 
     private let defaults = UserDefaults.standard
@@ -122,7 +111,6 @@ final class AppSettings: ObservableObject {
         qwenPath = load(.qwen)
         copilotPath = load(.copilot)
         serverURL = UserDefaults.standard.string(forKey: "server.url") ?? ""
-        userKey = UserDefaults.standard.string(forKey: "server.userKey") ?? ""
         let idx = UserDefaults.standard.object(forKey: "icon.index") as? Int ?? 0
         iconIndex = min(max(idx, 0), AppIcons.iconCount - 1)
         useCustomIcon = UserDefaults.standard.object(forKey: "icon.useCustom") as? Bool ?? false
@@ -153,13 +141,6 @@ final class AppSettings: ObservableObject {
         selectedProviderTab = UserDefaults.standard.string(forKey: "ui.selectedTab") ?? ""
         hideInactiveAccounts = UserDefaults.standard.object(forKey: "ui.hideInactive") as? Bool ?? true
         liveActivityEnabled = UserDefaults.standard.object(forKey: "live.enabled") as? Bool ?? false
-        // dashboard.syncEnabled 토글은 제거됨 — 서버 연동(URL+유저 키) 설정이 곧 전송 동의.
-    }
-
-    /// 서버 URL·유저 키가 모두 채워져 보고 가능한 상태인지.
-    var reportConfigured: Bool {
-        !serverURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !userKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private static func key(_ tool: AITool) -> String { "path.\(tool.rawValue)" }
