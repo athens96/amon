@@ -97,7 +97,7 @@ public sealed class AppController : ObservableObject, IDisposable
             var sessions = await sessionTask;
             var providers = await providerTask;
             _store.Save(summaries, sessions, _config);
-			await System.Windows.Application.Current.Dispatcher.InvokeAsync(() => UpdateCollections(summaries, sessions, providers));
+            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() => UpdateCollections(summaries, sessions, providers));
             Status = "업데이트 " + DateTime.Now.ToString("HH:mm");
             Changed?.Invoke(this, EventArgs.Empty);
         }
