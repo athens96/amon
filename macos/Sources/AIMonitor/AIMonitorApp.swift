@@ -21,10 +21,6 @@ enum EntryPoint {
             HeadlessScan.agentStore()
             return
         }
-        if CommandLine.arguments.contains("--agent-upload") {
-            HeadlessScan.agentUpload()
-            return
-        }
         if CommandLine.arguments.contains("--calibrate-test") {
             HeadlessScan.calibrateTest()
             return

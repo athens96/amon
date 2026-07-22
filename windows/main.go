@@ -2,7 +2,7 @@
 //
 // macOS 메뉴바 앱(macos/)의 Windows 대응: 10분 주기로 로컬 AI 도구 로그
 // (Claude Code·Codex CLI·OpenCode·Cursor)를 스캔해 트레이 메뉴에 표시하고,
-// 스캔 결과를 로컬 usage.db 에 적재해 설정된 서버로 에이전트 대시보드를 업로드한다.
+// 스캔 결과를 로컬 usage.db 에 적재한다.
 //
 // 세션 기록(종료 세션 + 요청·응답 전문)은 macOS 와 동일 규칙으로 수집하되,
 // systray 에는 창이 없어 목록·상세 화면은 로컬 브라우저 페이지로 제공한다
@@ -15,7 +15,6 @@ import (
 	"context"
 	_ "embed"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
@@ -52,11 +51,10 @@ const scanInterval = 10 * time.Minute
 type menu struct {
 	today     *systray.MenuItem   // 오늘 합계
 	tools     []*systray.MenuItem // 도구별 4줄
-	status    *systray.MenuItem   // 마지막 스캔·보고 상태
+	status    *systray.MenuItem   // 마지막 스캔 상태
 	install   *systray.MenuItem   // 새 버전 설치 (발견 시에만 표시)
 	sessions  *systray.MenuItem   // 세션 기록 (브라우저)
 	refresh   *systray.MenuItem
-	sendNow   *systray.MenuItem
 	openCfg   *systray.MenuItem
 	openWeb   *systray.MenuItem
 	quit      *systray.MenuItem
@@ -96,14 +94,13 @@ func onReady() {
 		m.tools = append(m.tools, item)
 	}
 	systray.AddSeparator()
-	m.status = systray.AddMenuItem("아직 보고 안 함", "마지막 스캔·서버 보고 상태")
+	m.status = systray.AddMenuItem("아직 스캔 안 함", "마지막 스캔 상태")
 	m.status.Disable()
 	m.install = systray.AddMenuItem("", "서버 릴리즈 채널의 새 버전을 설치")
 	m.install.Hide()
 	m.sessions = systray.AddMenuItem("세션 기록 보기", "종료된 세션의 요청·응답 전문 (브라우저)")
 	m.refresh = systray.AddMenuItem("새로고침", "지금 다시 스캔")
-	m.sendNow = systray.AddMenuItem("지금 보고", "지금 스캔하고 에이전트 대시보드·세션 기록을 서버로 업로드")
-	m.openCfg = systray.AddMenuItem("설정 파일 열기", "server_url·user_key·경로 편집")
+	m.openCfg = systray.AddMenuItem("설정 파일 열기", "server_url·경로 편집")
 	m.openWeb = systray.AddMenuItem("웹 대시보드 열기", "AI 모니터 웹 열기")
 	systray.AddSeparator()
 	m.quit = systray.AddMenuItem(fmt.Sprintf("종료 (v%s)", appVersion), "A-mon 종료")
@@ -138,8 +135,6 @@ func loop(m *menu) {
 			cycle(m, hub, ds, false)
 			pending = checkUpdate(m)
 			maybeAutoInstall(m, pending)
-		case <-m.sendNow.ClickedCh:
-			cycle(m, hub, ds, true)
 		case <-m.install.ClickedCh:
 			installUpdate(m, pending)
 		case <-m.open:
@@ -158,7 +153,6 @@ func loop(m *menu) {
 			if err == nil {
 				autoUpdate := settings.AutoUpdate
 				cfg.AutoUpdate = &autoUpdate
-				cfg.ShareSessions = settings.ShareSessions
 				if settings.AutomaticPaths {
 					cfg.Paths = scan.Paths{}
 				}
@@ -188,8 +182,7 @@ func loop(m *menu) {
 	}
 }
 
-// cycle — 한 스캔 주기: 사용량 스캔·메뉴 갱신 → 세션 스캔·기록 보고 → usage.db 적재 +
-// (설정됨·내용 변경시) 에이전트 대시보드 업로드.
+// cycle — 한 스캔 주기: 사용량 스캔·메뉴 갱신 → 세션 스캔 → usage.db 적재.
 func cycle(m *menu, hub *sessionHub, ds *dashSync, periodic bool) ([]scan.ToolSummary, popup.Data) {
 	summaries := scanAndRefresh(m, periodic)
 	records := hub.scan()
@@ -389,14 +382,13 @@ func statusIcon(ico []byte, active int, today int64) []byte {
 	return out
 }
 
-// sessionHub — 세션 기록 수집 상태(저장소·파싱 캐시·직전 보고 스냅샷).
+// sessionHub — 세션 기록 수집 상태(저장소·파싱 캐시).
 //
 // 스캔 주기는 트레이 루프(10분)를 따른다 — 맥(60초)보다 길지만 세션 기록은
 // 실시간 데이터가 아니고, 지문 캐시 덕에 스캔 자체는 활성 파일 몇 개만 읽는다.
 type sessionHub struct {
 	store *session.Store
 	cache *session.FileCache
-	known map[string]string // ID → 직렬화 스냅샷: 바뀐 기록만 서버로 보낸다
 }
 
 func newSessionHub() *sessionHub {
@@ -407,11 +399,10 @@ func newSessionHub() *sessionHub {
 	return &sessionHub{
 		store: &session.Store{Path: filepath.Join(dir, "history", "sessions.jsonl")},
 		cache: session.LoadFileCache(filepath.Join(dir, "cache", "session-files.json")),
-		known: map[string]string{},
 	}
 }
 
-// scan — 종료 세션 스캔 → 저장소 적재 → (share_sessions 옵트인 시) 변경분 보고.
+// scan — 종료 세션 스캔 → 로컬 저장소 적재.
 // 병합된 전체 세션 기록을 돌려준다(usage.db sessions 미러용).
 func (h *sessionHub) scan() []session.Record {
 	cfg, _ := config.Load()
@@ -421,20 +412,6 @@ func (h *sessionHub) scan() []session.Record {
 	h.cache.Save()
 	merged := h.store.Upsert(fresh)
 
-	var changed []session.Record
-	for _, rec := range merged {
-		blob, err := json.Marshal(rec)
-		if err != nil {
-			continue
-		}
-		if h.known[rec.ID()] != string(blob) {
-			h.known[rec.ID()] = string(blob)
-			changed = append(changed, rec)
-		}
-	}
-	if cfg.ShareSessions && cfg.ReportConfigured() && len(changed) > 0 {
-		_ = session.Send(cfg.ServerURL, cfg.UserKey, changed)
-	}
 	return merged
 }
 
@@ -501,9 +478,7 @@ func installUpdate(m *menu, info *update.Info) {
 	systray.Quit()
 }
 
-// scanAndRefresh — 스캔 후 트레이 메뉴·상태를 갱신하고 스캔 요약을 돌려준다. 서버 전송
-// (에이전트 대시보드 업로드·세션 기록)은 cycle 의 후속 단계가 담당한다. periodic 이면
-// (주기 스캔·"지금 보고") 서버 미설정 시 안내를 띄운다.
+// scanAndRefresh — 스캔 후 트레이 메뉴·상태를 갱신하고 스캔 요약을 돌려준다.
 func scanAndRefresh(m *menu, periodic bool) []scan.ToolSummary {
 	cfg, _ := config.Load()
 	summaries := scan.ScanAll(cfg.Paths)
@@ -534,10 +509,6 @@ func scanAndRefresh(m *menu, periodic bool) []scan.ToolSummary {
 	}
 
 	now := time.Now().Format("15:04")
-	if periodic && !cfg.ReportConfigured() {
-		m.status.SetTitle(fmt.Sprintf("스캔 %s · 서버 미설정(설정 파일 편집)", now))
-		return summaries
-	}
 	m.status.SetTitle(fmt.Sprintf("스캔 완료 %s", now))
 	return summaries
 }
@@ -611,9 +582,8 @@ func showSettings(panel *popup.Window) {
 	automaticPaths := cfg.Paths == (scan.Paths{}) || cfg.Paths == defaults
 	panel.ShowSettings(popup.Settings{
 		AutoUpdate:      cfg.AutoUpdateEnabled(),
-		ShareSessions:   cfg.ShareSessions,
 		AutomaticPaths:  automaticPaths,
-		ServerConnected: cfg.ReportConfigured(),
+		ServerConnected: cfg.ServerURL != "",
 	})
 }
 

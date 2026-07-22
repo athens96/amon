@@ -27,6 +27,8 @@
     <Style TargetType="Button" x:Key="IconButton">
       <Setter Property="Width" Value="40" />
       <Setter Property="Height" Value="40" />
+      <Setter Property="FontFamily" Value="Segoe Fluent Icons" />
+      <Setter Property="FontSize" Value="19" />
       <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderThickness" Value="0" />
@@ -46,6 +48,22 @@
           </ControlTemplate>
         </Setter.Value>
       </Setter>
+    </Style>
+    <Style TargetType="Button" x:Key="HeaderIconButton" BasedOn="{StaticResource IconButton}">
+      <Setter Property="Width" Value="38" />
+      <Setter Property="Height" Value="38" />
+      <Setter Property="FontSize" Value="19" />
+    </Style>
+    <Style TargetType="Button" x:Key="RailIconButton" BasedOn="{StaticResource IconButton}">
+      <Setter Property="Width" Value="44" />
+      <Setter Property="Height" Value="44" />
+      <Setter Property="FontSize" Value="22" />
+    </Style>
+    <Style TargetType="TextBlock" x:Key="IconGlyph">
+      <Setter Property="FontFamily" Value="Segoe Fluent Icons" />
+      <Setter Property="FontSize" Value="22" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
     <Style TargetType="ProgressBar">
       <Setter Property="Height" Value="4" />

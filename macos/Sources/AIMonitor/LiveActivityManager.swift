@@ -44,8 +44,7 @@ final class LiveActivityManager: ObservableObject {
     /// 현재 살아있는(15분 내 갱신된) 세션들.
     @Published private(set) var sessions: [LiveSession] = []
 
-    /// 스냅샷이 직전 폴링과 실제로 달라졌을 때만 호출된다. AppState 가 서버 보고를
-    /// 붙이는 훅 — 매니저는 설정/네트워크를 몰라도 되게 분리한다.
+    /// 스냅샷이 직전 폴링과 실제로 달라졌을 때만 호출된다.
     var onChanged: (([LiveSession]) -> Void)?
 
     private var autoTask: Task<Void, Never>?

@@ -41,7 +41,6 @@ type Data struct {
 
 type Settings struct {
 	AutoUpdate      bool
-	ShareSessions   bool
 	AutomaticPaths  bool
 	ServerConnected bool
 }
@@ -286,15 +285,15 @@ func windowProc(hwnd uintptr, message uint32, wParam, lParam uintptr) uintptr {
 		}
 		if x >= 440 {
 			switch {
-			case y >= 16 && y < 64:
-			case y >= 76 && y < 124:
+			case y >= 14 && y < 58:
+			case y >= 70 && y < 114:
 				signal(w.Sessions)
-			case y >= 136 && y < 184:
+			case y >= 126 && y < 170:
 				signal(w.Config)
-			case y >= 476 && y < 528:
+			case y >= 478 && y < 522:
 				signal(w.Quit)
 			}
-		} else if x >= 390 && x < 430 && y >= 12 && y < 48 {
+		} else if x >= 390 && x < 432 && y >= 10 && y < 50 {
 			signal(w.Refresh)
 		}
 		return 0
@@ -322,16 +321,16 @@ func handleSettingsClick(hwnd uintptr, w *Window, x, y int) {
 	w.mu.Lock()
 	if x >= 440 {
 		switch {
-		case y >= 16 && y < 64:
+		case y >= 14 && y < 58:
 			w.settingsView = false
 			w.mu.Unlock()
 			pInvalidateRect.Call(hwnd, 0, 1)
 			return
-		case y >= 76 && y < 124:
+		case y >= 70 && y < 114:
 			w.mu.Unlock()
 			signal(w.Sessions)
 			return
-		case y >= 476 && y < 528:
+		case y >= 478 && y < 522:
 			w.mu.Unlock()
 			signal(w.Quit)
 			return
@@ -343,8 +342,6 @@ func handleSettingsClick(hwnd uintptr, w *Window, x, y int) {
 	switch {
 	case y >= 82 && y < 145:
 		w.settings.AutoUpdate = !w.settings.AutoUpdate
-	case y >= 158 && y < 221:
-		w.settings.ShareSessions = !w.settings.ShareSessions
 	case y >= 258 && y < 321:
 		w.settings.AutomaticPaths = !w.settings.AutomaticPaths
 	case y >= 410 && y < 462:
@@ -415,15 +412,17 @@ func paint(hwnd uintptr, w *Window) {
 	defer pDeleteObject.Call(fontStrong)
 	fontSmall := font(-12, 400)
 	defer pDeleteObject.Call(fontSmall)
+	fontIcon := font(-22, 600)
+	defer pDeleteObject.Call(fontIcon)
 
-	paintRail(hdc, fontBody, false)
+	paintRail(hdc, fontIcon, false)
 	text(hdc, fontTitle, 18, 12, 220, 44, rgb(230, 230, 239), "A-mon", 0)
 	status := data.Status
 	if data.Active > 0 {
 		status = "LIVE  " + status
 	}
 	text(hdc, fontSmall, 220, 15, 382, 42, rgb(154, 154, 176), status, 2)
-	button(hdc, fontStrong, rect{390, 12, 430, 48}, "↻", false)
+	button(hdc, fontIcon, rect{390, 10, 432, 50}, "↻", false)
 
 	rounded(hdc, rect{16, 56, 424, 140}, rgb(38, 38, 47), 10)
 	text(hdc, fontSmall, 30, 67, 190, 88, rgb(154, 154, 176), "오늘 사용량", 0)
@@ -556,15 +555,15 @@ func paintSettings(hdc uintptr, settings Settings) {
 	defer pDeleteObject.Call(fontStrong)
 	fontSmall := font(-12, 400)
 	defer pDeleteObject.Call(fontSmall)
+	fontIcon := font(-22, 600)
+	defer pDeleteObject.Call(fontIcon)
 
-	paintRail(hdc, fontBody, true)
+	paintRail(hdc, fontIcon, true)
 	text(hdc, fontTitle, 18, 16, 220, 44, rgb(230, 230, 239), "설정", 0)
 	text(hdc, fontSmall, 220, 19, 424, 42, rgb(154, 154, 176), "변경 후 저장", 2)
 
 	text(hdc, fontStrong, 16, 57, 220, 78, rgb(230, 230, 239), "일반", 0)
 	settingRow(hdc, fontStrong, fontSmall, 16, 82, "자동 업데이트", "새 버전을 자동으로 설치합니다", settings.AutoUpdate)
-	settingRow(hdc, fontStrong, fontSmall, 16, 158, "세션 정보 공유", "연결된 서버에 세션 요약을 전송합니다", settings.ShareSessions)
-
 	text(hdc, fontStrong, 16, 233, 220, 254, rgb(230, 230, 239), "데이터 소스", 0)
 	settingRow(hdc, fontStrong, fontSmall, 16, 258, "로그 경로 자동 감지", "Claude, Codex 등 기본 위치를 사용합니다", settings.AutomaticPaths)
 
@@ -616,10 +615,10 @@ func button(hdc, f uintptr, r rect, label string, primary bool) {
 func paintRail(hdc, fontHandle uintptr, settings bool) {
 	fill(hdc, rect{440, 0, width, height}, rgb(38, 38, 47))
 	fill(hdc, rect{439, 0, 440, height}, rgb(58, 58, 74))
-	railItem(hdc, fontHandle, rect{448, 16, 488, 56}, "⌂", !settings)
-	railItem(hdc, fontHandle, rect{448, 76, 488, 116}, "≡", false)
-	railItem(hdc, fontHandle, rect{448, 136, 488, 176}, "⚙", settings)
-	railItem(hdc, fontHandle, rect{448, 480, 488, 520}, "×", false)
+	railItem(hdc, fontHandle, rect{446, 14, 490, 58}, "⌂", !settings)
+	railItem(hdc, fontHandle, rect{446, 70, 490, 114}, "≡", false)
+	railItem(hdc, fontHandle, rect{446, 126, 490, 170}, "⚙", settings)
+	railItem(hdc, fontHandle, rect{446, 478, 490, 522}, "×", false)
 }
 
 func railItem(hdc, fontHandle uintptr, r rect, label string, selected bool) {
@@ -630,7 +629,7 @@ func railItem(hdc, fontHandle uintptr, r rect, label string, selected bool) {
 		foreground = rgb(255, 255, 255)
 	}
 	rounded(hdc, r, background, 8)
-	text(hdc, fontHandle, r.Left, r.Top+9, r.Right, r.Bottom, foreground, label, 1)
+	text(hdc, fontHandle, r.Left, r.Top+7, r.Right, r.Bottom, foreground, label, 1)
 }
 
 func rounded(hdc uintptr, r rect, color uint32, radius int32) {

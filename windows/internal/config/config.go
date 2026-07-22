@@ -13,28 +13,21 @@ import (
 	"github.com/athens96/amon/windows/internal/scan"
 )
 
-// Config — 서버 보고 설정 + 도구별 로그 경로 오버라이드.
+// Config — 업데이트 서버 설정 + 도구별 로그 경로 오버라이드.
 type Config struct {
 	ServerURL string     `json:"server_url"` // 예: https://monitor.example.com
-	UserKey   string     `json:"user_key"`   // 웹 내정보 설정에서 발급
 	Paths     scan.Paths `json:"paths"`      // 빈 항목은 OS 기본 경로
 	// AutoUpdate — 새 버전 발견 시 자동 설치. 생략(nil)이면 켬.
 	AutoUpdate *bool `json:"auto_update,omitempty"`
-	// ShareSessions — 세션 기록(요청·응답 첫 줄 요약 + 토큰)을 서버로 보고.
-	// 팀 대시보드 공유는 옵트인 정책이라 기본 끔. 로컬 기록·열람과는 무관하다.
-	ShareSessions bool `json:"share_sessions"`
 	// DeviceID — 설치 단위 안정 ID. 서버가 한 유저의 여러 기기를 구분하는 키로,
 	// 호스트명과 달리 네트워크에 따라 변하지 않는다. Load 가 비어 있으면 생성한다.
 	DeviceID string `json:"device_id,omitempty"`
-	// 에이전트 대시보드 업로드는 별도 토글 없이 서버 연동(server_url+user_key)
-	// 설정이 곧 전송 동의다 — 과거 dashboard_sync 키는 제거됨(있어도 무시).
 }
 
 // AutoUpdateEnabled — auto_update 필드가 없으면 기본 켬.
 func (c Config) AutoUpdateEnabled() bool {
 	return c.AutoUpdate == nil || *c.AutoUpdate
 }
-
 // Dir — 설정 디렉토리 (없으면 생성).
 func Dir() (string, error) {
 	var base string
@@ -115,9 +108,4 @@ func Save(cfg Config) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0o644)
-}
-
-// ReportConfigured — 서버 URL·유저 키가 모두 채워져 보고 가능한 상태인지.
-func (c Config) ReportConfigured() bool {
-	return c.ServerURL != "" && c.UserKey != ""
 }

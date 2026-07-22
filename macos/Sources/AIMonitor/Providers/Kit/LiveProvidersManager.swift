@@ -40,8 +40,7 @@ final class LiveProvidersManager: ObservableObject {
     /// 주기 갱신 간격 — openusage 와 동일하게 5분.
     private let interval: TimeInterval = 300
 
-    /// 갱신이 끝날 때마다(활성 프로바이더 스냅샷과 함께) 호출된다. AppState 가 서버 보고를
-    /// 붙이는 훅 — 매니저는 설정/네트워크를 몰라도 되게 분리한다.
+    /// 갱신이 끝날 때마다 활성 프로바이더 스냅샷과 함께 호출된다.
     var onRefreshed: (([ProviderSnapshot]) async -> Void)?
 
     /// 로컬 로그 기반 스팬드 타일 수집 루틴 — 현재는 빈 결과(라이브 API 데이터만 표시).
@@ -233,7 +232,7 @@ final class LiveProvidersManager: ObservableObject {
         lastRefresh = Date()
         isRefreshing = false
 
-        // 활성 프로바이더 스냅샷을 서버 보고 훅으로 넘긴다(설정돼 있으면 AppState 가 POST).
+        // 활성 프로바이더 스냅샷을 AppState의 로컬 집계/알림 훅으로 넘긴다.
         let active = runtimes
             .filter { enabledIDs.contains($0.provider.id) }
             .compactMap { snapshots[$0.provider.id] }

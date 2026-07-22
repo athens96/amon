@@ -57,11 +57,9 @@ struct SettingsView: View {
 
                 Divider()
 
-                // ── 서버 연동 설정 ───────────────────────────────────────
-                // URL·유저 키가 먼저, 그 키를 쓰는 라이브 세션 공유 토글이 아래.
-                // 에이전트 대시보드 업로드는 별도 토글 없이 서버 연동에 포함된다.
+                // ── 업데이트 및 로컬 라이브 설정 ─────────────────────────
                 SettingsCategoryHeader(
-                    icon: "antenna.radiowaves.left.and.right", title: "서버 연동 설정"
+                    icon: "antenna.radiowaves.left.and.right", title: "업데이트 및 라이브 설정"
                 )
 
                 ServerSection()
@@ -285,7 +283,7 @@ private struct QuotaAlertsRow: View {
     }
 }
 
-/// Claude Code 라이브 세션·서브에이전트 팀 공유 토글 + 훅 재설치 버튼.
+/// Claude Code 라이브 세션·서브에이전트 로컬 표시 토글 + 훅 재설치 버튼.
 private struct LiveActivityRow: View {
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var settings: AppSettings
@@ -294,8 +292,8 @@ private struct LiveActivityRow: View {
         VStack(alignment: .leading, spacing: 4) {
             CompactSettingToggleRow(
                 icon: "dot.radiowaves.left.and.right",
-                title: "라이브 세션 공유",
-                description: "Claude Code 세션과 실행 중인 서브에이전트를 팀에 실시간 공유합니다. 프로젝트명·브랜치·요청 첫 줄(최대 120자)·응답 요약 첫 줄(최대 200자)·서브에이전트 종류/1줄 설명이 공유되고, 종료된 세션은 요청 목록(최대 50줄)·토큰 총계와 함께 기록됩니다. 프롬프트·응답 전체 원문은 (본 세션·서브에이전트 모두) 절대 전송되지 않습니다. 끄면 로컬 기록만 남고 서버로 보내지 않습니다.",
+                title: "라이브 세션 표시",
+                description: "Claude Code 세션과 실행 중인 서브에이전트를 이 Mac의 A-mon 화면에 표시합니다. 데이터는 서버로 전송하지 않습니다.",
                 isOn: enabledBinding
             )
 
@@ -425,9 +423,8 @@ private struct LaunchAtLoginRow: View {
     }
 }
 
-/// 서버 연동 — 웹 AI 모니터로 에이전트 대시보드 데이터를 보고하기 위한 URL·유저 키.
+/// 서버 연동 — 앱 업데이트 확인에 사용하는 서버 URL.
 private struct ServerSection: View {
-    @EnvironmentObject private var state: AppState
     @EnvironmentObject private var settings: AppSettings
 
     var body: some View {
@@ -441,65 +438,10 @@ private struct ServerSection: View {
                 .font(.amonMono)
                 .lineLimit(1)
 
-            Text("유저 키")
-                .font(.amonCaption)
-                .foregroundStyle(.secondary)
-            TextField("웹 내정보 설정에서 발급", text: $settings.userKey)
-                .textFieldStyle(.roundedBorder)
-                .font(.amonMono)
-                .lineLimit(1)
-
-            Text("웹 AI 모니터 → 내정보 설정에서 유저 키를 발급해 붙여넣으세요. 설정하면 스캔할 때마다 에이전트 대시보드 데이터(사용량 DB — 도구별 일자·모델 토큰, 종료된 세션의 프로젝트명·브랜치·첫 프롬프트 요약)가 자동 전송됩니다. 프롬프트·응답 전체 원문은 전송되지 않으며, 비우면 로컬에만 저장됩니다.")
+            Text("이 주소는 앱 업데이트 확인과 다운로드에만 사용됩니다. 사용량과 세션 데이터는 서버로 전송하지 않습니다.")
                 .font(.amonCaption)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
-
-            HStack(spacing: 8) {
-                Button {
-                    // 에이전트 대시보드 업로드(사용량 DB 스냅샷).
-                    state.syncAgentDashboard(manual: true)
-                } label: {
-                    Label("지금 전송", systemImage: "paperplane")
-                }
-                .buttonStyle(.bordered)
-                .disabled(!settings.reportConfigured || isSending)
-
-                Spacer()
-            }
-            .padding(.top, 2)
-
-            dashboardStatusRow
-        }
-    }
-
-    private var isSending: Bool {
-        if case .sending = state.dashboardOutcome { return true }
-        return false
-    }
-
-    /// 에이전트 대시보드 업로드 상태 표시.
-    @ViewBuilder
-    private var dashboardStatusRow: some View {
-        switch state.dashboardOutcome {
-        case .idle:
-            EmptyView()
-        case .sending:
-            HStack(spacing: 4) {
-                ProgressView().controlSize(.small)
-                Text("대시보드 업로드 중…").font(.amonCaption).foregroundStyle(.secondary)
-            }
-        case .success(let date):
-            Label(
-                "대시보드 업로드됨 \(date.formatted(date: .omitted, time: .shortened))",
-                systemImage: "checkmark.circle.fill"
-            )
-            .font(.amonCaption)
-            .foregroundStyle(.green)
-        case .failure(let message):
-            Label("대시보드: \(message)", systemImage: "exclamationmark.triangle.fill")
-                .font(.amonCaption)
-                .foregroundStyle(.orange)
-                .lineLimit(2)
         }
     }
 }

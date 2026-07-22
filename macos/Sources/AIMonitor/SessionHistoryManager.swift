@@ -10,7 +10,7 @@ final class SessionHistoryManager: ObservableObject {
     @Published private(set) var records: [SessionRecord] = []
     @Published private(set) var isRefreshing = false
 
-    /// 직전 갱신 대비 새로 생기거나 바뀐 기록만 전달된다(서버 보고용).
+    /// 직전 갱신 대비 새로 생기거나 바뀐 기록만 전달된다(로컬 저장용).
     var onChanged: (([SessionRecord]) -> Void)?
 
     /// 세션 로그 루트 — AppState 가 설정값으로 채워 준다(설정 변경 시 갱신).

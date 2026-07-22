@@ -4,7 +4,6 @@ package session
 // 복원해야 한다. 스캐너·전문 로더가 같은 파싱 규칙을 쓰는지도 여기서 지킨다.
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -299,19 +298,6 @@ func TestMissingSourceReturnsError(t *testing.T) {
 	_, err := LoadTranscript(record("claude", "없는세션", "/nope/none.jsonl"), t.TempDir(), "")
 	if err != ErrSourceNotFound {
 		t.Fatalf("err = %v", err)
-	}
-}
-
-// --- 서버 보고 ---
-
-func TestReportPayloadStripsSourcePath(t *testing.T) {
-	rec := record("claude", "s-1", "/Users/me/.claude/projects/p/s-1.jsonl")
-	payload, err := json.Marshal(map[string]any{"user_key": "k", "sessions": StripLocal([]Record{rec})})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(payload), "source_path") || strings.Contains(string(payload), ".claude") {
-		t.Fatalf("로컬 경로가 보고 페이로드에 남음: %s", payload)
 	}
 }
 
