@@ -56,16 +56,16 @@ enum AITool: String, CaseIterable, Identifiable, Codable {
         }
     }
 
-    /// 도구별 구분 색.
+    /// 도구별 구분 색 — DESIGN.html 카드 액센트 팔레트에서 차용. 토큰 출처: Palette
     var tint: Color {
         switch self {
-        case .claudeCode: return Color(red: 0xef / 255, green: 0x7d / 255, blue: 0x4a / 255) // Coral
-        case .codex: return Color(red: 0x00 / 255, green: 0xa6 / 255, blue: 0x8f / 255)      // Teal
-        case .openCode: return Color(red: 0xf6 / 255, green: 0x7d / 255, blue: 0x3c / 255)   // Sunset
-        case .cursor: return Color(red: 0x2e / 255, green: 0x7d / 255, blue: 0xf6 / 255)     // Sky Blue
-        case .gemini: return Color(red: 0x42 / 255, green: 0x85 / 255, blue: 0xf4 / 255)     // Google Blue
-        case .qwen: return Color(red: 0x83 / 255, green: 0x35 / 255, blue: 0xd6 / 255)       // Purple
-        case .copilot: return Color(red: 0x1a / 255, green: 0x7f / 255, blue: 0x64 / 255)    // Green
+        case .claudeCode: return Palette.tintClaudeCode
+        case .codex:      return Palette.tintCodex
+        case .openCode:   return Palette.tintOpenCode
+        case .cursor:     return Palette.tintCursor
+        case .gemini:     return Palette.tintGemini
+        case .qwen:       return Palette.tintQwen
+        case .copilot:    return Palette.tintCopilot
         }
     }
 

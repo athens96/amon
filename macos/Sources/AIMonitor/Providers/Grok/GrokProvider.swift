@@ -9,7 +9,7 @@ final class GrokProvider: ProviderRuntime {
         id: "grok",
         displayName: "Grok",
         symbol: "bolt.fill",
-        accentHex: "#111111",
+        accentHex: Palette.hexGrok,
         links: [
             ProviderLink(label: "Usage", url: "https://grok.com/?_s=usage")
         ]

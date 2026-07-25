@@ -8,7 +8,7 @@ final class OpenRouterProvider: ProviderRuntime {
         id: "openrouter",
         displayName: "OpenRouter",
         symbol: "arrow.triangle.branch",
-        accentHex: "#6467f2",
+        accentHex: Palette.hexOpenRouter,
         links: [
             ProviderLink(label: "Activity", url: "https://openrouter.ai/activity"),
             ProviderLink(label: "Credits", url: "https://openrouter.ai/settings/credits")

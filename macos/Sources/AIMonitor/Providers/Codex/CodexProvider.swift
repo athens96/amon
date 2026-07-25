@@ -9,7 +9,7 @@ final class CodexProvider: ProviderRuntime {
         id: "codex",
         displayName: "Codex",
         symbol: "chevron.left.forwardslash.chevron.right",
-        accentHex: "#10a37f",
+        accentHex: Palette.hexCodex,
         links: [
             ProviderLink(label: "Status", url: "https://status.openai.com/"),
             ProviderLink(label: "Dashboard", url: "https://chatgpt.com/codex/settings/usage")
@@ -83,7 +83,7 @@ final class CodexProvider: ProviderRuntime {
         if authStore.needsRefresh(authState.auth) {
             // The `codex` CLI may have rotated the token on disk since we loaded it. Re-read the live
             // credential first and adopt its (newer) access token — refreshing our stale copy would send
-            // an already-rotated refresh_token and trip `refresh_token_reused` (issue #516).
+            // an already-rotated refresh_token and trip `refresh_token_reused` (issue 516).
             if let live = reloadLiveAuth(source: authState.source),
                let liveToken = live.auth.tokens?.accessToken, !liveToken.isEmpty {
                 authState = live

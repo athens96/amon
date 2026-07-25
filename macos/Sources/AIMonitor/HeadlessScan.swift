@@ -234,7 +234,7 @@ enum HeadlessScan {
 
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("amon-store-snapshot.db")
-        if let snap = store.snapshot(to: tmp) {
+        if let snap = store.uploadSnapshot(to: tmp) {
             let size = (try? Data(contentsOf: snap).count) ?? 0
             let sha = AgentDashboardReporter.sha256(of: snap) ?? "?"
             print("snapshot: \(size) bytes, sha256=\(sha.prefix(12))…")
@@ -272,7 +272,7 @@ enum HeadlessScan {
         let tmp = FileManager.default.temporaryDirectory
             .appendingPathComponent("amon-usage-upload-\(UUID().uuidString).db")
         defer { try? FileManager.default.removeItem(at: tmp) }
-        guard let snap = store.snapshot(to: tmp) else { print("❌ 스냅샷 실패"); return }
+        guard let snap = store.uploadSnapshot(to: tmp) else { print("❌ 스냅샷 실패"); return }
         let sha = AgentDashboardReporter.sha256(of: snap) ?? "?"
         print("→ POST \(AgentDashboardReporter.endpoint(from: serverURL)?.absoluteString ?? "(nil)")")
         print("  snapshot sha256=\(sha.prefix(12))…")

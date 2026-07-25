@@ -11,6 +11,14 @@ import Foundation
 /// `Date,Cloud Agent ID,Automation ID,Kind,Model,Max Mode,
 ///  Input (w/ Cache Write),Input (w/o Cache Write),Cache Read,Output Tokens,Total Tokens,Cost`
 enum CursorUsageEvents {
+    /// 요청 1건짜리 원본 이벤트 — 일자 집계와 달리 시각을 남긴다.
+    /// 세션(composer)별 토큰 추정(`CursorSessionTokens`)의 귀속 입력.
+    struct RawEvent: Codable, Sendable {
+        let date: Date
+        let model: String
+        let usage: TokenUsage
+    }
+
     struct Result: Sendable {
         var daily: [String: TokenUsage] = [:]
         /// 일자→모델→사용량 (usage_daily 저장용). CSV 는 Model 컬럼이 있어 채운다.
@@ -23,6 +31,8 @@ enum CursorUsageEvents {
         var costUSD: Double = 0
         var events: Int = 0
         var lastActivity: Date? = nil
+        /// 시각이 남은 원본 이벤트 전체 — 세션별 토큰 추정용.
+        var rawEvents: [RawEvent] = []
     }
 
     /// 최근 `windowDays`일(오늘 포함) 창의 일자별 사용량.
@@ -101,6 +111,7 @@ enum CursorUsageEvents {
             var model = ""
             if let iModel, fields.indices.contains(iModel) { model = fields[iModel] }
             if !model.isEmpty { result.models[model, default: 0] += usage.total }
+            result.rawEvents.append(RawEvent(date: date, model: model, usage: usage))
             result.dailyByModel[day, default: [:]][model, default: TokenUsage()] += usage
             if let iCost, fields.indices.contains(iCost) {
                 let rowCost = Double(fields[iCost]) ?? 0

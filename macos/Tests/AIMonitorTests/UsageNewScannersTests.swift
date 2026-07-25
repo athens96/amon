@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 import XCTest
 @testable import AIMonitor
 
@@ -207,21 +208,49 @@ final class UsageNewScannersTests: XCTestCase {
         XCTAssertEqual(o?.dailyCostByModel[today]?["claude-x"], 0.5)
 
         // 세션 upsert — provider 는 AITool rawValue 로 매핑된다.
+        let privateSentinel = "AMON_PRIVATE_SESSION_SENTINEL_7D9A"
+        let signatureBeforeSession = store.contentSignature()
         let rec = SessionRecord(
             provider: "claude", sessionId: "s1", projectLabel: "proj", gitBranch: "main",
             startedAt: Date(timeIntervalSince1970: 1_700_000_000),
             endedAt: Date(timeIntervalSince1970: 1_700_000_100),
-            prompts: ["first prompt"], promptCount: 3, currentTask: nil, lastResult: nil,
+            prompts: [privateSentinel], promptCount: 3, currentTask: nil, lastResult: nil,
             inputTokens: 100, outputTokens: 200, cacheTokens: 50, totalTokens: 350,
             models: ["claude-opus-4-8": 350], agentCount: 2, sourcePath: nil
         )
         store.upsert(sessions: [rec])
+        XCTAssertEqual(store.contentSignature(), signatureBeforeSession)
 
-        // 스냅샷은 유효한 SQLite(매직바이트) 파일이어야 한다.
+        // 업로드 스냅샷은 허용된 집계 테이블만 가진 새 SQLite여야 한다.
         let snap = tempDir.appendingPathComponent("snap.db")
-        XCTAssertNotNil(store.snapshot(to: snap))
+        XCTAssertNotNil(store.uploadSnapshot(to: snap))
         let head = try Data(contentsOf: snap).prefix(16)
         XCTAssertEqual(head, Data("SQLite format 3\0".utf8))
+        let bytes = try Data(contentsOf: snap)
+        XCTAssertNil(String(data: bytes, encoding: .isoLatin1)?.range(of: privateSentinel))
+
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open_v2(snap.path, &db, SQLITE_OPEN_READONLY, nil), SQLITE_OK)
+        defer { if let db { sqlite3_close(db) } }
+        var stmt: OpaquePointer?
+        XCTAssertEqual(
+            sqlite3_prepare_v2(
+                db,
+                "SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name;",
+                -1,
+                &stmt,
+                nil
+            ),
+            SQLITE_OK
+        )
+        defer { sqlite3_finalize(stmt) }
+        var tables: [String] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if let value = sqlite3_column_text(stmt, 0) {
+                tables.append(String(cString: value))
+            }
+        }
+        XCTAssertEqual(tables, ["meta", "usage_daily"])
     }
 
     func testContentSignatureIgnoresGeneratedAtButTracksContent() throws {

@@ -24,6 +24,20 @@ enum AgentDashboardReporter {
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
+    /// 업로드 변경 감지용 서명. 콘텐츠뿐 아니라 정규화한 목적지와 유저 키도 포함하므로
+    /// 웹에서 키를 재발급하거나 다른 계정 키로 교체하면 같은 데이터도 한 번 다시 전송된다.
+    /// 저장되는 값은 SHA-256뿐이라 유저 키 원문은 사이드카/UserDefaults에 추가로 남지 않는다.
+    static func uploadSignature(
+        contentSignature: String,
+        serverURL: String,
+        userKey: String
+    ) -> String {
+        let destination = endpoint(from: serverURL)?.absoluteString ?? ""
+        let key = userKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let data = Data("\(destination)\u{0}\(key)\u{0}\(contentSignature)".utf8)
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
     /// 스냅샷 db 파일을 multipart 로 업로드한다. 성공 시 서버가 저장한 바이트 수를 돌려준다.
     /// 실패 시 `ReportError` throw (401=유저키 오류, 413=크기 초과).
     @discardableResult

@@ -93,11 +93,32 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(hideInactiveAccounts, forKey: "ui.hideInactive") }
     }
 
-    /// Claude Code 라이브 세션·서브에이전트 팀 공유. 프로젝트명·브랜치·실행 중인
-    /// 서브에이전트 종류/1줄 설명이 팀에 공유되므로 옵트인(기본 끔). 켜면 Claude Code
-    /// 훅이 설치된다.
-    @Published var liveActivityEnabled: Bool {
-        didSet { defaults.set(liveActivityEnabled, forKey: "live.enabled") }
+    /// 이 기기에서 실행 중인 Claude/Codex/Cursor 활동을 로컬 UI에 표시한다.
+    /// 켜면 Claude Code 로컬 상태 훅이 설치되며, 수집된 세션 내용은 서버로 보내지 않는다.
+    @Published var localActivityEnabled: Bool {
+        didSet { defaults.set(localActivityEnabled, forKey: "localActivity.enabled") }
+    }
+
+    /// 데스크톱 위에 A-mon 펫을 표시한다. 펫은 로컬 활동 상태만 읽으며
+    /// 현재 작업 문구를 서버로 전송하지 않는다.
+    @Published var petEnabled: Bool {
+        didSet { defaults.set(petEnabled, forKey: "pet.enabled") }
+    }
+
+    /// Codex 호환 커스텀 스프라이트 시트의 로컬 사본 경로.
+    @Published var petSpritePath: String {
+        didSet { defaults.set(petSpritePath, forKey: "pet.spritePath") }
+    }
+
+    /// Codex 설치 링크와 함께 보존할 스프라이트 포맷 버전(1 또는 2).
+    /// 실제 프레임 레이아웃은 파일 검증 결과와 호환 프로필을 따른다.
+    @Published var petSpriteVersion: Int {
+        didSet { defaults.set(petSpriteVersion == 2 ? 2 : 1, forKey: "pet.spriteVersion") }
+    }
+
+    /// 작업 중일 때 펫 옆에 프로젝트와 현재 작업의 첫 줄을 표시한다.
+    @Published var petShowsCurrentTask: Bool {
+        didSet { defaults.set(petShowsCurrentTask, forKey: "pet.showsCurrentTask") }
     }
 
     /// 마지막 업로드 성공 시의 논리 콘텐츠 서명(UsageStore.contentSignature, hex) —
@@ -152,7 +173,15 @@ final class AppSettings: ObservableObject {
         dashboardMode = UserDefaults.standard.string(forKey: "ui.dashboardMode") ?? "all"
         selectedProviderTab = UserDefaults.standard.string(forKey: "ui.selectedTab") ?? ""
         hideInactiveAccounts = UserDefaults.standard.object(forKey: "ui.hideInactive") as? Bool ?? true
-        liveActivityEnabled = UserDefaults.standard.object(forKey: "live.enabled") as? Bool ?? false
+        localActivityEnabled =
+            UserDefaults.standard.object(forKey: "localActivity.enabled") as? Bool ?? false
+        petEnabled = UserDefaults.standard.object(forKey: "pet.enabled") as? Bool ?? true
+        petSpritePath = UserDefaults.standard.string(forKey: "pet.spritePath") ?? ""
+        let loadedPetSpriteVersion =
+            UserDefaults.standard.object(forKey: "pet.spriteVersion") as? Int ?? 1
+        petSpriteVersion = loadedPetSpriteVersion == 2 ? 2 : 1
+        petShowsCurrentTask =
+            UserDefaults.standard.object(forKey: "pet.showsCurrentTask") as? Bool ?? true
         // dashboard.syncEnabled 토글은 제거됨 — 서버 연동(URL+유저 키) 설정이 곧 전송 동의.
     }
 

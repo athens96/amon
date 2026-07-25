@@ -51,10 +51,11 @@ type codexLine struct {
 		Content json.RawMessage `json:"content"` // response_item message
 		Info    *struct {
 			Total *struct {
-				Input  int64 `json:"input_tokens"`
-				Cached int64 `json:"cached_input_tokens"`
-				Output int64 `json:"output_tokens"`
-				Total  int64 `json:"total_tokens"`
+				Input     int64 `json:"input_tokens"`
+				Cached    int64 `json:"cached_input_tokens"`
+				Output    int64 `json:"output_tokens"`
+				Reasoning int64 `json:"reasoning_output_tokens"` // output 의 부분집합
+				Total     int64 `json:"total_tokens"`
 			} `json:"total_token_usage"`
 		} `json:"info"`
 	} `json:"payload"`
@@ -116,6 +117,7 @@ func parseCodexRollout(path string) *Record {
 		first, last                       time.Time
 		input, cached, output, total      int64
 		hasUsage                          bool
+		hasTaskLifecycle, taskIsActive    bool
 		prompts                           []string
 		promptCount                       int
 		seenPrompts                       = map[string]struct{}{}
@@ -166,6 +168,12 @@ func parseCodexRollout(path string) *Record {
 			}
 		case "event_msg":
 			switch line.Payload.Type {
+			case "task_started", "turn_started":
+				hasTaskLifecycle = true
+				taskIsActive = true
+			case "task_complete", "turn_complete", "turn_aborted":
+				hasTaskLifecycle = true
+				taskIsActive = false
 			case "token_count":
 				if line.Payload.Info == nil || line.Payload.Info.Total == nil {
 					break
@@ -179,10 +187,16 @@ func parseCodexRollout(path string) *Record {
 				hasUsage = true
 			case "user_message":
 				appendPrompt(line.Payload.Message)
+				lastResult = ""
+			case "agent_message":
+				if preview := codexAgentEventPreview(line.Payload.Message); preview != "" {
+					lastResult = preview
+				}
 			}
 		case "response_item":
 			if text := codexUserMessage(line); text != "" {
 				appendPrompt(text)
+				lastResult = ""
 			} else if text := codexAssistantText(line); text != "" {
 				if fl := firstLine(text, 200); fl != "" {
 					lastResult = fl
@@ -191,7 +205,9 @@ func parseCodexRollout(path string) *Record {
 		}
 	}
 
-	if sessionID == "" || first.IsZero() || last.IsZero() || !hasUsage || total <= 0 {
+	// lifecycle이 active인 새 턴은 첫 token_count 이전에도 펫에 보여야 한다.
+	if sessionID == "" || first.IsZero() || last.IsZero() ||
+		((!hasUsage || total <= 0) && !(hasTaskLifecycle && taskIsActive)) {
 		return nil
 	}
 	if model == "" {
@@ -214,6 +230,13 @@ func parseCodexRollout(path string) *Record {
 		Models:       map[string]int64{model: total},
 		SourcePath:   path,
 	}
+	if hasTaskLifecycle {
+		if taskIsActive {
+			rec.Status = "active"
+		} else {
+			rec.Status = "idle"
+		}
+	}
 	if cwd == "" {
 		rec.ProjectLabel = ""
 	}
@@ -221,6 +244,15 @@ func parseCodexRollout(path string) *Record {
 		rec.CurrentTask = prompts[len(prompts)-1]
 	}
 	return &rec
+}
+
+func codexAgentEventPreview(text string) string {
+	preview := firstLine(text, 200)
+	trimmed := strings.TrimSpace(preview)
+	if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
+		return ""
+	}
+	return preview
 }
 
 // ScanCodex — <root>/**/rollout-*.jsonl 에서 최근 세션을 만든다.

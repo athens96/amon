@@ -14,7 +14,7 @@ struct LiveSession: Equatable {
     /// ProviderIcons 의 id 와 동일("claude" | "codex" | "cursor").
     let provider: String
     let sessionId: String
-    /// SwiftUI 목록/서버 upsert 모두 provider 를 포함해야 서로 다른 도구의 같은 세션 ID가 충돌하지 않는다.
+    /// 로컬 SwiftUI 목록에서 서로 다른 도구의 같은 세션 ID가 충돌하지 않게 한다.
     var identity: String { "\(provider):\(sessionId)" }
     let projectLabel: String
     let gitBranch: String?
@@ -28,25 +28,56 @@ struct LiveSession: Equatable {
     /// 현재 세션에서 마지막으로 확인한 모델 ID. 없으면 nil.
     let model: String?
     /// 라이브 토큰 스냅샷. Codex 는 세션 누적값, Claude/Cursor 는 로그에 있는 최신 값이다.
-    /// 전체 프롬프트/응답 원문은 보내지 않는다.
+    /// 전체 프롬프트/응답 원문은 현재 활동 캐시에 저장하지 않는다.
     let totalTokens: Int?
+    /// 입력/출력 토큰 분해값. 제공자가 안전하게 노출하는 경우에만 채운다.
+    let inputTokens: Int?
+    let outputTokens: Int?
     let startedAt: Date
     let updatedAt: Date
+
+    init(
+        provider: String,
+        sessionId: String,
+        projectLabel: String,
+        gitBranch: String?,
+        status: String,
+        agents: [LiveAgent],
+        currentTask: String?,
+        lastResult: String?,
+        model: String?,
+        totalTokens: Int?,
+        inputTokens: Int? = nil,
+        outputTokens: Int? = nil,
+        startedAt: Date,
+        updatedAt: Date
+    ) {
+        self.provider = provider
+        self.sessionId = sessionId
+        self.projectLabel = projectLabel
+        self.gitBranch = gitBranch
+        self.status = status
+        self.agents = agents
+        self.currentTask = currentTask
+        self.lastResult = lastResult
+        self.model = model
+        self.totalTokens = totalTokens
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.startedAt = startedAt
+        self.updatedAt = updatedAt
+    }
 }
 
 /// `~/Library/Application Support/A-mon/live/*.json` 를 주기적으로 폴링해 살아있는
 /// Claude Code 세션 스냅샷을 유지하는 관찰가능 상태.
 ///
-/// `LiveProvidersManager` 와 같은 형태(자체 타이머 + onChanged 훅)지만, 네트워크
-/// 대신 훅 스크립트가 써 둔 디렉토리를 읽는다. 파싱은 `.utility` 로 오프메인에서 돈다.
+/// `LiveProvidersManager` 와 같은 형태의 자체 타이머로 훅 스크립트가 써 둔 로컬
+/// 디렉토리를 읽는다. 파싱은 `.utility` 로 오프메인에서 돈다.
 @MainActor
 final class LiveActivityManager: ObservableObject {
     /// 현재 살아있는(15분 내 갱신된) 세션들.
     @Published private(set) var sessions: [LiveSession] = []
-
-    /// 스냅샷이 직전 폴링과 실제로 달라졌을 때만 호출된다. AppState 가 서버 보고를
-    /// 붙이는 훅 — 매니저는 설정/네트워크를 몰라도 되게 분리한다.
-    var onChanged: (([LiveSession]) -> Void)?
 
     private var autoTask: Task<Void, Never>?
     /// 폴링 간격 — 5초.
@@ -78,6 +109,7 @@ final class LiveActivityManager: ObservableObject {
     func stop() {
         autoTask?.cancel()
         autoTask = nil
+        sessions = []
     }
 
     /// 라이브 디렉토리를 오프메인에서 파싱하고, 직전과 다르면 반영·통지한다.
@@ -90,15 +122,13 @@ final class LiveActivityManager: ObservableObject {
         }.value
         if parsed != sessions {
             sessions = parsed
-            onChanged?(parsed)
         }
     }
 }
 
 /// 라이브 세션 상태 파일 파싱기 — 오프메인(detached)에서 돌 수 있게 액터 격리 없이 둔다.
-private enum LiveSessionParser {
-    /// 이보다 오래 갱신 안 된 세션은 stale(크래시/좀비)로 보고 버린다. 백엔드
-    /// `stale_minutes` 기본값(15분)과 맞춰 로컬 표시와 서버 데이터가 어긋나지 않게 한다.
+enum LiveSessionParser {
+    /// 이보다 오래 갱신 안 된 세션은 stale(크래시/좀비)로 보고 로컬 목록에서 버린다.
     static let staleInterval: TimeInterval = 15 * 60
 
     /// 디렉토리의 *.json 을 파싱하고 stale 세션을 제거해 startedAt 순으로 정렬한다.
@@ -169,6 +199,8 @@ private enum LiveSessionParser {
         let last_result: String?
         let model: String?
         let total_tokens: Int?
+        let input_tokens: Int?
+        let output_tokens: Int?
         let started_at: Date
         let updated_at: Date
 
@@ -184,6 +216,8 @@ private enum LiveSessionParser {
                 lastResult: last_result,
                 model: model,
                 totalTokens: total_tokens,
+                inputTokens: input_tokens,
+                outputTokens: output_tokens,
                 startedAt: started_at,
                 updatedAt: updated_at
             )
@@ -209,7 +243,7 @@ private enum LiveSessionParser {
 
 /// Codex CLI 는 Claude Code 같은 lifecycle hook 이 없으므로 rollout 로그의 최근
 /// 수정 시각과 마지막 token_count 스냅샷을 라이브 상태로 해석한다.
-private enum CodexLiveParser {
+enum CodexLiveParser {
     static let staleInterval: TimeInterval = 15 * 60
     static let activeInterval: TimeInterval = 90
     static let maxFiles = 20
@@ -251,7 +285,12 @@ private enum CodexLiveParser {
         var firstTS: Date?
         var lastTS: Date?
         var lastTotalTokens: Int?
+        var lastInputTokens: Int?
+        var lastOutputTokens: Int?
         var currentTask: String?
+        var lastResult: String?
+        var hasTaskLifecycle = false
+        var taskIsActive = false
 
         for line in data.split(separator: UInt8(ascii: "\n")) where !line.isEmpty {
             guard let obj = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any]
@@ -270,22 +309,65 @@ private enum CodexLiveParser {
                 model = payload["model"] as? String ?? model
             case "event_msg":
                 switch payload["type"] as? String {
+                case "task_started", "turn_started":
+                    hasTaskLifecycle = true
+                    taskIsActive = true
+                case "task_complete", "turn_complete", "turn_aborted":
+                    hasTaskLifecycle = true
+                    taskIsActive = false
                 case "token_count":
                     guard let info = payload["info"] as? [String: Any],
                           let total = info["total_token_usage"] as? [String: Any]
                     else { break }
-                    lastTotalTokens = total["total_tokens"] as? Int
+                    let rawInputTokens = intValue(total["input_tokens"])
+                    let cachedInputTokens = intValue(total["cached_input_tokens"]) ?? 0
+                    lastInputTokens = rawInputTokens.map { max($0 - cachedInputTokens, 0) }
+                    lastOutputTokens = intValue(total["output_tokens"])
+                    lastTotalTokens = intValue(total["total_tokens"])
+                        ?? componentTotal(input: rawInputTokens, output: lastOutputTokens)
                 case "user_message":
-                    if let text = firstLine(payload["message"] as? String, limit: 120) {
+                    if let text = firstLine(
+                        payload["message"] as? String ?? payload["text"] as? String,
+                        limit: 120
+                    ) {
                         currentTask = text
+                        lastResult = nil
+                    }
+                case "agent_message":
+                    if let text = agentEventPreview(
+                        payload["message"] as? String ?? payload["text"] as? String,
+                        limit: 200
+                    ) {
+                        lastResult = text
                     }
                 default:
                     break
                 }
             case "response_item":
-                if currentTask == nil,
-                   let text = extractUserMessage(from: payload).flatMap({ firstLine($0, limit: 120) }) {
-                    currentTask = text
+                if payload["type"] as? String == "message" {
+                    switch payload["role"] as? String {
+                    case "user":
+                        if let text = extractMessageText(
+                            from: payload, blockTypes: ["input_text", "text"], limit: 120
+                        ),
+                           isRealUserMessage(text) {
+                            currentTask = text
+                            lastResult = nil
+                        }
+                    case "assistant":
+                        if let text = extractMessageText(
+                            from: payload, blockTypes: ["output_text", "text"], limit: 200
+                        ) {
+                            lastResult = text
+                        } else if let text = firstLine(
+                            payload["text"] as? String ?? payload["message"] as? String,
+                            limit: 200
+                        ) {
+                            lastResult = text
+                        }
+                    default:
+                        break
+                    }
                 }
             default:
                 break
@@ -294,7 +376,11 @@ private enum CodexLiveParser {
 
         guard let id = sessionID, let started = firstTS else { return nil }
         let projectLabel = cwd.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "Codex"
-        let status = now.timeIntervalSince(modifiedAt) <= activeInterval ? "active" : "idle"
+        // 최신 Codex rollout은 턴 lifecycle을 명시하므로 파일 mtime보다 우선한다.
+        // 구버전 로그만 기존 90초 갱신 추정값을 사용한다.
+        let status = hasTaskLifecycle
+            ? (taskIsActive ? "active" : "idle")
+            : (now.timeIntervalSince(modifiedAt) <= activeInterval ? "active" : "idle")
         let task = currentTask ?? summary(model: model, totalTokens: lastTotalTokens)
         return LiveSession(
             provider: "codex",
@@ -304,9 +390,11 @@ private enum CodexLiveParser {
             status: status,
             agents: [],
             currentTask: task,
-            lastResult: nil,
+            lastResult: lastResult,
             model: model,
             totalTokens: lastTotalTokens,
+            inputTokens: lastInputTokens,
+            outputTokens: lastOutputTokens,
             startedAt: started,
             updatedAt: lastTS ?? modifiedAt
         )
@@ -318,16 +406,17 @@ private enum CodexLiveParser {
         return [modelPart, tokenPart].compactMap { $0 }.joined(separator: " · ").nilIfEmpty
     }
 
-    private static func extractUserMessage(from payload: [String: Any]) -> String? {
-        guard payload["type"] as? String == "message",
-              payload["role"] as? String == "user",
-              let content = payload["content"] as? [[String: Any]]
+    private static func extractMessageText(
+        from payload: [String: Any],
+        blockTypes: Set<String>,
+        limit: Int
+    ) -> String? {
+        guard let content = payload["content"] as? [[String: Any]]
         else { return nil }
-        for block in content where block["type"] as? String == "input_text" {
-            guard let text = block["text"] as? String,
-                  isRealUserMessage(text)
-            else { continue }
-            return text
+        for block in content where blockTypes.contains(block["type"] as? String ?? "") {
+            if let text = firstLine(block["text"] as? String, limit: limit) {
+                return text
+            }
         }
         return nil
     }
@@ -344,6 +433,16 @@ private enum CodexLiveParser {
         return !skippedPrefixes.contains { trimmed.hasPrefix($0) }
     }
 
+    /// `event_msg.agent_message`에는 권한 판정 같은 내부 구조화 이벤트가 섞일 수 있다.
+    /// 완전한 JSON 여부를 200자 미리보기에서 다시 파싱하면 긴/멀티라인 JSON이
+    /// 잘려 통과하므로, 이벤트 경로에서만 구조화 텍스트 시작 문자를 제외한다.
+    private static func agentEventPreview(_ text: String?, limit: Int) -> String? {
+        guard let preview = firstLine(text, limit: limit) else { return nil }
+        let trimmed = preview.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.hasPrefix("{"), !trimmed.hasPrefix("[") else { return nil }
+        return preview
+    }
+
     private static func firstLine(_ text: String?, limit: Int) -> String? {
         guard let text else { return nil }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -351,6 +450,20 @@ private enum CodexLiveParser {
               !line.isEmpty
         else { return nil }
         return String(line.prefix(limit))
+    }
+
+    private static func intValue(_ value: Any?) -> Int? {
+        if let value = value as? Int { return value >= 0 ? value : nil }
+        if let value = value as? NSNumber {
+            let parsed = value.intValue
+            return parsed >= 0 ? parsed : nil
+        }
+        return nil
+    }
+
+    private static func componentTotal(input: Int?, output: Int?) -> Int? {
+        guard input != nil || output != nil else { return nil }
+        return (input ?? 0) + (output ?? 0)
     }
 
     private static func modified(_ url: URL) -> Date? {
@@ -392,7 +505,7 @@ private enum CursorLiveParser {
               now.timeIntervalSince(touched) <= staleInterval
         else { return [] }
 
-        let signature = CursorStateDB.signature(dbURL)
+        let signature = CursorStateDB.signature(dbURL) + "|" + tokenCacheSignature()
         memoLock.lock()
         let cached: [LiveSession]? = memoSignature == signature ? memoSessions : nil
         memoLock.unlock()
@@ -404,6 +517,16 @@ private enum CursorLiveParser {
         memoSessions = parsed
         memoLock.unlock()
         return refreshed(parsed, now: now)
+    }
+
+    /// Cursor 사용 이벤트 캐시만 새로 받아도 세션 토큰 추정치를 다시 계산한다.
+    private static func tokenCacheSignature() -> String {
+        let url = CursorSessionTokens.fileURL
+        guard let values = try? url.resourceValues(
+            forKeys: [.contentModificationDateKey, .fileSizeKey]
+        ) else { return "no-token-cache" }
+        let modified = values.contentModificationDate?.timeIntervalSince1970 ?? 0
+        return "\(modified):\(values.fileSize ?? 0)"
     }
 
     /// 메모/파싱 결과에 현재 시각 기준 stale 필터·status 를 다시 입힌다.
@@ -422,6 +545,8 @@ private enum CursorLiveParser {
                 lastResult: session.lastResult,
                 model: session.model,
                 totalTokens: session.totalTokens,
+                inputTokens: session.inputTokens,
+                outputTokens: session.outputTokens,
                 startedAt: session.startedAt,
                 updatedAt: session.updatedAt
             )
@@ -438,14 +563,22 @@ private enum CursorLiveParser {
             guard !recent.isEmpty else { return [] }
 
             let labels = CursorStateDB.workspaceLabels(near: dbURL, for: Set(recent.map(\.id)))
-            return recent.compactMap { meta -> LiveSession? in
-                guard let composer = CursorStateDB.composer(db, id: meta.id),
-                      let updated = composer.updatedAt ?? meta.updatedAt
-                else { return nil }
+            let composers = recent.compactMap { meta -> CursorStateDB.Composer? in
+                CursorStateDB.composer(db, id: meta.id)
+            }
+            // 토큰은 로컬에 없어 CSV 이벤트 귀속 추정치를 쓴다(세션 기록과 동일 규칙,
+            // 캐시가 비어 있으면 nil 유지). 이벤트 갱신은 사용량/기록 스캔이 담당.
+            let estimates = CursorSessionTokens.attribute(
+                events: CursorSessionTokens.events(),
+                sessions: composers.map { ($0.id, $0.headers.compactMap(\.createdAt)) }
+            )
+            return composers.compactMap { composer -> LiveSession? in
+                guard let updated = composer.updatedAt else { return nil }
                 let task = CursorStateDB.latestText(db, composer: composer, type: 1, limit: 120)
                     ?? composer.name
                 // 요약할 내용이 아무것도 없는 composer(빈 초안)는 표시하지 않는다.
                 guard task != nil else { return nil }
+                let estimate = estimates[composer.id]
                 return LiveSession(
                     provider: "cursor",
                     sessionId: composer.id,
@@ -455,9 +588,12 @@ private enum CursorLiveParser {
                     agents: [],
                     currentTask: task,
                     lastResult: CursorStateDB.latestText(db, composer: composer, type: 2, limit: 200),
-                    model: composer.modelName,
-                    totalTokens: nil,
-                    startedAt: composer.createdAt ?? meta.createdAt ?? updated,
+                    model: composer.modelName
+                        ?? estimate?.models.max(by: { $0.value < $1.value })?.key,
+                    totalTokens: (estimate?.usage.total).flatMap { $0 > 0 ? $0 : nil },
+                    inputTokens: (estimate?.usage.input).flatMap { $0 > 0 ? $0 : nil },
+                    outputTokens: (estimate?.usage.output).flatMap { $0 > 0 ? $0 : nil },
+                    startedAt: composer.createdAt ?? updated,
                     updatedAt: updated
                 )
             }

@@ -19,8 +19,8 @@ struct MenuBarContentView: View {
     enum Screen: Hashable, CaseIterable { case dashboard, history, settings }
     @State private var screen: Screen = .dashboard
 
-    /// 브랜드 1차 색상 — Interactive Violet (#6161ff). docs/DESIGN.html 참조.
-    static let accent = Color(red: 0x61 / 255, green: 0x61 / 255, blue: 0xff / 255)
+    /// 브랜드 1차 색상 — Interactive Violet. docs/DESIGN.html 참조. 토큰 출처: Palette.accent
+    static let accent = Palette.accent
 
     var body: some View {
         HStack(spacing: 0) {

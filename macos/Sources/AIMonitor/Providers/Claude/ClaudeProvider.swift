@@ -10,7 +10,7 @@ final class ClaudeProvider: ProviderRuntime {
         id: "claude",
         displayName: "Claude",
         symbol: "sparkles",
-        accentHex: "#d97757",
+        accentHex: Palette.hexClaude,
         links: [
             ProviderLink(label: "Status", url: "https://status.anthropic.com/"),
             ProviderLink(label: "Dashboard", url: "https://claude.ai/settings/usage")

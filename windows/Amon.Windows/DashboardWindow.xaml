@@ -156,7 +156,6 @@
           <StackPanel>
             <TextBlock Text="일반" Style="{StaticResource SectionTitle}" />
             <Border Style="{StaticResource Card}" Padding="12,10" Margin="0,0,0,7"><Grid><StackPanel><TextBlock Text="자동 업데이트" FontWeight="SemiBold" /><TextBlock Text="새 버전을 자동으로 설치합니다" Foreground="{StaticResource MutedBrush}" FontSize="11" Margin="0,4,0,0" /></StackPanel><CheckBox IsChecked="{Binding AutoUpdate}" Style="{StaticResource Toggle}" HorizontalAlignment="Right" /></Grid></Border>
-            <Border Style="{StaticResource Card}" Padding="12,10" Margin="0,0,0,12"><Grid><StackPanel><TextBlock Text="세션 정보 공유" FontWeight="SemiBold" /><TextBlock Text="연결된 서버에 세션 요약을 전송합니다" Foreground="{StaticResource MutedBrush}" FontSize="11" Margin="0,4,0,0" /></StackPanel><CheckBox IsChecked="{Binding ShareSessions}" Style="{StaticResource Toggle}" HorizontalAlignment="Right" /></Grid></Border>
             <TextBlock Text="데이터 소스" Style="{StaticResource SectionTitle}" />
             <Border Style="{StaticResource Card}" Padding="12,10" Margin="0,0,0,12"><Grid><StackPanel><TextBlock Text="로그 경로 자동 감지" FontWeight="SemiBold" /><TextBlock Text="Claude, Codex 등 기본 위치를 사용합니다" Foreground="{StaticResource MutedBrush}" FontSize="11" Margin="0,4,0,0" /></StackPanel><CheckBox IsChecked="{Binding AutomaticPaths}" Style="{StaticResource Toggle}" HorizontalAlignment="Right" /></Grid></Border>
             <TextBlock Text="서버 연결" Style="{StaticResource SectionTitle}" />

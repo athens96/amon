@@ -18,7 +18,7 @@ public sealed class UsageStore
         Meta(connection, transaction, "schema_version", "1");
         Meta(connection, transaction, "generated_at", DateTimeOffset.UtcNow.ToString("O"));
         Meta(connection, transaction, "machine", Environment.MachineName);
-        Meta(connection, transaction, "app_version", "0.3.30");
+        Meta(connection, transaction, "app_version", "0.3.38");
         Meta(connection, transaction, "device_id", config.DeviceId);
         var window = DateTime.Today.AddDays(-29).ToString("yyyy-MM-dd");
         foreach (var summary in summaries)

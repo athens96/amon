@@ -17,7 +17,7 @@ import Foundation
 /// which are 5h-only — the weekly meters read "No data" there.
 @MainActor
 final class AntigravityProvider: ProviderRuntime {
-    let provider = Provider(id: "antigravity", displayName: "Antigravity", symbol: "arrow.up.circle.fill", accentHex: "#00857a")
+    let provider = Provider(id: "antigravity", displayName: "Antigravity", symbol: "arrow.up.circle.fill", accentHex: Palette.hexAntigravity)
 
     let authStore: AntigravityAuthStore
     let usageClient: AntigravityUsageClient

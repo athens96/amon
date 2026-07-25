@@ -28,7 +28,7 @@ type dashSync struct {
 }
 
 // newDashSync — usage.db 를 열고 마지막 업로드 서명을 복원한다. 열기 실패 시 nil
-// (저장 계층 없이도 스캔·세션 기록 보고는 계속된다).
+// (저장 계층 없이도 로컬 스캔·세션 기록은 계속된다).
 func newDashSync() *dashSync {
 	dir, err := config.Dir()
 	if err != nil {
@@ -55,7 +55,7 @@ func (d *dashSync) close() {
 }
 
 // persist — usage.db 에 스캔 결과를 저장하고, 서버 설정됨 + 내용 변경시
-// VACUUM INTO 스냅샷을 서버로 업로드한다.
+// meta+usage_daily 전용의 새 스냅샷을 서버로 업로드한다.
 func (d *dashSync) persist(summaries []scan.ToolSummary, records []session.Record) {
 	if d == nil || d.store == nil {
 		return
@@ -72,11 +72,11 @@ func (d *dashSync) persist(summaries []scan.ToolSummary, records []session.Recor
 	if !cfg.ReportConfigured() {
 		return
 	}
-	sig := contentSignature(summaries, records)
+	sig := report.UploadSignature(contentSignature(summaries), cfg.ServerURL, cfg.UserKey)
 	if sig == d.lastSig {
 		return // 내용 무변화 — 재업로드 생략
 	}
-	if err := d.store.VacuumInto(d.tmpPath); err != nil {
+	if err := d.store.UploadSnapshot(d.tmpPath); err != nil {
 		return
 	}
 	defer os.Remove(d.tmpPath)
@@ -87,16 +87,22 @@ func (d *dashSync) persist(summaries []scan.ToolSummary, records []session.Recor
 	saveUploadSig(d.sigFile, sig)
 }
 
-// contentSignature — 스캔 요약 + 세션 기록의 결정적 SHA-256. json.Marshal 이 맵 키를
-// 정렬해 안정적이다. usage.db 의 generated_at 은 매 스캔 바뀌므로 파일 SHA 대신
-// 이 논리적 서명으로 "내용 변경"을 판정한다(SPEC §3 변경 감지의 win 구현).
-func contentSignature(summaries []scan.ToolSummary, records []session.Record) string {
+// contentSignature — 서버 업로드 허용 데이터(일자별 사용량)의 결정적 SHA-256.
+// 로컬 세션 기록과 tool_totals 전용 필드는 서명에도 포함하지 않는다.
+func contentSignature(summaries []scan.ToolSummary) string {
 	h := sha256.New()
-	if b, err := json.Marshal(summaries); err == nil {
-		h.Write(b)
-	}
-	if b, err := json.Marshal(records); err == nil {
-		h.Write(b)
+	for _, summary := range summaries {
+		uploadContent := struct {
+			Tool             string
+			DailyByModel     map[string]map[string]scan.TokenUsage
+			DailyCostByModel map[string]map[string]float64
+		}{
+			Tool: summary.Tool, DailyByModel: summary.DailyByModel,
+			DailyCostByModel: summary.DailyCostByModel,
+		}
+		if b, err := json.Marshal(uploadContent); err == nil {
+			h.Write(b)
+		}
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }

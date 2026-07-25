@@ -199,12 +199,20 @@ enum CursorStateDB {
     static func bubble(
         _ db: OpaquePointer, composerId: String, bubbleId: String
     ) -> (text: String, createdAt: Date?)? {
-        guard let raw = value(db, key: "bubbleId:\(composerId):\(bubbleId)"),
-              let obj = try? JSONSerialization.jsonObject(with: raw) as? [String: Any]
+        guard let obj = bubbleObject(db, composerId: composerId, bubbleId: bubbleId)
         else { return nil }
         let text = (obj["text"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return (text, date(obj["createdAt"]))
+    }
+
+    /// 버블 원본 JSON 객체 — 본문 외 필드(`toolFormerData` 등)가 필요한 소비자용
+    /// (세션 정적 분석 `SessionAuditor`).
+    static func bubbleObject(
+        _ db: OpaquePointer, composerId: String, bubbleId: String
+    ) -> [String: Any]? {
+        guard let raw = value(db, key: "bubbleId:\(composerId):\(bubbleId)") else { return nil }
+        return (try? JSONSerialization.jsonObject(with: raw)) as? [String: Any]
     }
 
     /// 해당 role 의 가장 최근 본문 첫 줄. 빈 버블(툴 스텝)이 흔해서 뒤에서부터

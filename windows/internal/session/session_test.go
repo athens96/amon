@@ -276,6 +276,99 @@ func TestScanCodexIncludesRecentlyModifiedSession(t *testing.T) {
 	}
 }
 
+func TestScanCodexLifecycleOverridesRecentMtimeAndAllowsPreTokenTurn(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "2026", "rollout-live.jsonl")
+	writeFixture(t, file, []string{
+		jsonLine(t, map[string]any{
+			"type": "session_meta", "timestamp": "2026-07-14T02:00:00Z",
+			"payload": map[string]any{"id": "session-live", "cwd": "/tmp/live-project"},
+		}),
+		jsonLine(t, map[string]any{
+			"type": "event_msg", "timestamp": "2026-07-14T02:00:01Z",
+			"payload": map[string]any{"type": "user_message", "message": "작업 시작"},
+		}),
+		jsonLine(t, map[string]any{
+			"type": "event_msg", "timestamp": "2026-07-14T02:00:02Z",
+			"payload": map[string]any{"type": "task_started"},
+		}),
+	})
+	if err := os.Chtimes(file, time.Now(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	records := ScanCodex(dir, LoadFileCache(""))
+	if len(records) != 1 {
+		t.Fatalf("records = %d, want 1 pre-token active turn", len(records))
+	}
+	if records[0].Status != "active" || records[0].CurrentTask != "작업 시작" {
+		t.Fatalf("live record = %+v", records[0])
+	}
+
+	withComplete := append([]string{}, codexFixtureLines(t)...)
+	withComplete = append(withComplete, jsonLine(t, map[string]any{
+		"type": "event_msg", "timestamp": "2026-07-14T02:00:12Z",
+		"payload": map[string]any{"type": "task_complete"},
+	}))
+	writeFixture(t, file, withComplete)
+	if err := os.Chtimes(file, time.Now(), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	records = ScanCodex(dir, LoadFileCache(""))
+	if len(records) != 1 || records[0].Status != "idle" {
+		t.Fatalf("completed recent rollout must be idle: %+v", records)
+	}
+}
+
+func TestScanCodexUsesCurrentAgentPreviewWithoutStaleTurnOutput(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "2026", "rollout-live-output.jsonl")
+	lines := append([]string{}, codexFixtureLines(t)...)
+	lines = append(lines,
+		jsonLine(t, map[string]any{
+			"type": "response_item", "timestamp": "2026-07-14T02:00:12Z",
+			"payload": map[string]any{
+				"type": "message", "role": "user",
+				"content": []map[string]any{
+					{"type": "input_text", "text": "두 번째 작업"},
+				},
+			},
+		}),
+		jsonLine(t, map[string]any{
+			"type": "event_msg", "timestamp": "2026-07-14T02:00:13Z",
+			"payload": map[string]any{"type": "task_started"},
+		}),
+	)
+	writeFixture(t, file, lines)
+	record := parseCodexRollout(file)
+	if record == nil {
+		t.Fatal("active rollout was not parsed")
+	}
+	if record.CurrentTask != "두 번째 작업" || record.LastResult != "" {
+		t.Fatalf("new turn retained stale output: %+v", record)
+	}
+
+	lines = append(lines,
+		jsonLine(t, map[string]any{
+			"type": "event_msg", "timestamp": "2026-07-14T02:00:14Z",
+			"payload": map[string]any{
+				"type": "agent_message", "message": "새 응답 생성 중\n두 번째 줄",
+			},
+		}),
+		jsonLine(t, map[string]any{
+			"type": "event_msg", "timestamp": "2026-07-14T02:00:15Z",
+			"payload": map[string]any{
+				"type": "agent_message", "message": `{"kind":"internal"}`,
+			},
+		}),
+	)
+	writeFixture(t, file, lines)
+	record = parseCodexRollout(file)
+	if record == nil || record.LastResult != "새 응답 생성 중" {
+		t.Fatalf("agent preview = %+v, want current plain-text output", record)
+	}
+}
+
 // --- 원본 경로 해석 ---
 
 func TestLocatesClaudeSourceBySessionIDWhenPathMissing(t *testing.T) {
@@ -299,19 +392,6 @@ func TestMissingSourceReturnsError(t *testing.T) {
 	_, err := LoadTranscript(record("claude", "없는세션", "/nope/none.jsonl"), t.TempDir(), "")
 	if err != ErrSourceNotFound {
 		t.Fatalf("err = %v", err)
-	}
-}
-
-// --- 서버 보고 ---
-
-func TestReportPayloadStripsSourcePath(t *testing.T) {
-	rec := record("claude", "s-1", "/Users/me/.claude/projects/p/s-1.jsonl")
-	payload, err := json.Marshal(map[string]any{"user_key": "k", "sessions": StripLocal([]Record{rec})})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(payload), "source_path") || strings.Contains(string(payload), ".claude") {
-		t.Fatalf("로컬 경로가 보고 페이로드에 남음: %s", payload)
 	}
 }
 

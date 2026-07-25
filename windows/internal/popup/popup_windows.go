@@ -41,9 +41,9 @@ type Data struct {
 
 type Settings struct {
 	AutoUpdate      bool
-	ShareSessions   bool
 	AutomaticPaths  bool
 	ServerConnected bool
+	PetEnabled      bool
 }
 
 type Window struct {
@@ -343,10 +343,10 @@ func handleSettingsClick(hwnd uintptr, w *Window, x, y int) {
 	switch {
 	case y >= 82 && y < 145:
 		w.settings.AutoUpdate = !w.settings.AutoUpdate
-	case y >= 158 && y < 221:
-		w.settings.ShareSessions = !w.settings.ShareSessions
-	case y >= 258 && y < 321:
+	case y >= 183 && y < 246:
 		w.settings.AutomaticPaths = !w.settings.AutomaticPaths
+	case y >= 270 && y < 333:
+		w.settings.PetEnabled = !w.settings.PetEnabled
 	case y >= 410 && y < 462:
 		w.mu.Unlock()
 		signal(w.Advanced)
@@ -563,10 +563,11 @@ func paintSettings(hdc uintptr, settings Settings) {
 
 	text(hdc, fontStrong, 16, 57, 220, 78, rgb(230, 230, 239), "일반", 0)
 	settingRow(hdc, fontStrong, fontSmall, 16, 82, "자동 업데이트", "새 버전을 자동으로 설치합니다", settings.AutoUpdate)
-	settingRow(hdc, fontStrong, fontSmall, 16, 158, "세션 정보 공유", "연결된 서버에 세션 요약을 전송합니다", settings.ShareSessions)
+	text(hdc, fontStrong, 16, 158, 220, 179, rgb(230, 230, 239), "데이터 소스", 0)
+	settingRow(hdc, fontStrong, fontSmall, 16, 183, "로그 경로 자동 감지", "Claude, Codex 등 기본 위치를 사용합니다", settings.AutomaticPaths)
 
-	text(hdc, fontStrong, 16, 233, 220, 254, rgb(230, 230, 239), "데이터 소스", 0)
-	settingRow(hdc, fontStrong, fontSmall, 16, 258, "로그 경로 자동 감지", "Claude, Codex 등 기본 위치를 사용합니다", settings.AutomaticPaths)
+	text(hdc, fontStrong, 16, 246, 220, 267, rgb(230, 230, 239), "Codex 펫", 0)
+	settingRow(hdc, fontStrong, fontSmall, 16, 270, "데스크톱 펫 표시", "세부 기능과 펫 가져오기는 우클릭 메뉴에서 설정합니다", settings.PetEnabled)
 
 	text(hdc, fontStrong, 16, 338, 220, 359, rgb(230, 230, 239), "서버 연결", 0)
 	rounded(hdc, rect{16, 365, 424, 400}, rgb(38, 38, 47), 8)

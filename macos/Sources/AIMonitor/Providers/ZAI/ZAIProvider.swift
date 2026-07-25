@@ -8,7 +8,7 @@ final class ZAIProvider: ProviderRuntime {
         id: "zai",
         displayName: "Z.ai",
         symbol: "z.square.fill",
-        accentHex: "#3a6df0",
+        accentHex: Palette.hexZAI,
         links: [
             ProviderLink(label: "Dashboard", url: "https://z.ai/manage-apikey/coding-plan/personal/my-plan"),
             ProviderLink(label: "API Keys", url: "https://z.ai/manage-apikey/apikey-list")

@@ -167,7 +167,7 @@ struct CodexAuthStore: Sendable {
     /// Prefers the access token's own JWT `exp` — refresh only when it is at (or within
     /// `accessTokenRefreshWindow` of) expiry, mirroring the `codex` CLI. The hardcoded 8-day
     /// wall-clock age is only a fallback for tokens whose `exp` we can't read; on its own it forced a
-    /// refresh while the access token was still valid, tripping `refresh_token_reused` (issue #516).
+    /// refresh while the access token was still valid, tripping `refresh_token_reused` (issue 516).
     /// A brand-new login with no `last_refresh` and no readable `exp` does NOT need a refresh.
     func needsRefresh(_ auth: CodexAuth) -> Bool {
         if let accessToken = auth.tokens?.accessToken,

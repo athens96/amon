@@ -3,7 +3,7 @@
 A-mon은 로컬 AI 코딩 도구의 사용량과 세션을 수집하는 데스크톱 앱입니다.
 macOS에서는 메뉴바 앱으로, Windows에서는 시스템 트레이 앱으로 실행됩니다.
 
-현재 버전은 `0.3.30`이며 다음 도구의 로컬 데이터를 수집합니다.
+현재 버전은 `0.3.38`이며 다음 도구의 로컬 데이터를 수집합니다.
 
 - Claude Code
 - Codex CLI
@@ -11,9 +11,10 @@ macOS에서는 메뉴바 앱으로, Windows에서는 시스템 트레이 앱으�
 - Cursor
 - Gemini CLI, GitHub Copilot, Qwen Code 등 플랫폼별 지원 도구
 
-수집 결과는 로컬에서 확인할 수 있고, 서비스 모니터의 AI Monitoring API에
-연결하면 사용자별 대시보드와 세션 기록을 업로드할 수 있습니다. 서버 URL과
-사용자 키는 앱 설정에서 지정합니다.
+수집 결과와 세션 기록·대화·현재 활동은 이 기기에서만 확인합니다. 서버를 연결하면
+새로 만든 SQLite 파일의 `meta`와 `usage_daily` 집계만 대시보드에 업로드하며,
+세션·프롬프트·응답·프로젝트 정보는 전송하지 않습니다. 서버 URL과 사용자 키는
+앱 설정에서 지정합니다.
 
 ## 저장소 구조
 
@@ -61,7 +62,7 @@ make win-dist
 
 ```bash
 make version
-make set-version V=0.3.31
+make set-version V=0.3.39
 make scan
 make build
 make dist

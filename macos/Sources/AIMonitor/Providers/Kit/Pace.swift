@@ -35,7 +35,7 @@ enum Pace {
     /// `reset_at` server-side at request time (often already sub-second short of a full period), and
     /// the mapper's `now` lags it by network latency plus a second API round trip. With a 1s
     /// tolerance an untouched session routinely failed the test, so its floored `used_percent: 1`
-    /// survived normalization and the row read "99% left" forever (issue #708 regressing). Anything
+    /// survived normalization and the row read "99% left" forever (issue 708 regressing). Anything
     /// inside `minimumElapsed` has no pace signal anyway — `evaluate` refuses to project there — so
     /// "not started" is the honest reading for the ≤1% meters this feeds.
     static func isFreshUsageWindow(resetsAt: Date, periodDuration: TimeInterval, now: Date = Date()) -> Bool {

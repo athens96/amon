@@ -19,17 +19,25 @@ struct SessionTranscriptView: View {
     @State private var turns: [TranscriptTurn] = []
     @State private var failure: String?
     @State private var isLoading = true
+    /// true 면 대화 대신 정적 분석 화면(쉘/파일/위험 신호)을 보여준다.
+    @State private var showAudit = false
 
     /// 스크롤 점프용 앵커 id — 턴 id 와 충돌하지 않는 고정 문자열.
     private static let topAnchor = "transcript-top"
     private static let bottomAnchor = "transcript-bottom"
 
     var body: some View {
-        ScrollViewReader { proxy in
-            VStack(spacing: 0) {
-                header(proxy)
-                Divider()
-                content
+        Group {
+            if showAudit {
+                SessionAuditView(record: record) { showAudit = false }
+            } else {
+                ScrollViewReader { proxy in
+                    VStack(spacing: 0) {
+                        header(proxy)
+                        Divider()
+                        content
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -92,6 +100,16 @@ struct SessionTranscriptView: View {
                 .disabled(isLoading)
                 .help("진행 중인 세션 — 새 요청·응답 다시 읽기")
             }
+
+            Button {
+                showAudit = true
+            } label: {
+                Image(systemName: "shield.lefthalf.filled")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("세션 분석 — 쉘 요청 · 파일 읽기/쓰기 · 위험 신호 (정적 분석)")
 
             if let path = resolvedPath {
                 Button {
@@ -253,10 +271,35 @@ struct SessionTranscriptView: View {
 }
 
 /// 대화 한 턴 — 요청은 강조 배경, 응답은 기본 배경. 본문은 복사할 수 있게 둔다.
+/// 요청 카드에는 그 요청이 유발한 턴 사용량 배지가 붙는다(Claude Code·Codex 만 —
+/// Cursor 는 턴 단위 실측이 없다).
 private struct TranscriptTurnCard: View {
     let turn: TranscriptTurn
 
     private var isUser: Bool { turn.role == .user }
+
+    /// "in 45.2K · out 1.8K" — in 은 캐시 읽기/쓰기 포함(요청 컨텍스트 전체).
+    /// reasoning 은 output 의 부분집합(Codex)이라 더하지 않는다. 상세 브레이크다운은
+    /// 툴팁(`usageHelp`)에 둔다.
+    static func usageBadge(_ u: TokenUsage) -> String {
+        "in \(TokenFormat.compact(u.input + u.cacheRead + u.cacheWrite))"
+            + " · out \(TokenFormat.compact(u.output))"
+    }
+
+    static func usageHelp(_ u: TokenUsage) -> String {
+        var parts = [
+            "입력 \(TokenFormat.grouped(u.input))",
+            "캐시 읽기 \(TokenFormat.grouped(u.cacheRead))",
+        ]
+        if u.cacheWrite > 0 { parts.append("캐시 쓰기 \(TokenFormat.grouped(u.cacheWrite))") }
+        var output = "출력 \(TokenFormat.grouped(u.output))"
+        if u.reasoning > 0 { output += " (추론 \(TokenFormat.grouped(u.reasoning)) 포함)" }
+        parts.append(output)
+        parts.append("총 \(TokenFormat.grouped(u.total))")
+        return "이 요청이 유발한 실측 사용량 (다음 요청 전까지)\n"
+            + parts.joined(separator: " · ")
+            + "\n입력은 시스템 프롬프트·이전 대화를 포함한 요청 컨텍스트 전체입니다."
+    }
 
     private var time: String? {
         guard let timestamp = turn.timestamp else { return nil }
@@ -273,6 +316,13 @@ private struct TranscriptTurnCard: View {
                 Text(isUser ? "요청" : "응답")
                     .font(.amonCaption.weight(.semibold))
                 Spacer()
+                if let usage = turn.usage {
+                    Text(Self.usageBadge(usage))
+                        .font(.amonCaption)
+                        .monospacedDigit()
+                        .foregroundStyle(.tertiary)
+                        .help(Self.usageHelp(usage))
+                }
                 if let time {
                     Text(time)
                         .font(.amonCaption)
@@ -282,12 +332,11 @@ private struct TranscriptTurnCard: View {
             }
             .foregroundStyle(isUser ? MenuBarContentView.accent : Color.secondary)
 
-            Text(turn.text)
-                .font(.amonCaption)
-                .foregroundStyle(isUser ? .primary : .secondary)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            MarkdownView(
+                text: turn.text,
+                baseSize: 12,
+                textColor: isUser ? .primary : .secondary
+            )
         }
         .padding(10)
         .background(

@@ -77,7 +77,7 @@ enum AppIcons {
                 let alpha = src.colorAt(x: x, y: y)?.alphaComponent ?? 0
                 // 템플릿은 알파만 보므로 RGB 는 아무 값이어도 된다(검정 고정).
                 rep.setColor(
-                    NSColor(deviceRed: 0, green: 0, blue: 0, alpha: min(1.0, alpha * boost)),
+                    Palette.iconMaskNS(alpha: alpha * boost),
                     atX: x, y: y
                 )
             }

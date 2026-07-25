@@ -6,7 +6,7 @@
 #   make dist         # amd64+arm64 exe 를 dist/ 에 zip 으로
 
 APP     := A-mon
-VERSION := 0.3.30
+VERSION := 0.3.38
 LDFLAGS := -H windowsgui -s -w -X main.appVersion=$(VERSION)
 
 .PHONY: build build-arm64 scan tidy dist installer clean

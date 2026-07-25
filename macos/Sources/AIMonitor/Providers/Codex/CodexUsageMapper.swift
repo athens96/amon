@@ -82,7 +82,7 @@ enum CodexUsageMapper {
         // hardcoded name check.
         lines.append(contentsOf: additionalRateLimitLines(body: body, now: now))
 
-        // On-demand rate-limit reset credits, shown before Credits — mirrors the JS plugin (PR #577).
+        // On-demand rate-limit reset credits, shown before Credits — mirrors the JS plugin (PR 577).
         // The row reads "2 available" (the count is carried raw, so the menu-bar tile reads the same
         // number); each still-available credit's expiry rides along in `expiriesAt` and surfaces in the
         // row's hover tooltip ("Resets expire in: …").

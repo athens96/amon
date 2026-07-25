@@ -79,7 +79,7 @@ enum MetricLine: Hashable, Sendable, Codable {
         return false
     }
 
-    static let noUsageData = MetricLine.badge(label: "Status", text: "No usage data", colorHex: "#A3A3A3")
+    static let noUsageData = MetricLine.badge(label: "Status", text: "No usage data", colorHex: Palette.hexStatusNeutral)
 
     static func appendNoDataIfNeeded(_ lines: inout [MetricLine]) {
         if lines.isEmpty { lines.append(.noUsageData) }
