@@ -1,7 +1,9 @@
 package store
 
 import (
+	"bytes"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -188,7 +190,7 @@ func TestStoreWindowPreservesOldRows(t *testing.T) {
 	}
 }
 
-func TestStoreVacuumInto(t *testing.T) {
+func TestUploadSnapshotContainsOnlyAggregateTables(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "usage.db")
 	st, err := Open(path)
 	if err != nil {
@@ -197,12 +199,18 @@ func TestStoreVacuumInto(t *testing.T) {
 	defer st.Close()
 
 	day := scan.DayKey(time.Now())
-	if err := st.Save(sampleSummaries(day), nil, Meta{Machine: "box", AppVersion: "1"}); err != nil {
+	const sentinel = "AMON_PRIVATE_SESSION_SENTINEL_7D9A"
+	private := session.Record{
+		Provider: "claude", SessionID: "private", ProjectLabel: "private-project",
+		StartedAt: time.Now().Add(-time.Minute), EndedAt: time.Now(),
+		Prompts: []string{sentinel}, PromptCount: 1, TotalTokens: 1,
+	}
+	if err := st.Save(sampleSummaries(day), []session.Record{private}, Meta{Machine: "box", AppVersion: "1"}); err != nil {
 		t.Fatal(err)
 	}
 
 	dst := filepath.Join(t.TempDir(), "snap.db")
-	if err := st.VacuumInto(dst); err != nil {
+	if err := st.UploadSnapshot(dst); err != nil {
 		t.Fatal(err)
 	}
 	// SQLite 매직바이트 확인 (백엔드 ingest 검증과 동일 조건).
@@ -211,10 +219,30 @@ func TestStoreVacuumInto(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(data) < 16 || string(data[:16]) != "SQLite format 3\x00" {
-		t.Fatalf("vacuumed file is not a SQLite db")
+		t.Fatalf("upload snapshot is not a SQLite db")
 	}
-	// 두 번째 VacuumInto 는 기존 파일을 덮어써야 한다(대상 존재 시 실패하지 않음).
-	if err := st.VacuumInto(dst); err != nil {
-		t.Fatalf("second VacuumInto: %v", err)
+	if string(data) != "" && containsBytes(data, []byte(sentinel)) {
+		t.Fatal("upload snapshot contains private session sentinel")
 	}
+	db := openRO(t, dst)
+	rows, err := db.Query(`SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var tables []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		tables = append(tables, name)
+	}
+	if got := fmt.Sprint(tables); got != "[meta usage_daily]" {
+		t.Fatalf("upload tables = %s, want [meta usage_daily]", got)
+	}
+}
+
+func containsBytes(data, needle []byte) bool {
+	return bytes.Contains(data, needle)
 }

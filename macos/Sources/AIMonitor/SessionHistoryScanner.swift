@@ -586,9 +586,11 @@ enum SessionHistoryScanner {
     /// 전역 `cursorDiskKV` 의 composer 를 종료 세션 기록으로 만든다.
     ///
     /// 마지막 갱신이 `activeGrace` 안쪽인 composer 는 아직 진행 중일 수 있어
-    /// 건너뛴다(라이브 화면 담당). 토큰은 채우지 않는다 — 최신 Cursor 는 로컬 DB
-    /// 버블에 tokenCount 를 더 이상 남기지 않아(소비량은 클라우드 CSV 로만) 세션당
-    /// 토큰이 로컬에 없다. 요청/응답 요약·시각·모델만 채우고 토큰은 0 으로 둔다.
+    /// 건너뛴다(라이브 화면 담당). 최신 Cursor 는 로컬 DB 버블에 tokenCount 를
+    /// 더 이상 남기지 않으므로, 토큰은 대시보드 CSV 이벤트를 버블 시각에 귀속한
+    /// **추정치**로 채운다(`CursorSessionTokens` — 이벤트가 없으면 0). 추정은
+    /// 캐시된 기록에 저장하지 않고 스캔마다 다시 입힌다 — 뒤늦게 도착한 이벤트가
+    /// 다음 스캔에서 자연히 반영되게.
     static func cursorSessions(dbPath: String) -> [SessionRecord] {
         guard let dbURL = CursorStateDB.resolveGlobalDB(from: dbPath) else { return [] }
         let now = Date()
@@ -604,29 +606,64 @@ enum SessionHistoryScanner {
 
             var cache = SessionFileCache.load()
             var out: [SessionRecord] = []
+            var bubbleTimes: [String: [Date]] = [:]  // 세션 id → 버블 시각(귀속 입력)
             var misses: [CursorStateDB.ComposerMeta] = []
             for meta in ended {
+                // 버블 시각이 없는 항목(추정 도입 전 캐시)은 미스로 취급해 다시 파싱.
                 if let hit = cache.entries["cursor:\(meta.id)"],
-                   hit.signature == cursorSignature(meta) {
-                    if let record = hit.record { out.append(record) }
+                   hit.signature == cursorSignature(meta),
+                   let bubbles = hit.cursorBubbleTimes {
+                    if let record = hit.record {
+                        out.append(record)
+                        bubbleTimes[record.sessionId] = bubbles
+                    }
                 } else {
                     misses.append(meta)
                 }
             }
-            guard !misses.isEmpty else { return out }
 
-            let labels = CursorStateDB.workspaceLabels(near: dbURL, for: Set(misses.map(\.id)))
-            for meta in misses {
-                let record = cursorRecord(db, meta: meta, label: labels[meta.id], dbPath: dbURL.path)
-                cache.entries["cursor:\(meta.id)"] = SessionFileCacheEntry(
-                    signature: cursorSignature(meta), record: record, codexState: nil
-                )
-                if let record { out.append(record) }
+            if !misses.isEmpty {
+                let labels = CursorStateDB.workspaceLabels(near: dbURL, for: Set(misses.map(\.id)))
+                for meta in misses {
+                    let built = cursorRecord(db, meta: meta, label: labels[meta.id], dbPath: dbURL.path)
+                    cache.entries["cursor:\(meta.id)"] = SessionFileCacheEntry(
+                        signature: cursorSignature(meta), record: built?.record, codexState: nil,
+                        cursorBubbleTimes: built?.bubbles ?? []
+                    )
+                    if let built {
+                        out.append(built.record)
+                        bubbleTimes[built.record.sessionId] = built.bubbles
+                    }
+                }
+                SessionFileCache.save(cache)
             }
-            SessionFileCache.save(cache)
-            return out
+            return applyTokenEstimates(to: out, bubbleTimes: bubbleTimes)
         }
         return records ?? []
+    }
+
+    /// CSV 이벤트를 최근접 버블 세션에 귀속해 추정 토큰/모델을 입힌다.
+    /// 이벤트 캐시가 비어 있으면 기록을 그대로 둔다(0 유지).
+    private static func applyTokenEstimates(
+        to records: [SessionRecord], bubbleTimes: [String: [Date]]
+    ) -> [SessionRecord] {
+        let estimates = CursorSessionTokens.attribute(
+            events: CursorSessionTokens.events(),
+            sessions: records.compactMap { record in
+                bubbleTimes[record.sessionId].map { (id: record.sessionId, bubbles: $0) }
+            }
+        )
+        guard !estimates.isEmpty else { return records }
+        return records.map { record in
+            guard let estimate = estimates[record.sessionId] else { return record }
+            var copy = record
+            copy.inputTokens = estimate.usage.input
+            copy.outputTokens = estimate.usage.output
+            copy.cacheTokens = estimate.usage.cacheRead + estimate.usage.cacheWrite
+            copy.totalTokens = estimate.usage.total
+            if !estimate.models.isEmpty { copy.models = estimate.models }
+            return copy
+        }
     }
 
     /// composer 는 파일이 아니라 DB 행이라 (size, mtime) 대신 lastUpdatedAt 이 지문이다.
@@ -634,9 +671,10 @@ enum SessionHistoryScanner {
         "\(meta.updatedAt?.timeIntervalSince1970 ?? 0)"
     }
 
+    /// 기록과 함께 버블 시각들을 돌려준다 — 캐시에 저장돼 토큰 추정 귀속에 쓰인다.
     private static func cursorRecord(
         _ db: OpaquePointer, meta: CursorStateDB.ComposerMeta, label: String?, dbPath: String
-    ) -> SessionRecord? {
+    ) -> (record: SessionRecord, bubbles: [Date])? {
         guard let composer = CursorStateDB.composer(db, id: meta.id) else { return nil }
 
         // type 1(user) 버블 본문 첫 줄이 곧 요청 목록. 빈 본문(컨텍스트 전용 버블)은
@@ -662,7 +700,7 @@ enum SessionHistoryScanner {
             ?? meta.updatedAt
             ?? Date()
         let ended = composer.updatedAt ?? meta.updatedAt ?? started
-        return SessionRecord(
+        let record = SessionRecord(
             provider: "cursor",
             sessionId: composer.id,
             projectLabel: label ?? "Cursor",
@@ -673,7 +711,7 @@ enum SessionHistoryScanner {
             promptCount: promptCount,
             currentTask: prompts.last,
             lastResult: CursorStateDB.latestText(db, composer: composer, type: 2, limit: 200),
-            inputTokens: 0,
+            inputTokens: 0,  // 추정은 applyTokenEstimates 가 스캔마다 입힌다
             outputTokens: 0,
             cacheTokens: 0,
             totalTokens: 0,
@@ -681,6 +719,7 @@ enum SessionHistoryScanner {
             agentCount: composer.subagentCount,
             sourcePath: dbPath
         )
+        return (record, composer.headers.compactMap(\.createdAt))
     }
 
     static func codexUserMessage(from payload: [String: Any]) -> String? {

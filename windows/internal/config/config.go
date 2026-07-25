@@ -20,15 +20,48 @@ type Config struct {
 	Paths     scan.Paths `json:"paths"`      // 빈 항목은 OS 기본 경로
 	// AutoUpdate — 새 버전 발견 시 자동 설치. 생략(nil)이면 켬.
 	AutoUpdate *bool `json:"auto_update,omitempty"`
-	// ShareSessions — 세션 기록(요청·응답 첫 줄 요약 + 토큰)을 서버로 보고.
-	// 팀 대시보드 공유는 옵트인 정책이라 기본 끔. 로컬 기록·열람과는 무관하다.
-	ShareSessions bool `json:"share_sessions"`
 	// DeviceID — 설치 단위 안정 ID. 서버가 한 유저의 여러 기기를 구분하는 키로,
 	// 호스트명과 달리 네트워크에 따라 변하지 않는다. Load 가 비어 있으면 생성한다.
 	DeviceID string `json:"device_id,omitempty"`
-	// 에이전트 대시보드 업로드는 별도 토글 없이 서버 연동(server_url+user_key)
-	// 설정이 곧 전송 동의다 — 과거 dashboard_sync 키는 제거됨(있어도 무시).
+	// Pet — 로컬 세션을 데스크톱 펫으로 표시하는 Windows 전용 UI 설정.
+	// 작업 문구·응답·펫 위치는 로컬 config에만 저장되고 서버 보고에 포함되지 않는다.
+	Pet PetConfig `json:"pet,omitempty"`
+	// 대시보드 업로드는 meta+usage_daily 집계만 전송한다.
 }
+
+// PetConfig는 nil 포인터로 "구버전 config에 키가 없음"과 명시적인 false를 구분한다.
+// 구버전 사용자는 펫 표시/작업 말풍선은 켜지고, 로컬 작업 감지는 동의 전까지 꺼진다.
+type PetConfig struct {
+	Enabled              *bool  `json:"enabled,omitempty"`
+	LocalActivityEnabled *bool  `json:"local_activity_enabled,omitempty"`
+	ShowsCurrentTask     *bool  `json:"shows_current_task,omitempty"`
+	SpritePath           string `json:"sprite_path,omitempty"`
+	SpriteVersion        int    `json:"sprite_version,omitempty"`
+	PositionX            *int   `json:"position_x,omitempty"`
+	PositionY            *int   `json:"position_y,omitempty"`
+}
+
+func (p PetConfig) EnabledValue() bool {
+	return p.Enabled == nil || *p.Enabled
+}
+
+func (p PetConfig) LocalActivityEnabledValue() bool {
+	return p.LocalActivityEnabled != nil && *p.LocalActivityEnabled
+}
+
+func (p PetConfig) ShowsCurrentTaskValue() bool {
+	return p.ShowsCurrentTask == nil || *p.ShowsCurrentTask
+}
+
+func (p PetConfig) SpriteVersionValue() int {
+	if p.SpriteVersion == 2 {
+		return 2
+	}
+	return 1
+}
+
+func Bool(value bool) *bool { return &value }
+func Int(value int) *int    { return &value }
 
 // AutoUpdateEnabled — auto_update 필드가 없으면 기본 켬.
 func (c Config) AutoUpdateEnabled() bool {

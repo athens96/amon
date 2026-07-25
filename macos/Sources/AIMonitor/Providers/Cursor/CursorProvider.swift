@@ -10,7 +10,7 @@ final class CursorProvider: ProviderRuntime {
         id: "cursor",
         displayName: "Cursor",
         symbol: "cursorarrow.rays",
-        accentHex: "#2e7df6",
+        accentHex: Palette.hexCursor,
         links: [
             ProviderLink(label: "Status", url: "https://status.cursor.com/"),
             ProviderLink(label: "Dashboard", url: "https://www.cursor.com/dashboard")

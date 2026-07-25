@@ -19,6 +19,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -232,6 +233,9 @@ type detailTurn struct {
 	User bool
 	Text string
 	Time string
+	// 요청 턴 전용 — 이 요청이 유발한 턴 사용량 배지와 상세 툴팁.
+	Usage    string
+	UsageTip string
 }
 
 type detailPage struct {
@@ -278,6 +282,10 @@ func (s *Server) handleDetail(w http.ResponseWriter, r *http.Request) {
 		dt := detailTurn{User: t.Role == "user", Text: t.Text}
 		if !t.Timestamp.IsZero() {
 			dt.Time = t.Timestamp.Local().Format("15:04:05")
+		}
+		if t.Usage != nil {
+			dt.Usage = usageBadge(*t.Usage)
+			dt.UsageTip = usageTip(*t.Usage)
 		}
 		// 요청(user) 턴이 새 페어를 연다 — 요청 없이 시작하는 선행 응답들도
 		// 하나의 페어로 남긴다.
@@ -351,6 +359,47 @@ func compact(n int64) string {
 	}
 }
 
+func grouped(n int64) string {
+	s := fmt.Sprintf("%d", n)
+	if len(s) <= 3 {
+		return s
+	}
+	var b strings.Builder
+	lead := len(s) % 3
+	if lead > 0 {
+		b.WriteString(s[:lead])
+	}
+	for i := lead; i < len(s); i += 3 {
+		if b.Len() > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(s[i : i+3])
+	}
+	return b.String()
+}
+
+func usageBadge(u session.TurnUsage) string {
+	return "in " + compact(u.Input+u.CacheRead+u.CacheWrite) + " · out " + compact(u.Output)
+}
+
+func usageTip(u session.TurnUsage) string {
+	parts := []string{
+		"입력 " + grouped(u.Input),
+		"캐시 읽기 " + grouped(u.CacheRead),
+	}
+	if u.CacheWrite > 0 {
+		parts = append(parts, "캐시 쓰기 "+grouped(u.CacheWrite))
+	}
+	output := "출력 " + grouped(u.Output)
+	if u.Reasoning > 0 {
+		output += " (추론 " + grouped(u.Reasoning) + " 포함)"
+	}
+	parts = append(parts, output, "총 "+grouped(u.Total))
+	return "이 요청이 유발한 실측 사용량 (다음 요청 전까지)\n" +
+		strings.Join(parts, " · ") +
+		"\n입력은 시스템 프롬프트·이전 대화를 포함한 요청 컨텍스트 전체입니다."
+}
+
 func render(w http.ResponseWriter, tmpl *template.Template, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = tmpl.Execute(w, data)
@@ -361,9 +410,9 @@ func render(w http.ResponseWriter, tmpl *template.Template, data any) {
 // ---------------------------------------------------------------------------
 
 const baseCSS = `
-:root { --accent:#6161ff; --warm:#6161ff; --text:#333; --muted:#676879; --line:#d0d4e4; --bg:#fff; --surface:#fff; --soft:#f5f6f8; }
+:root { --accent:#6161ff; --warm:#6161ff; --text:#333333; --muted:#676879; --line:#d0d4e4; --bg:#fff; --surface:#fff; --soft:#f5f6f8; --white:#fff; --card-mint:#bcfe90; --card-lavender:#eddff7; --card-sky:#abf0ff; --card-sunset:#ff8940; --card-pale-blue:#e7ecff; --card-ocean:#93beff; --card-ice:#d1faff; }
 @media (prefers-color-scheme: dark) {
-  :root { --text:#e6e6ef; --muted:#9a9ab0; --line:#3a3a4a; --bg:#1c1c24; --surface:#1c1c24; --soft:#26262f; }
+  :root { --text:#e6e6ef; --muted:#9a9ab0; --line:#3a3a4a; --bg:#1c1c24; --surface:#1c1c24; --soft:#26262f; --card-mint:#2a4a1c; --card-lavender:#3a2050; --card-sky:#0d3545; --card-sunset:#5a2800; --card-pale-blue:#1a2545; --card-ocean:#142a50; --card-ice:#0f3040; }
 }
 * { box-sizing:border-box; margin:0; }
 html { scroll-behavior:smooth; }
@@ -372,7 +421,7 @@ a { color:inherit; text-decoration:none; }
 .shell { width:min(100%,560px); min-height:100vh; margin:0 auto; background:var(--bg); border-left:1px solid var(--line); border-right:1px solid var(--line); }
 .mast { height:64px; padding:0 18px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--line); }
 .brand { display:flex; align-items:center; gap:9px; font-size:15px; }
-.mark { width:30px; height:30px; display:grid; place-items:center; border-radius:6px; background:var(--accent); color:#fff; font-weight:700; }
+.mark { width:30px; height:30px; display:grid; place-items:center; border-radius:6px; background:var(--accent); color:var(--white); font-weight:700; }
 .eyebrow { color:var(--muted); font-size:10px; font-weight:600; letter-spacing:0; }
 .refresh { width:30px; height:30px; display:grid; place-items:center; border:1px solid var(--line); border-radius:6px; font-size:18px; color:var(--muted); }
 .nav { height:42px; padding:0 18px; display:flex; align-items:end; gap:20px; border-bottom:1px solid var(--line); }
@@ -410,7 +459,7 @@ h1 { font-size:18px; line-height:1.1; font-weight:700; margin-right:auto; }
 .tok { margin-left:auto; color:var(--accent); font-weight:600; white-space:nowrap; }
 .meta { color:var(--muted); font-size:12px; }
 .prompt { color:var(--muted); font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.live { padding:1px 6px; border-radius:6px; background:var(--accent); color:#fff; font-size:10px; font-weight:700; }
+.live { padding:1px 6px; border-radius:6px; background:var(--accent); color:var(--white); font-size:10px; font-weight:700; }
 .turn { padding:13px 16px; margin-bottom:2px; border-left:3px solid var(--line); background:var(--surface); white-space:pre-wrap; word-break:break-word; }
 .turn.user { border-left-color:var(--accent); }
 .turn.asst { color:var(--muted); }
@@ -418,6 +467,7 @@ h1 { font-size:18px; line-height:1.1; font-weight:700; margin-right:auto; }
 .turn.user .hd { color:var(--accent); }
 .turn.asst .hd { color:var(--muted); }
 .turn .hd .t { margin-left:auto; font-weight:400; }
+.turn .hd .t ~ .t { margin-left:0; }
 .back { color:var(--accent); font-weight:600; }
 .ctl { display:flex; align-items:center; gap:6px; margin-bottom:12px; }
 button.chip { background:none; font:inherit; font-size:12px; cursor:pointer; }
@@ -482,7 +532,7 @@ var detailTmpl = template.Must(template.New("detail").Parse(`<!doctype html>
 </div>
 {{range .Pairs}}<div class="pair">
 {{range .}}<div class="turn {{if .User}}user{{else}}asst{{end}}">
-  <div class="hd"><span>{{if .User}}→ 요청{{else}}↳ 응답{{end}}</span>{{if .Time}}<span class="t">{{.Time}}</span>{{end}}</div>{{.Text}}</div>
+  <div class="hd"><span>{{if .User}}→ 요청{{else}}↳ 응답{{end}}</span>{{if .Usage}}<span class="t" title="{{.UsageTip}}">{{.Usage}}</span>{{end}}{{if .Time}}<span class="t">{{.Time}}</span>{{end}}</div>{{.Text}}</div>
 {{end}}</div>
 {{end}}
 <script>

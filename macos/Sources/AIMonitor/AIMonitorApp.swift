@@ -65,6 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let state = AppState()
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
+    private var petOverlay: PetOverlayController?
     private var cancellables = Set<AnyCancellable>()
     private var reservedStatusItemLength: CGFloat = NSStatusItem.variableLength
 
@@ -93,6 +94,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
         setStatusIcon()
+
+        petOverlay = PetOverlayController(
+            state: state,
+            isPanelOpen: { [weak self] in self?.popover.isShown ?? false },
+            onAvatarClick: { [weak self] wasPanelOpen in
+                self?.setPopoverShown(!wasPanelOpen)
+            },
+            makeContextMenu: { [weak self] in
+                self?.makeStatusContextMenu() ?? NSMenu()
+            }
+        )
 
         // 아이콘(이름·커스텀 파일) 또는 상태(stage) 변경 시 상태바에 즉시 반영.
         state.settings.$iconIndex
@@ -136,7 +148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         state.liveActivity.$sessions
             .sink { [weak self] _ in Task { @MainActor in self?.setStatusIcon() } }
             .store(in: &cancellables)
-        state.settings.$liveActivityEnabled
+        state.settings.$localActivityEnabled
             .sink { [weak self] _ in Task { @MainActor in self?.setStatusIcon() } }
             .store(in: &cancellables)
     }
@@ -189,7 +201,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard !usages.isEmpty else { continue }
             let provider = lp.runtime(id: providerID)?.provider
             let name = provider?.displayName ?? providerID
-            let accentHex = provider?.accentHex ?? "#129178"
+            let accentHex = provider?.accentHex ?? Palette.accentHex
             entries.append((providerID, name, accentHex, Array(usages.prefix(2)), false))
         }
         if !entries.isEmpty { return entries }
@@ -197,7 +209,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let tightest = lp.tightestSessionUsage else { return [] }
         let provider = lp.runtime(id: tightest.id)?.provider
         let name = provider?.displayName ?? tightest.id
-        let accentHex = provider?.accentHex ?? "#129178"
+        let accentHex = provider?.accentHex ?? Palette.accentHex
         let usage = LiveProvidersManager.MenuBarUsage(
             meterLabel: "세션(5시간)", isSession: true, format: .percent,
             used: Double(tightest.used), limit: 100
@@ -222,7 +234,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let button = statusItem?.button else { return }
         // 프로바이더 공식 로고 우선 — 개별 보기 탭/우클릭 메뉴에서 고른 도구를 따라간다.
         let providerLogo = menuBarIconProviderID().flatMap { providerID -> NSImage? in
-            let accentHex = state.liveProviders.runtime(id: providerID)?.provider.accentHex ?? "#129178"
+            let accentHex = state.liveProviders.runtime(id: providerID)?.provider.accentHex ?? Palette.accentHex
             return ProviderIcons.coloredMenuBarImage(id: providerID, colorHex: accentHex)
         }
         // 커스텀 파일이 켜져 있으면 다음 순위 — 파일이 사라졌으면 내장 아이콘 폴백.
@@ -326,7 +338,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let logo = ProviderIcons.image(id: item.entry.id) {
                 NSGraphicsContext.saveGraphicsState()
                 logo.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1)
-                (NSColor(hex: item.entry.accentHex) ?? .labelColor).setFill()
+                (Palette.nsColor(fromHex: item.entry.accentHex) ?? .labelColor).setFill()
                 iconRect.fill(using: .sourceIn)
                 NSGraphicsContext.restoreGraphicsState()
             }
@@ -346,11 +358,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// 상태바 아이콘 호버 시 뜨는 툴팁 — 쿼터 한 줄 + 라이브 활동 한 줄을 합친다.
-    /// 라이브 세션 공유가 꺼져 있으면 라이브 줄은 생략(안 쓰는 기능을 언급하지 않음).
+    /// 이 기기의 현재 활동 표시가 꺼져 있으면 라이브 줄은 생략한다.
     private func statusTooltip(quotaLine: String?) -> String? {
         var lines: [String] = []
         if let quotaLine { lines.append(quotaLine) }
-        if state.settings.liveActivityEnabled {
+        if state.settings.localActivityEnabled {
             lines.append(liveActivityTooltipLine())
         }
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
@@ -378,19 +390,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func togglePopover(from sender: NSStatusBarButton) {
-        if popover.isShown {
-            popover.performClose(nil)
-        } else {
-            state.scanOnAppear()  // 열 때 재스캔 (throttle 됨)
-            popover.contentSize = Self.popoverSize
-            popover.contentViewController?.view.setFrameSize(Self.popoverSize)
-            NSApp.activate(ignoringOtherApps: true)
-            popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKey()
-        }
+        setPopoverShown(!popover.isShown, from: sender)
     }
 
     private func showContextMenu(from sender: NSStatusBarButton) {
+        let menu = makeStatusContextMenu()
+        menu.popUp(
+            positioning: nil,
+            at: NSPoint(x: 0, y: sender.bounds.height + 4),
+            in: sender
+        )
+    }
+
+    /// 메뉴바와 펫 우클릭이 같은 항목·target·action을 쓰도록 메뉴 생성을 공유한다.
+    private func makeStatusContextMenu() -> NSMenu {
         let menu = NSMenu()
         let title = NSMenuItem(
             title: "A-mon \(AppInfo.version)", action: nil, keyEquivalent: ""
@@ -416,15 +429,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "패널 열기", action: #selector(openPanel), keyEquivalent: ""))
+        menu.addItem(
+            NSMenuItem(
+                title: state.settings.petEnabled ? "펫 잠재우기" : "펫 깨우기",
+                action: #selector(togglePet),
+                keyEquivalent: ""
+            )
+        )
         menu.addItem(NSMenuItem(title: "종료", action: #selector(quit), keyEquivalent: "q"))
         for item in menu.items where item.action != nil {
             item.target = self
         }
-        menu.popUp(
-            positioning: nil,
-            at: NSPoint(x: 0, y: sender.bounds.height + 4),
-            in: sender
-        )
+        return menu
+    }
+
+    /// 펫을 누르는 순간 열려 있던 상태를 기준으로 표시 여부를 확정한다.
+    /// transient popover가 바깥 클릭에 먼저 닫히더라도 다시 열리는 것을 막는다.
+    private func setPopoverShown(
+        _ shown: Bool,
+        from sender: NSStatusBarButton? = nil
+    ) {
+        if !shown {
+            if popover.isShown {
+                popover.performClose(nil)
+            }
+            return
+        }
+        guard !popover.isShown,
+              let anchor = sender ?? statusItem.button
+        else { return }
+        state.scanOnAppear()  // 열 때 재스캔 (throttle 됨)
+        popover.contentSize = Self.popoverSize
+        popover.contentViewController?.view.setFrameSize(Self.popoverSize)
+        NSApp.activate(ignoringOtherApps: true)
+        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey()
     }
 
     // "메뉴바 % 표시" 서브메뉴는 제거됨 — 표시 켜기/끄기는 설정(기본 설정),
@@ -482,6 +521,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func installUpdate() {
         state.installUpdate()
+    }
+
+    @objc private func togglePet() {
+        if state.settings.petEnabled {
+            petOverlay?.tuckAway()
+        } else {
+            petOverlay?.wake()
+        }
     }
 
     @objc private func quit() {

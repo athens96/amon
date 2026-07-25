@@ -8,7 +8,8 @@ private let SQLITE_TRANSIENT_STORE = unsafeBitCast(-1, to: sqlite3_destructor_ty
 /// A-mon 로컬 사용량 저장 계층 (`usage.db`).
 ///
 /// 스캔 결과(도구별 요약)와 종료 세션 기록을 SQLite 에 적재하고, UI 는 여기서 로드해
-/// 스캔 전에도 즉시 렌더한다. 에이전트 대시보드 업로드는 이 DB 의 일관 스냅샷을 보낸다.
+/// 스캔 전에도 즉시 렌더한다. 서버 업로드에는 이 DB를 복제하지 않고
+/// `meta`와 `usage_daily`만 담은 새 SQLite 파일을 만든다.
 ///
 /// 스키마(SPEC §1): meta / usage_daily(date,tool,model) / tool_totals(tool) / sessions(id).
 /// 외부 의존성 0 원칙에 따라 시스템 SQLite3 C API 를 직접 쓴다. 모든 공개 메서드는
@@ -314,7 +315,8 @@ final class UsageStore: @unchecked Sendable {
 
     // MARK: - 논리 콘텐츠 서명 (업로드 변경 감지)
 
-    /// usage_daily/tool_totals/sessions 를 결정적 순서로 직렬화한 SHA-256(hex).
+    /// 업로드 허용 데이터(meta 중 generated_at 제외 + usage_daily)를 결정적 순서로
+    /// 직렬화한 SHA-256(hex). 로컬 전용 tool_totals/sessions 는 서명에도 넣지 않는다.
     /// meta(= generated_at 포함)는 제외하므로 매 스캔 generated_at 이 바뀌어도 내용이
     /// 같으면 서명이 같다. 파일 바이트 SHA 는 generated_at 때문에 항상 달라져 쓸 수 없다.
     func contentSignature() -> String {
@@ -343,36 +345,53 @@ final class UsageStore: @unchecked Sendable {
                 feed("\n")
             }
         }
+        hashRows("meta", """
+        SELECT key,value FROM meta WHERE key <> 'generated_at' ORDER BY key;
+        """, 2)
         hashRows("usage_daily", """
         SELECT date,tool,model,input,output,cache_read,cache_write,reasoning,total,cost_usd
           FROM usage_daily ORDER BY date,tool,model;
         """, 10)
-        hashRows("tool_totals", """
-        SELECT tool,input,output,cache_read,cache_write,reasoning,total,cost_usd,sessions,
-               last_activity,models_json,path_exists,note FROM tool_totals ORDER BY tool;
-        """, 13)
-        hashRows("sessions", """
-        SELECT id,tool,session_id,project,git_branch,started_at,ended_at,input,output,
-               cache_read,cache_write,total,cost_usd,models_json,prompt_count,first_prompt,
-               agent_count FROM sessions ORDER BY id;
-        """, 17)
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     // MARK: - 업로드 스냅샷
 
-    /// `VACUUM INTO` 로 일관 스냅샷을 만든다. 성공 시 대상 URL, 실패 시 nil.
-    /// 대상 파일이 이미 있으면 지운다(VACUUM INTO 는 기존 파일을 덮어쓰지 못한다).
-    func snapshot(to target: URL) -> URL? {
+    /// 서버 업로드 전용의 새 SQLite를 만든다. 허용 테이블은 정확히
+    /// `meta`, `usage_daily`뿐이다. 원본 DB를 VACUUM/복사하지 않으므로 sessions
+    /// 테이블이나 삭제된 페이지의 프롬프트 바이트가 대상 파일에 남을 수 없다.
+    func uploadSnapshot(to target: URL) -> URL? {
         lock.lock()
         defer { lock.unlock() }
         try? FileManager.default.removeItem(at: target)
         guard let db = openRW() else { return nil }
         defer { sqlite3_close(db) }
-        // WAL 을 본 파일로 합쳐 스냅샷이 최신 내용을 담게 한다.
-        exec(db, "PRAGMA wal_checkpoint(TRUNCATE);")
+
         let escaped = target.path.replacingOccurrences(of: "'", with: "''")
-        return exec(db, "VACUUM INTO '\(escaped)';") ? target : nil
+        guard exec(db, "ATTACH DATABASE '\(escaped)' AS upload;") else { return nil }
+        let sql = """
+        PRAGMA upload.user_version=1;
+        CREATE TABLE upload.meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE upload.usage_daily(
+          date TEXT NOT NULL, tool TEXT NOT NULL, model TEXT NOT NULL DEFAULT '',
+          input INTEGER NOT NULL DEFAULT 0, output INTEGER NOT NULL DEFAULT 0,
+          cache_read INTEGER NOT NULL DEFAULT 0, cache_write INTEGER NOT NULL DEFAULT 0,
+          reasoning INTEGER NOT NULL DEFAULT 0, total INTEGER NOT NULL DEFAULT 0,
+          cost_usd REAL, PRIMARY KEY(date, tool, model));
+        INSERT INTO upload.meta(key,value)
+          SELECT key,value FROM main.meta;
+        INSERT INTO upload.usage_daily
+          (date,tool,model,input,output,cache_read,cache_write,reasoning,total,cost_usd)
+          SELECT date,tool,model,input,output,cache_read,cache_write,reasoning,total,cost_usd
+          FROM main.usage_daily;
+        """
+        let copied = exec(db, sql)
+        let detached = exec(db, "DETACH DATABASE upload;")
+        guard copied, detached else {
+            try? FileManager.default.removeItem(at: target)
+            return nil
+        }
+        return target
     }
 
     // MARK: - 헬퍼

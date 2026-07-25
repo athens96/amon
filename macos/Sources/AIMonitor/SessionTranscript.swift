@@ -14,6 +14,10 @@ struct TranscriptTurn: Identifiable, Equatable {
     let role: Role
     let text: String
     let timestamp: Date?
+    /// 이 요청이 유발한 **턴 사용량** — 이 요청부터 다음 요청 전까지의 API 실측 합.
+    /// user 턴에만 붙는다. input 은 입력 텍스트가 아니라 시스템 프롬프트·이전
+    /// 대화를 포함한 요청 컨텍스트 전체다. Cursor 는 턴 단위 실측이 없어 항상 nil.
+    var usage: TokenUsage? = nil
 }
 
 enum TranscriptError: LocalizedError, Equatable {
@@ -124,25 +128,39 @@ enum SessionTranscriptLoader {
     ///
     /// 한 응답(message.id)이 콘텐츠 블록마다 여러 줄로 쪼개져 기록되므로 같은 id 의
     /// 텍스트는 하나의 턴으로 이어 붙인다(`UsageScanner` 의 dedup 과 같은 사정).
+    ///
+    /// 토큰은 요청→다음 요청 사이의 assistant `message.usage` 를 (message.id,
+    /// requestId) last-wins 로 dedup 해 요청 턴에 귀속한다 — `UsageScanner` 와 같은
+    /// 규칙이라 일간 집계와 같은 정확도다. 본문 없는 응답(툴 호출만)과 같은 파일의
+    /// sidechain 라인도 이 요청이 유발한 소비라 포함한다. 단, 별도 파일로 남는
+    /// 서브에이전트 소비는 여기 안 잡혀 배지 합 < 세션 합계일 수 있다.
     private static func claudeTurns(_ data: Data) -> [TranscriptTurn] {
         var turns: [TranscriptTurn] = []
         var openAssistantID: String?
+        // 요청 페어 귀속 상태 — pairIndex 는 지금까지 나온 typed 요청 수(1-based).
+        // 첫 요청 전(재개 세션 선행분 등)은 0 번에 쌓이고 배지로는 쓰지 않는다.
+        var pairIndex = 0
+        var usageByKey: [String: TokenUsage] = [:]
+        var pairByKey: [String: Int] = [:]
+        var anonymous = 0
 
         for line in data.split(separator: UInt8(ascii: "\n")) where !line.isEmpty {
-            guard let obj = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
-                  !(obj["isSidechain"] as? Bool ?? false)
+            guard let obj = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any]
             else { continue }
+            let isSidechain = obj["isSidechain"] as? Bool ?? false
             let timestamp = (obj["timestamp"] as? String).flatMap(SessionHistoryScanner.parseISO)
 
             switch obj["type"] as? String {
             case "user":
-                guard obj["promptSource"] as? String == "typed",
+                guard !isSidechain,
+                      obj["promptSource"] as? String == "typed",
                       let message = obj["message"] as? [String: Any],
                       let text = SessionHistoryScanner.promptText(message["content"])?
                         .trimmingCharacters(in: .whitespacesAndNewlines),
                       !text.isEmpty
                 else { break }
                 openAssistantID = nil  // 새 요청이 오면 직전 응답 턴은 닫는다
+                pairIndex += 1
                 turns.append(
                     TranscriptTurn(
                         id: turns.count, role: .user, text: text, timestamp: timestamp
@@ -150,7 +168,30 @@ enum SessionTranscriptLoader {
                 )
 
             case "assistant":
-                guard let message = obj["message"] as? [String: Any],
+                // usage 수집은 본문·sidechain 여부와 무관 — 스트리밍 재등장은
+                // 증가만 하므로 last-wins 로 덮고, 귀속 페어도 함께 갱신한다.
+                if let message = obj["message"] as? [String: Any],
+                   let u = message["usage"] as? [String: Any] {
+                    let key: String
+                    if let mid = message["id"] as? String, !mid.isEmpty {
+                        key = mid + "|" + ((obj["requestId"] as? String) ?? "")
+                    } else {
+                        anonymous += 1
+                        key = "__anon__\(anonymous)"
+                    }
+                    let input = int(u["input_tokens"])
+                    let output = int(u["output_tokens"])
+                    let cacheWrite = int(u["cache_creation_input_tokens"])
+                    let cacheRead = int(u["cache_read_input_tokens"])
+                    usageByKey[key] = TokenUsage(
+                        input: input, output: output,
+                        cacheRead: cacheRead, cacheWrite: cacheWrite,
+                        reasoning: 0, total: input + output + cacheRead + cacheWrite
+                    )
+                    pairByKey[key] = pairIndex
+                }
+                guard !isSidechain,
+                      let message = obj["message"] as? [String: Any],
                       let text = SessionHistoryScanner.assistantText(message["content"])?
                         .trimmingCharacters(in: .whitespacesAndNewlines),
                       !text.isEmpty
@@ -180,7 +221,13 @@ enum SessionTranscriptLoader {
                 break
             }
         }
-        return turns
+
+        var pairUsage: [Int: TokenUsage] = [:]
+        for (key, usage) in usageByKey {
+            guard let pair = pairByKey[key], pair > 0 else { continue }
+            pairUsage[pair, default: TokenUsage()] += usage
+        }
+        return attach(pairUsage, to: turns)
     }
 
     // MARK: - Cursor 전역 state.vscdb
@@ -221,8 +268,22 @@ enum SessionTranscriptLoader {
 
     /// 같은 요청이 `event_msg`(user_message)와 `response_item`(role=user) 양쪽에
     /// 기록되므로 직전 요청과 같은 본문이면 건너뛴다.
+    ///
+    /// 토큰은 `token_count` 이벤트의 **누적**(`total_token_usage`) 스냅샷을 요청
+    /// 경계에서 델타로 끊어 요청 턴에 귀속한다. 턴 단건(`last_token_usage`) 합산은
+    /// 중단/재시도 턴에서 누적과 어긋나는 실측 사례가 있어(`UsageScanner` 의 보정
+    /// 주석 참조) 권위값인 누적을 쓴다.
     private static func codexTurns(_ data: Data) -> [TranscriptTurn] {
         var turns: [TranscriptTurn] = []
+        var pairUsage: [Int: TokenUsage] = [:]
+        var pairIndex = 0
+        var lastCumulative = TokenUsage()
+        var pairStart = TokenUsage()
+
+        func closePair() {
+            guard pairIndex > 0 else { return }
+            pairUsage[pairIndex] = delta(lastCumulative, since: pairStart)
+        }
 
         func appendUser(_ raw: String?, _ timestamp: Date?) {
             guard let text = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -230,6 +291,9 @@ enum SessionTranscriptLoader {
                   SessionHistoryScanner.codexIsRealUserMessage(text)
             else { return }
             if let last = turns.last, last.role == .user, last.text == text { return }
+            closePair()
+            pairIndex += 1
+            pairStart = lastCumulative
             turns.append(
                 TranscriptTurn(id: turns.count, role: .user, text: text, timestamp: timestamp)
             )
@@ -243,8 +307,27 @@ enum SessionTranscriptLoader {
 
             switch obj["type"] as? String {
             case "event_msg":
-                guard payload["type"] as? String == "user_message" else { break }
-                appendUser(payload["message"] as? String, timestamp)
+                switch payload["type"] as? String {
+                case "user_message":
+                    appendUser(payload["message"] as? String, timestamp)
+                case "token_count":
+                    // info:null 하트비트는 스냅샷이 아니다 — 건너뛴다.
+                    guard let info = payload["info"] as? [String: Any],
+                          let tu = info["total_token_usage"] as? [String: Any]
+                    else { break }
+                    let inputTotal = int(tu["input_tokens"])     // 캐시 히트 포함
+                    let cached = int(tu["cached_input_tokens"])  // input 의 부분집합
+                    let output = int(tu["output_tokens"])
+                    let reasoning = int(tu["reasoning_output_tokens"])
+                    let total = int(tu["total_tokens"])
+                    lastCumulative = TokenUsage(
+                        input: max(0, inputTotal - cached), output: output,
+                        cacheRead: cached, cacheWrite: 0, reasoning: reasoning,
+                        total: total > 0 ? total : (inputTotal + output)
+                    )
+                default:
+                    break
+                }
 
             case "response_item":
                 if let text = SessionHistoryScanner.codexUserMessage(from: payload) {
@@ -262,6 +345,42 @@ enum SessionTranscriptLoader {
                 break
             }
         }
-        return turns
+        closePair()
+        return attach(pairUsage, to: turns)
+    }
+
+    // MARK: - 토큰 귀속 공통
+
+    /// k 번째(1-based) 요청 턴에 pairUsage[k] 를 붙인다. 소비가 0 인 페어는 배지를
+    /// 만들지 않는다(진행 중 세션에서 아직 응답 전인 마지막 요청 등).
+    private static func attach(
+        _ pairUsage: [Int: TokenUsage], to turns: [TranscriptTurn]
+    ) -> [TranscriptTurn] {
+        guard !pairUsage.isEmpty else { return turns }
+        var ordinal = 0
+        return turns.map { turn in
+            guard turn.role == .user else { return turn }
+            ordinal += 1
+            guard let usage = pairUsage[ordinal], usage.total > 0 else { return turn }
+            var updated = turn
+            updated.usage = usage
+            return updated
+        }
+    }
+
+    /// 누적 스냅샷 차 — 파일 손상 등으로 역행하면 0 으로 클램프한다.
+    private static func delta(_ now: TokenUsage, since base: TokenUsage) -> TokenUsage {
+        TokenUsage(
+            input: max(0, now.input - base.input),
+            output: max(0, now.output - base.output),
+            cacheRead: max(0, now.cacheRead - base.cacheRead),
+            cacheWrite: max(0, now.cacheWrite - base.cacheWrite),
+            reasoning: max(0, now.reasoning - base.reasoning),
+            total: max(0, now.total - base.total)
+        )
+    }
+
+    private static func int(_ value: Any?) -> Int {
+        (value as? Int) ?? (value as? NSNumber)?.intValue ?? 0
     }
 }

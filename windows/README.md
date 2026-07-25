@@ -15,10 +15,18 @@ macOS 메뉴바 앱(`../macos`)의 Windows 대응 — **하단 트레이 상주 
     `OPENCODE_DB`(파일)/`OPENCODE_DATA_DIR` 우선. opencode.db(SQLite) 우선,
     파일 storage 폴백
   - Cursor `%APPDATA%\Cursor\User\globalStorage\state.vscdb`
-- 서버 자동 보고: `POST {server}/api/v1/ai-usage/report` — macOS 앱과 동일 계약
-  (`{user_key, days:[{date,tool,input,output,cache}]}`, 최근 7일 배치)
+- 서버 자동 보고: `POST {server}/api/v1/ai-agents/report` — `meta`와
+  `usage_daily` 집계만 담은 새 SQLite 파일을 전송합니다. 로컬 세션 기록과
+  프롬프트·응답·프로젝트 정보는 전송하지 않습니다.
+- Codex 펫 호환 데스크톱 오버레이
+  - Codex 작업 시작/완료를 5초 주기로 감지해 상태 애니메이션, 입력·출력 요약,
+    입력/출력 토큰을 로컬에서 표시
+  - 동시에 실행 중인 세션은 `1/N`과 좌우 버튼으로 전환
+  - 펫 클릭으로 대시보드를 열고 닫으며, 드래그한 위치를 저장
+  - `codex-pets` ZIP 또는 1536×1872 투명 PNG를 가져오고
+    [codex-pets.net](https://codex-pets.net/)을 바로 열 수 있음
 - 트레이 메뉴: 오늘/누적 합계 · 도구별 상세(hover 툴팁) · 새로고침 · 지금 보고 ·
-  설정 파일 열기 · 웹 대시보드 열기
+  펫 설정/가져오기 · 설정 파일 열기 · 웹 대시보드 열기
 
 파싱 규칙은 macOS `UsageScanner.swift` 와 1:1 동일하다 (2026-07 dedup 수정 반영).
 프로바이더 라이브 쿼터(9종)는 후속 버전에서 이식 예정.
@@ -32,11 +40,18 @@ macOS 메뉴바 앱(`../macos`)의 Windows 대응 — **하단 트레이 상주 
 {
   "server_url": "https://monitor.example.com",
   "user_key": "웹 내정보 설정에서 발급한 키",
-  "paths": { "claude": "", "codex": "", "opencode": "", "cursor": "" }
+  "paths": { "claude": "", "codex": "", "opencode": "", "cursor": "" },
+  "pet": {
+    "enabled": true,
+    "local_activity_enabled": false,
+    "shows_current_task": true
+  }
 }
 ```
 
-`paths` 의 빈 항목은 OS 기본 경로를 쓴다.
+`paths` 의 빈 항목은 OS 기본 경로를 쓴다. `local_activity_enabled`는
+명시적으로 켜기 전까지 꺼져 있으며, 작업·응답·펫 위치는 서버에 전송되지 않는다.
+현재 Windows 임포터는 ZIP 안의 PNG 또는 단독 PNG를 지원하며 WebP는 지원하지 않는다.
 
 ## 빌드 (macOS/리눅스에서 크로스컴파일)
 

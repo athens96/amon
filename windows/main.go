@@ -15,7 +15,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/binary"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -31,6 +31,7 @@ import (
 	"fyne.io/systray"
 
 	"github.com/athens96/amon/windows/internal/config"
+	"github.com/athens96/amon/windows/internal/pet"
 	"github.com/athens96/amon/windows/internal/popup"
 	"github.com/athens96/amon/windows/internal/provider"
 	"github.com/athens96/amon/windows/internal/scan"
@@ -44,9 +45,10 @@ var trayIcon []byte
 
 // appVersion — 기본값. 릴리즈 빌드는 Makefile 이 -ldflags "-X main.appVersion=…"
 // 로 주입한다(단일 출처 = windows/Makefile VERSION, macOS 와 정책 공유).
-var appVersion = "0.3.30"
+var appVersion = "0.3.38"
 
 const scanInterval = 10 * time.Minute
+const petScanInterval = 5 * time.Second
 
 // menu — 갱신이 필요한 트레이 메뉴 항목 모음.
 type menu struct {
@@ -59,10 +61,17 @@ type menu struct {
 	sendNow   *systray.MenuItem
 	openCfg   *systray.MenuItem
 	openWeb   *systray.MenuItem
+	petToggle *systray.MenuItem
+	petLive   *systray.MenuItem
+	petTask   *systray.MenuItem
+	petImport *systray.MenuItem
+	petStore  *systray.MenuItem
 	quit      *systray.MenuItem
 	open      chan struct{}
 	panel     *popup.Window
+	petWindow *pet.Window
 	providers *provider.Manager
+	records   []session.Record
 }
 
 func main() {
@@ -73,7 +82,12 @@ func onReady() {
 	systray.SetIcon(trayIcon)
 	systray.SetTooltip("A-mon — AI 사용량 수집기")
 
-	m := &menu{open: make(chan struct{}, 1), panel: popup.New(), providers: provider.NewManager()}
+	cfg, _ := config.Load()
+	m := &menu{
+		open: make(chan struct{}, 1), panel: popup.New(),
+		petWindow: pet.NewWindow(petWindowSettings(cfg)),
+		providers: provider.NewManager(),
+	}
 	systray.SetOnClick(func() {
 		select {
 		case m.open <- struct{}{}:
@@ -98,15 +112,28 @@ func onReady() {
 	systray.AddSeparator()
 	m.status = systray.AddMenuItem("아직 보고 안 함", "마지막 스캔·서버 보고 상태")
 	m.status.Disable()
+	systray.AddSeparator()
+	m.petToggle = systray.AddMenuItem("펫 잠재우기", "데스크톱 펫 표시/숨기기")
+	m.petLive = systray.AddMenuItemCheckbox(
+		"현재 작업 감지", "로컬 세션만 읽으며 서버로 전송하지 않습니다",
+		cfg.Pet.LocalActivityEnabledValue(),
+	)
+	m.petTask = systray.AddMenuItemCheckbox(
+		"작업 말풍선 표시", "현재 입력·출력 요약과 토큰을 펫 옆에 표시",
+		cfg.Pet.ShowsCurrentTaskValue(),
+	)
+	m.petImport = systray.AddMenuItem("Codex 펫 가져오기...", "codex-pets ZIP 또는 PNG 가져오기")
+	m.petStore = systray.AddMenuItem("Codex 펫 다운로드", "https://codex-pets.net/ 열기")
 	m.install = systray.AddMenuItem("", "서버 릴리즈 채널의 새 버전을 설치")
 	m.install.Hide()
 	m.sessions = systray.AddMenuItem("세션 기록 보기", "종료된 세션의 요청·응답 전문 (브라우저)")
 	m.refresh = systray.AddMenuItem("새로고침", "지금 다시 스캔")
-	m.sendNow = systray.AddMenuItem("지금 보고", "지금 스캔하고 에이전트 대시보드·세션 기록을 서버로 업로드")
+	m.sendNow = systray.AddMenuItem("지금 보고", "지금 스캔하고 집계 사용량을 서버로 업로드")
 	m.openCfg = systray.AddMenuItem("설정 파일 열기", "server_url·user_key·경로 편집")
 	m.openWeb = systray.AddMenuItem("웹 대시보드 열기", "AI 모니터 웹 열기")
 	systray.AddSeparator()
 	m.quit = systray.AddMenuItem(fmt.Sprintf("종료 (v%s)", appVersion), "A-mon 종료")
+	refreshPetMenu(m, cfg)
 
 	// 클릭 핸들러 + 주기 스캔 루프.
 	go loop(m)
@@ -127,6 +154,9 @@ func loop(m *menu) {
 
 	ticker := time.NewTicker(scanInterval)
 	defer ticker.Stop()
+	petTicker := time.NewTicker(petScanInterval)
+	defer petTicker.Stop()
+	defer m.petWindow.Close()
 	for {
 		select {
 		case <-ticker.C:
@@ -140,6 +170,15 @@ func loop(m *menu) {
 			maybeAutoInstall(m, pending)
 		case <-m.sendNow.ClickedCh:
 			cycle(m, hub, ds, true)
+		case <-petTicker.C:
+			cfg, err := config.Load()
+			if err != nil {
+				continue
+			}
+			if cfg.Pet.LocalActivityEnabledValue() {
+				m.records = hub.scan()
+			}
+			updatePetWithConfig(m, m.records, cfg)
 		case <-m.install.ClickedCh:
 			installUpdate(m, pending)
 		case <-m.open:
@@ -158,11 +197,13 @@ func loop(m *menu) {
 			if err == nil {
 				autoUpdate := settings.AutoUpdate
 				cfg.AutoUpdate = &autoUpdate
-				cfg.ShareSessions = settings.ShareSessions
+				cfg.Pet.Enabled = config.Bool(settings.PetEnabled)
 				if settings.AutomaticPaths {
 					cfg.Paths = scan.Paths{}
 				}
 				_ = config.Save(cfg)
+				refreshPetMenu(m, cfg)
+				updatePetWithConfig(m, m.records, cfg)
 				cycle(m, hub, ds, false)
 			}
 		case <-m.panel.Advanced:
@@ -180,8 +221,41 @@ func loop(m *menu) {
 			if cfg, err := config.Load(); err == nil && cfg.ServerURL != "" {
 				openURL(cfg.ServerURL)
 			}
+		case <-m.petToggle.ClickedCh:
+			togglePetEnabled(m)
+		case <-m.petLive.ClickedCh:
+			togglePetActivity(m)
+		case <-m.petTask.ClickedCh:
+			togglePetTask(m)
+		case <-m.petImport.ClickedCh:
+			importPet(m)
+		case <-m.petStore.ClickedCh:
+			openURL("https://codex-pets.net/")
+		case <-m.petWindow.Dashboard:
+			_, data := cycle(m, hub, ds, false)
+			m.panel.Toggle(data)
+		case <-m.petWindow.TogglePet:
+			togglePetEnabled(m)
+		case <-m.petWindow.ToggleActivity:
+			togglePetActivity(m)
+		case <-m.petWindow.ToggleTask:
+			togglePetTask(m)
+		case <-m.petWindow.ImportPet:
+			importPet(m)
+		case <-m.petWindow.DownloadPets:
+			openURL("https://codex-pets.net/")
+		case <-m.petWindow.Settings:
+			showSettings(m.panel)
+		case position := <-m.petWindow.Moved:
+			savePetPosition(position)
+		case <-m.petWindow.Quit:
+			m.panel.Close()
+			m.petWindow.Close()
+			systray.Quit()
+			return
 		case <-m.quit.ClickedCh:
 			m.panel.Close()
+			m.petWindow.Close()
 			systray.Quit()
 			return
 		}
@@ -193,10 +267,12 @@ func loop(m *menu) {
 func cycle(m *menu, hub *sessionHub, ds *dashSync, periodic bool) ([]scan.ToolSummary, popup.Data) {
 	summaries := scanAndRefresh(m, periodic)
 	records := hub.scan()
+	m.records = records
 	ds.persist(summaries, records)
 	snapshots := m.providers.Fetch(context.Background())
 	data := dashboardData(summaries, records, snapshots)
 	m.panel.Update(data)
+	updatePet(m, records)
 	systray.SetIcon(statusIcon(trayIcon, data.Active, totalToday(summaries)))
 	tip := fmt.Sprintf("A-mon | 오늘 %s tokens", data.Today)
 	if data.Active > 0 {
@@ -300,7 +376,13 @@ func recordActive(rec session.Record) bool {
 		return false
 	}
 	info, err := os.Stat(rec.SourcePath)
-	return err == nil && time.Since(info.ModTime()) <= session.ActiveGrace
+	if err != nil || time.Since(info.ModTime()) > session.ActiveGrace {
+		return false
+	}
+	if rec.Status != "" {
+		return pet.StatusFromString(rec.Status) == pet.StatusRunning
+	}
+	return time.Since(info.ModTime()) <= pet.SourceActiveInterval
 }
 
 func relativeTime(t time.Time) string {
@@ -389,14 +471,13 @@ func statusIcon(ico []byte, active int, today int64) []byte {
 	return out
 }
 
-// sessionHub — 세션 기록 수집 상태(저장소·파싱 캐시·직전 보고 스냅샷).
+// sessionHub — 이 기기의 로컬 세션 기록 수집 상태(저장소·파싱 캐시).
 //
 // 스캔 주기는 트레이 루프(10분)를 따른다 — 맥(60초)보다 길지만 세션 기록은
 // 실시간 데이터가 아니고, 지문 캐시 덕에 스캔 자체는 활성 파일 몇 개만 읽는다.
 type sessionHub struct {
 	store *session.Store
 	cache *session.FileCache
-	known map[string]string // ID → 직렬화 스냅샷: 바뀐 기록만 서버로 보낸다
 }
 
 func newSessionHub() *sessionHub {
@@ -407,11 +488,10 @@ func newSessionHub() *sessionHub {
 	return &sessionHub{
 		store: &session.Store{Path: filepath.Join(dir, "history", "sessions.jsonl")},
 		cache: session.LoadFileCache(filepath.Join(dir, "cache", "session-files.json")),
-		known: map[string]string{},
 	}
 }
 
-// scan — 종료 세션 스캔 → 저장소 적재 → (share_sessions 옵트인 시) 변경분 보고.
+// scan — 종료 세션 스캔 → 이 기기의 로컬 저장소 적재.
 // 병합된 전체 세션 기록을 돌려준다(usage.db sessions 미러용).
 func (h *sessionHub) scan() []session.Record {
 	cfg, _ := config.Load()
@@ -419,23 +499,7 @@ func (h *sessionHub) scan() []session.Record {
 	fresh := session.ScanClaude(paths.Claude, h.cache)
 	fresh = append(fresh, session.ScanCodex(paths.Codex, h.cache)...)
 	h.cache.Save()
-	merged := h.store.Upsert(fresh)
-
-	var changed []session.Record
-	for _, rec := range merged {
-		blob, err := json.Marshal(rec)
-		if err != nil {
-			continue
-		}
-		if h.known[rec.ID()] != string(blob) {
-			h.known[rec.ID()] = string(blob)
-			changed = append(changed, rec)
-		}
-	}
-	if cfg.ShareSessions && cfg.ReportConfigured() && len(changed) > 0 {
-		_ = session.Send(cfg.ServerURL, cfg.UserKey, changed)
-	}
-	return merged
+	return h.store.Upsert(fresh)
 }
 
 // openDashboard — 사용량과 최근 세션을 독립 앱 창으로 연다.
@@ -611,10 +675,155 @@ func showSettings(panel *popup.Window) {
 	automaticPaths := cfg.Paths == (scan.Paths{}) || cfg.Paths == defaults
 	panel.ShowSettings(popup.Settings{
 		AutoUpdate:      cfg.AutoUpdateEnabled(),
-		ShareSessions:   cfg.ShareSessions,
 		AutomaticPaths:  automaticPaths,
 		ServerConnected: cfg.ReportConfigured(),
+		PetEnabled:      cfg.Pet.EnabledValue(),
 	})
+}
+
+func petWindowSettings(cfg config.Config) pet.WindowSettings {
+	return pet.WindowSettings{
+		Enabled:              cfg.Pet.EnabledValue(),
+		LocalActivityEnabled: cfg.Pet.LocalActivityEnabledValue(),
+		ShowsCurrentTask:     cfg.Pet.ShowsCurrentTaskValue(),
+		SpritePath:           cfg.Pet.SpritePath,
+		PositionX:            cfg.Pet.PositionX,
+		PositionY:            cfg.Pet.PositionY,
+	}
+}
+
+func updatePet(m *menu, records []session.Record) {
+	cfg, err := config.Load()
+	if err != nil {
+		return
+	}
+	updatePetWithConfig(m, records, cfg)
+}
+
+func updatePetWithConfig(m *menu, records []session.Record, cfg config.Config) {
+	var live []pet.LiveRecord
+	if cfg.Pet.LocalActivityEnabledValue() {
+		now := time.Now()
+		for _, record := range records {
+			if record.SourcePath == "" {
+				continue
+			}
+			info, err := os.Stat(record.SourcePath)
+			if err != nil || now.Sub(info.ModTime()) > session.ActiveGrace {
+				continue
+			}
+			live = append(live, pet.NewLiveRecord(record, pet.RecordState{
+				Lifecycle:  record.Status,
+				ModifiedAt: info.ModTime(),
+				UpdatedAt:  record.EndedAt,
+			}))
+		}
+	}
+	m.petWindow.Update(
+		pet.Presentations(live, time.Now()),
+		petWindowSettings(cfg),
+	)
+	refreshPetMenu(m, cfg)
+}
+
+func refreshPetMenu(m *menu, cfg config.Config) {
+	if cfg.Pet.EnabledValue() {
+		m.petToggle.SetTitle("펫 잠재우기")
+	} else {
+		m.petToggle.SetTitle("펫 깨우기")
+	}
+	if cfg.Pet.LocalActivityEnabledValue() {
+		m.petLive.Check()
+	} else {
+		m.petLive.Uncheck()
+	}
+	if cfg.Pet.ShowsCurrentTaskValue() {
+		m.petTask.Check()
+	} else {
+		m.petTask.Uncheck()
+	}
+}
+
+func togglePetEnabled(m *menu) {
+	cfg, err := config.Load()
+	if err != nil {
+		return
+	}
+	cfg.Pet.Enabled = config.Bool(!cfg.Pet.EnabledValue())
+	if config.Save(cfg) != nil {
+		return
+	}
+	updatePetWithConfig(m, m.records, cfg)
+}
+
+func togglePetActivity(m *menu) {
+	cfg, err := config.Load()
+	if err != nil {
+		return
+	}
+	cfg.Pet.LocalActivityEnabled = config.Bool(!cfg.Pet.LocalActivityEnabledValue())
+	if config.Save(cfg) != nil {
+		return
+	}
+	updatePetWithConfig(m, m.records, cfg)
+}
+
+func togglePetTask(m *menu) {
+	cfg, err := config.Load()
+	if err != nil {
+		return
+	}
+	cfg.Pet.ShowsCurrentTask = config.Bool(!cfg.Pet.ShowsCurrentTaskValue())
+	if config.Save(cfg) != nil {
+		return
+	}
+	updatePetWithConfig(m, m.records, cfg)
+}
+
+func importPet(m *menu) {
+	source, err := pet.SelectPetFile()
+	if err != nil {
+		if !errors.Is(err, pet.ErrDialogCancelled) {
+			m.status.SetTitle("펫 파일 선택 실패: " + err.Error())
+		}
+		return
+	}
+	dir, err := config.Dir()
+	if err != nil {
+		return
+	}
+	destination := filepath.Join(dir, "pets", "spritesheet.png")
+	asset, err := pet.InstallAsset(source, destination)
+	if err != nil {
+		m.status.SetTitle("펫 가져오기 실패: " + err.Error())
+		return
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return
+	}
+	cfg.Pet.SpritePath = destination
+	cfg.Pet.SpriteVersion = 1
+	cfg.Pet.Enabled = config.Bool(true)
+	if config.Save(cfg) != nil {
+		return
+	}
+	name := asset.DisplayName
+	if name == "" {
+		name = "Codex 호환"
+	}
+	m.status.SetTitle(fmt.Sprintf("%s 펫 적용 · %d×%d PNG", name, asset.Width, asset.Height))
+	updatePetWithConfig(m, m.records, cfg)
+}
+
+func savePetPosition(position pet.Position) {
+	cfg, err := config.Load()
+	if err != nil {
+		return
+	}
+	cfg.Pet.PositionX = config.Int(position.X)
+	cfg.Pet.PositionY = config.Int(position.Y)
+	_ = config.Save(cfg)
 }
 
 // openURL — 기본 브라우저로 URL 열기.

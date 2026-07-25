@@ -9,7 +9,7 @@
     <AssemblyName>A-mon</AssemblyName>
     <RootNamespace>AMon</RootNamespace>
     <ApplicationIcon>..\assets\amon.ico</ApplicationIcon>
-    <Version>0.3.30</Version>
+    <Version>0.3.38</Version>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>

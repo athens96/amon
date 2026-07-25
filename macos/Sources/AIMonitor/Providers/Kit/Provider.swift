@@ -7,12 +7,12 @@ struct Provider: Identifiable, Hashable, Sendable {
     let displayName: String
     /// SF Symbol 이름 (팝오버 리스트 아이콘).
     let symbol: String
-    /// 액센트 색 hex (예: "#d97757").
+    /// 액센트 색 hex 문자열 (예: Palette.hexClaude). 토큰 출처: Palette
     let accentHex: String
     /// 프로바이더별 퀵링크(상태/콘솔). 지금 UI 에선 선택적.
     let links: [ProviderLink]
 
-    init(id: String, displayName: String, symbol: String = "cpu", accentHex: String = "#129178", links: [ProviderLink] = []) {
+    init(id: String, displayName: String, symbol: String = "cpu", accentHex: String = Palette.accentHex, links: [ProviderLink] = []) {
         self.id = id
         self.displayName = displayName
         self.symbol = symbol

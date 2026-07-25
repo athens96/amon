@@ -32,8 +32,7 @@ const ActiveGrace = 15 * time.Minute
 // SessionLimit — 프로바이더당 스캔할 최근 파일 수 상한. 맥과 동일.
 const SessionLimit = 200
 
-// Record — 종료된 세션 1건. JSON 은 snake_case — 백엔드 AISessionHistoryReport
-// 계약 및 맥 SessionRecord CodingKeys 와 1:1.
+// Record — 이 기기에 로컬 저장하는 종료 세션 1건.
 type Record struct {
 	Provider     string           `json:"provider"` // "claude" | "codex"
 	SessionID    string           `json:"session_id"`
@@ -51,8 +50,10 @@ type Record struct {
 	TotalTokens  int64            `json:"total_tokens"`
 	Models       map[string]int64 `json:"models"`
 	AgentCount   int              `json:"agent_count"`
-	// SourcePath — 이 세션의 원본 로그 경로. **로컬 전용** — 상세(전문)를 열 때만
-	// 쓰고 서버 보고에서는 제거한다(report.go). omitempty 라 비우면 키가 빠진다.
+	// Status는 로그가 lifecycle 이벤트를 제공할 때의 최신 턴 상태다.
+	// "active" | "idle"; 빈 값은 구버전 로그라 mtime 추정이 필요함을 뜻한다.
+	Status string `json:"status,omitempty"`
+	// SourcePath — 이 세션의 원본 로그 경로. 상세(전문)를 열 때만 쓴다.
 	SourcePath string `json:"source_path,omitempty"`
 }
 

@@ -2,11 +2,14 @@
 
 A-mon의 **macOS 메뉴바(상태바) 앱**. 화면 최상단 상태바에
 아이콘이 뜨고, 클릭하면 패널이 나타난다. 로컬 AI 코딩 도구
-(**Claude Code · Codex CLI · OpenCode**)의 로그를 읽어 **토큰 사용량**을 집계한다.
+(**Claude Code · Codex CLI · OpenCode · Cursor · Gemini · Qwen · Copilot**)의
+로그를 읽어 **토큰 사용량**을 집계한다.
 
 - **오늘 사용량**을 크게, **전체 누적**을 하단에 작게 표시
 - 도구별 카드: 오늘 입력/출력/캐시 브레이크다운 + 누적·세션 수·마지막 활동일
 - **설정** 화면에서 3개 도구의 로그 폴더 경로를 직접 지정 (UserDefaults 영속)
+- 세션 상세의 Markdown·표·체크리스트, 턴별 사용량과 로컬 정적 감사(명령·파일·스킬·MCP)
+- 현재 활동과 세션 전문은 로컬 전용. 서버에는 `meta`와 `usage_daily` 집계만 업로드
 
 > 실행 파일/번들명은 ASCII `AIMonitor` 로 두고, Finder·메뉴바에 보이는 이름은
 > `Info.plist` 의 `CFBundleDisplayName`("A-mon")로 지정한다.

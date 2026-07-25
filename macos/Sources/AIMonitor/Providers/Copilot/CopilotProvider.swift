@@ -8,7 +8,7 @@ final class CopilotProvider: ProviderRuntime {
         id: "copilot",
         displayName: "GitHub Copilot",
         symbol: "chevron.left.forwardslash.chevron.right",
-        accentHex: "#6e40c9",
+        accentHex: Palette.hexCopilot,
         links: [
             ProviderLink(label: "Status", url: "https://www.githubstatus.com/"),
             ProviderLink(label: "Dashboard", url: "https://github.com/settings/billing")

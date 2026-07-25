@@ -219,17 +219,17 @@ enum HookInstaller {
     // MARK: - 임베드된 파이썬 훅 스크립트 (순수 stdlib, plain python3 로 실행)
 
     /// Claude Code 훅 시스템이 stdin JSON 으로 호출하는 스크립트. 절대 크래시/블록하지
-    /// 않도록 전부 예외를 삼키고 항상 exit(0). 프롬프트 원문은 절대 저장/전송하지 않는다.
+    /// 않도록 전부 예외를 삼키고 항상 exit(0). 프롬프트 원문은 저장하지 않는다.
     /// (Swift raw string `#"""..."""#` 로 감싸 파이썬의 따옴표/역슬래시를 그대로 보존한다.)
-    private static let hookScriptSource: String = #"""
+    static let hookScriptSource: String = #"""
 #!/usr/bin/env python3
 # A-mon 라이브 세션 훅 — Claude Code 훅 시스템이 stdin JSON 페이로드로 호출한다.
 #
 # payload["hook_event_name"] 로 디스패치한다(argv 가 아니라 JSON 필드 기준 — 항상 존재).
 # 세션별 상태를 ~/Library/Application Support/A-mon/live/<session_id>.json 에 원자적으로
-# 유지하고, macOS 앱이 이 디렉토리를 폴링해 서버로 보고한다.
+# 유지하고, macOS 앱이 이 디렉토리를 폴링해 로컬 현재 활동 화면에 표시한다.
 #
-# 개인정보 규칙: tool_input["prompt"] 는 절대 읽거나 저장하거나 전송하지 않는다.
+# 개인정보 규칙: tool_input["prompt"] 는 절대 읽거나 저장하지 않는다.
 # 오직 description(1줄 요약)만 보관한다.
 #
 # 절대 크래시/블록하지 않는다: 모든 예외를 삼키고 항상 exit(0). 표준 라이브러리만 사용.
@@ -317,6 +317,8 @@ def default_session(session_id, cwd):
         "last_result": None,
         "model": None,
         "total_tokens": None,
+        "input_tokens": None,
+        "output_tokens": None,
         "transcript_path": "",  # 앱이 세션당 토큰을 집계할 때 읽는다
         "started_at": now,
         "updated_at": now,
@@ -449,6 +451,8 @@ def load_session(session_id, cwd):
             data.setdefault("last_result", None)
             data.setdefault("model", None)
             data.setdefault("total_tokens", None)
+            data.setdefault("input_tokens", None)
+            data.setdefault("output_tokens", None)
             data.setdefault("transcript_path", "")
             data.setdefault("agent_total", 0)
             if not isinstance(data.get("agents"), list):
@@ -512,11 +516,15 @@ def refresh_model_tokens(data, payload):
     for window in TAIL_WINDOWS:
         found = scan_tail_for_usage(transcript_path, window)
         if found:
-            model, total = found
+            model, total, input_tokens, output_tokens = found
             if model:
                 data["model"] = model[:128]
             if total and total > 0:
                 data["total_tokens"] = total
+            if input_tokens is not None and input_tokens >= 0:
+                data["input_tokens"] = input_tokens
+            if output_tokens is not None and output_tokens >= 0:
+                data["output_tokens"] = output_tokens
             return
         if window >= size:
             break
@@ -545,16 +553,29 @@ def scan_tail_for_usage(transcript_path, tail_bytes):
         usage = message.get("usage") or {}
         if not isinstance(usage, dict):
             continue
-        total = (
-            int(usage.get("input_tokens") or 0)
-            + int(usage.get("output_tokens") or 0)
-            + int(usage.get("cache_read_input_tokens") or 0)
-            + int(usage.get("cache_creation_input_tokens") or 0)
-        )
+        input_tokens = nonnegative_int(usage.get("input_tokens"))
+        output_tokens = nonnegative_int(usage.get("output_tokens"))
+        cache_read = nonnegative_int(usage.get("cache_read_input_tokens")) or 0
+        cache_creation = nonnegative_int(usage.get("cache_creation_input_tokens")) or 0
+        total = (input_tokens or 0) + (output_tokens or 0) + cache_read + cache_creation
         model = message.get("model")
         if model or total > 0:
-            return (str(model) if model else None, total)
+            return (
+                str(model) if model else None,
+                total,
+                input_tokens,
+                output_tokens,
+            )
     return None
+
+
+def nonnegative_int(value):
+    """usage 값이 숫자일 때만 안전하게 정수화한다. 깨진 값은 훅 전체를 막지 않는다."""
+    try:
+        parsed = int(value)
+        return parsed if parsed >= 0 else None
+    except (TypeError, ValueError, OverflowError):
+        return None
 
 
 def handle_pretooluse(payload):
@@ -632,7 +653,7 @@ def handle_userpromptsubmit(payload):
     data["status"] = "active"
     # UserPromptSubmit 페이로드 자체엔 프롬프트 원문이 없어(공식 문서 미기재),
     # 항상 오는 transcript_path 에서 방금 제출된 사용자 메시지를 직접 읽는다.
-    # 팀에 보고되는 건 이 중 첫 줄 120자뿐 — 전체 프롬프트는 절대 저장하지 않는다.
+    # 로컬 현재 활동 UI에는 이 중 첫 줄 120자만 표시한다.
     transcript_path = payload.get("transcript_path")
     if transcript_path:
         text = read_last_message(transcript_path, "user")

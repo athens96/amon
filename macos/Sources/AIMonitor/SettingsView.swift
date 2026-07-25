@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 /// 설정 화면 — 3개 카테고리로 나뉜다:
 /// 기본 설정(자동 실행·업데이트·알림·메뉴바 표시) / 로컬 데이터 설정(도구별 로그
-/// 경로) / 서버 연동 설정(URL·유저 키 + 라이브 세션·에이전트 대시보드 공유).
+/// 경로·로컬 현재 활동) / 서버 연동 설정(URL·유저 키 + 집계 사용량 업로드).
 struct SettingsView: View {
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var settings: AppSettings
@@ -19,6 +19,8 @@ struct SettingsView: View {
 
                 AutoUpdateRow()
 
+                PetSettingsRow()
+
                 // IconPickerRow() — 내장 아이콘 5종·커스텀 파일 픽커는 숨김.
                 // 메뉴바 아이콘이 프로바이더 공식 로고(ProviderIcons)를 따라가면서
                 // 수동 선택이 무의미해졌다. 프로바이더 미감지 시 폴백으로만 쓰인다.
@@ -31,6 +33,8 @@ struct SettingsView: View {
 
                 // ── 로컬 데이터 설정 ─────────────────────────────────────
                 SettingsCategoryHeader(icon: "folder", title: "로컬 데이터 설정")
+
+                LiveActivityRow()
 
                 Text("각 도구의 로그 폴더를 지정하세요. 변경 후 아래 '다시 스캔'을 누르면 반영됩니다.")
                     .font(.amonBody)
@@ -58,15 +62,12 @@ struct SettingsView: View {
                 Divider()
 
                 // ── 서버 연동 설정 ───────────────────────────────────────
-                // URL·유저 키가 먼저, 그 키를 쓰는 라이브 세션 공유 토글이 아래.
-                // 에이전트 대시보드 업로드는 별도 토글 없이 서버 연동에 포함된다.
+                // 서버에는 meta + 일자별 집계 사용량만 업로드한다.
                 SettingsCategoryHeader(
                     icon: "antenna.radiowaves.left.and.right", title: "서버 연동 설정"
                 )
 
                 ServerSection()
-
-                LiveActivityRow()
 
                 HStack {
                     Spacer()
@@ -124,7 +125,7 @@ private struct IconPickerRow: View {
                                 Image(nsImage: img)
                                     .resizable()
                                     .padding(5)
-                                    .background(Color(red: 0.16, green: 0.16, blue: 0.18))
+                                    .background(Palette.iconPreviewBackground)
                             } else {
                                 Color.gray
                             }
@@ -285,7 +286,7 @@ private struct QuotaAlertsRow: View {
     }
 }
 
-/// Claude Code 라이브 세션·서브에이전트 팀 공유 토글 + 훅 재설치 버튼.
+/// 이 기기의 현재 활동 표시 토글 + 로컬 Claude Code 훅 재설치 버튼.
 private struct LiveActivityRow: View {
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var settings: AppSettings
@@ -294,12 +295,12 @@ private struct LiveActivityRow: View {
         VStack(alignment: .leading, spacing: 4) {
             CompactSettingToggleRow(
                 icon: "dot.radiowaves.left.and.right",
-                title: "라이브 세션 공유",
-                description: "Claude Code 세션과 실행 중인 서브에이전트를 팀에 실시간 공유합니다. 프로젝트명·브랜치·요청 첫 줄(최대 120자)·응답 요약 첫 줄(최대 200자)·서브에이전트 종류/1줄 설명이 공유되고, 종료된 세션은 요청 목록(최대 50줄)·토큰 총계와 함께 기록됩니다. 프롬프트·응답 전체 원문은 (본 세션·서브에이전트 모두) 절대 전송되지 않습니다. 끄면 로컬 기록만 남고 서버로 보내지 않습니다.",
+                title: "이 기기의 현재 활동 표시",
+                description: "Claude Code, Codex CLI, Cursor의 실행 중인 세션과 최근 작업을 이 앱에서만 표시합니다. 세션·프롬프트·응답·프로젝트 정보는 서버로 전송하지 않습니다.",
                 isOn: enabledBinding
             )
 
-            if settings.liveActivityEnabled {
+            if settings.localActivityEnabled {
                 HStack(spacing: 8) {
                     Button {
                         state.reinstallLiveHooks()
@@ -313,7 +314,7 @@ private struct LiveActivityRow: View {
                 }
                 .padding(.top, 2)
 
-                Text("Claude Code 설정(~/.claude/settings.json)이 외부에서 초기화됐다면 이 버튼으로 훅을 다시 설치할 수 있습니다.")
+                Text("Claude Code 설정(~/.claude/settings.json)이 외부에서 초기화됐다면 로컬 활동 감지 훅을 다시 설치할 수 있습니다. 훅에는 네트워크 전송 코드가 없습니다.")
                     .font(.amonCaption)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -323,9 +324,9 @@ private struct LiveActivityRow: View {
 
     private var enabledBinding: Binding<Bool> {
         Binding(
-            get: { settings.liveActivityEnabled },
+            get: { settings.localActivityEnabled },
             set: { newValue in
-                settings.liveActivityEnabled = newValue
+                settings.localActivityEnabled = newValue
                 state.setLiveActivity(enabled: newValue)
             }
         )
@@ -449,7 +450,7 @@ private struct ServerSection: View {
                 .font(.amonMono)
                 .lineLimit(1)
 
-            Text("웹 AI 모니터 → 내정보 설정에서 유저 키를 발급해 붙여넣으세요. 설정하면 스캔할 때마다 에이전트 대시보드 데이터(사용량 DB — 도구별 일자·모델 토큰, 종료된 세션의 프로젝트명·브랜치·첫 프롬프트 요약)가 자동 전송됩니다. 프롬프트·응답 전체 원문은 전송되지 않으며, 비우면 로컬에만 저장됩니다.")
+            Text("웹 AI 모니터 → 내정보 설정에서 유저 키를 발급해 붙여넣으세요. 설정하면 스캔할 때마다 도구별 일자·모델 토큰 집계만 자동 전송됩니다. 세션·프롬프트·응답·프로젝트 정보는 전송되지 않으며, 비우면 모든 데이터가 로컬에만 저장됩니다.")
                 .font(.amonCaption)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)

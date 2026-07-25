@@ -41,7 +41,7 @@ enum ClaudeUsageMapper {
         return ClaudeMappedUsage(
             plan: formatPlan(subscriptionType: credentials.subscriptionType, rateLimitTier: credentials.rateLimitTier),
             lines: [
-                .badge(label: "Status", text: waitText, colorHex: "#F59E0B"),
+                .badge(label: "Status", text: waitText, colorHex: Palette.hexStatusAmber),
                 rateLimitedNote(retryAfterSeconds: retryAfterSeconds)
             ]
         )

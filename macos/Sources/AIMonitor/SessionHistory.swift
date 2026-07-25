@@ -29,14 +29,13 @@ struct SessionRecord: Codable, Equatable, Identifiable {
     var models: [String: Int]
     var agentCount: Int
     /// 이 세션의 원본 로그 경로(Claude 트랜스크립트 · Codex rollout · Cursor state.vscdb).
-    /// **로컬 전용** — 세션 상세를 열 때만 쓰고 서버 보고에서는 제외한다
-    /// (`SessionHistoryReporter`). 옛 기록엔 없을 수 있어 Optional.
+    /// **로컬 전용** — 세션 상세를 열 때만 쓴다. 옛 기록엔 없을 수 있어 Optional.
     var sourcePath: String?
 
     /// 같은 세션이 두 번 적재되지 않도록 하는 키(프로바이더 간 id 충돌 방지).
     var id: String { "\(provider):\(sessionId)" }
 
-    /// 로컬 파일·서버 페이로드 모두 snake_case (백엔드 Pydantic 계약과 1:1).
+    /// 로컬 JSONL 저장 형식은 snake_case를 사용한다.
     enum CodingKeys: String, CodingKey {
         case provider
         case sessionId = "session_id"
@@ -115,6 +114,10 @@ struct SessionFileCacheEntry: Codable {
     let signature: String
     var record: SessionRecord?
     var codexState: CodexRolloutState?
+    /// Cursor composer 의 버블 시각들 — CSV 이벤트를 세션에 귀속(토큰 추정)할 때
+    /// 쓴다. 다른 프로바이더 항목과 이 필드가 없던 구버전 캐시에선 nil
+    /// (nil 인 cursor 항목은 스캐너가 미스로 취급해 한 번 다시 파싱한다).
+    var cursorBubbleTimes: [Date]? = nil
 }
 
 struct CodexRolloutState: Codable {

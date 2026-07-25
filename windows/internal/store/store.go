@@ -6,10 +6,11 @@
 //   - tool_totals : 도구별 전체 누적 스냅샷 + UI 렌더 상태.
 //   - sessions    : 종료 세션 기록 미러(최대 2000행).
 //
-// A-mon UI 는 여기서 읽어 렌더하고, 토글 ON 시 VacuumInto 스냅샷을 서버로 올린다.
+// A-mon UI는 여기서 읽고, 서버에는 meta+usage_daily 전용 새 스냅샷만 올린다.
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -267,11 +268,52 @@ func writeSessions(tx *sql.Tx, records []session.Record) error {
 	return err
 }
 
-// VacuumInto — 일관 스냅샷을 dst 파일로 만든다(업로드 대상). 기존 dst 는 지운다.
-func (s *Store) VacuumInto(dst string) error {
-	_ = os.Remove(dst) // VACUUM INTO 는 대상 파일이 이미 있으면 실패한다
-	_, err := s.db.Exec(`VACUUM INTO ?`, dst)
-	return err
+// UploadSnapshot — 서버 업로드 전용의 새 SQLite 파일을 만든다.
+// 허용 테이블은 정확히 meta와 usage_daily뿐이다. 원본 파일을 복제하지 않으므로
+// sessions 테이블이나 삭제된 페이지의 프롬프트 바이트가 dst에 남지 않는다.
+func (s *Store) UploadSnapshot(dst string) (err error) {
+	_ = os.Remove(dst)
+	conn, err := s.db.Conn(context.Background())
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err = conn.ExecContext(context.Background(), `ATTACH DATABASE ? AS upload`, dst); err != nil {
+		return err
+	}
+	ok := false
+	defer func() {
+		_, detachErr := conn.ExecContext(context.Background(), `DETACH DATABASE upload`)
+		if err == nil {
+			err = detachErr
+		}
+		if !ok || err != nil {
+			_ = os.Remove(dst)
+		}
+	}()
+	_, err = conn.ExecContext(context.Background(), `
+PRAGMA upload.user_version=1;
+CREATE TABLE upload.meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE upload.usage_daily(
+  date TEXT NOT NULL,
+  tool TEXT NOT NULL,
+  model TEXT NOT NULL DEFAULT '',
+  input INTEGER NOT NULL DEFAULT 0, output INTEGER NOT NULL DEFAULT 0,
+  cache_read INTEGER NOT NULL DEFAULT 0, cache_write INTEGER NOT NULL DEFAULT 0,
+  reasoning INTEGER NOT NULL DEFAULT 0, total INTEGER NOT NULL DEFAULT 0,
+  cost_usd REAL,
+  PRIMARY KEY(date, tool, model));
+INSERT INTO upload.meta(key,value) SELECT key,value FROM main.meta;
+INSERT INTO upload.usage_daily
+  (date,tool,model,input,output,cache_read,cache_write,reasoning,total,cost_usd)
+  SELECT date,tool,model,input,output,cache_read,cache_write,reasoning,total,cost_usd
+  FROM main.usage_daily;
+`)
+	if err != nil {
+		return err
+	}
+	ok = true
+	return nil
 }
 
 // providerTool — 세션 provider("claude"|"codex")를 usage 도구 식별자로 매핑.

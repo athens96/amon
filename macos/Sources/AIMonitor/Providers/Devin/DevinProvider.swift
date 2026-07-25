@@ -8,7 +8,7 @@ final class DevinProvider: ProviderRuntime {
         id: "devin",
         displayName: "Devin",
         symbol: "cpu.fill",
-        accentHex: "#4b3fa7",
+        accentHex: Palette.hexDevin,
         links: [
             ProviderLink(label: "Dashboard", url: "https://app.devin.ai/settings/plans")
         ]

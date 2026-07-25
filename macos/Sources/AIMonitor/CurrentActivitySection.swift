@@ -37,7 +37,7 @@ struct CurrentActivitySection: View {
 
     @ViewBuilder
     private var content: some View {
-        if !settings.liveActivityEnabled {
+        if !settings.localActivityEnabled {
             disabledRow
         } else if state.liveActivity.sessions.isEmpty {
             Text("지금 이 기기에서 실행 중인 AI 도구 세션이 없습니다")
@@ -101,11 +101,11 @@ struct CurrentActivitySection: View {
     /// 꺼져 있을 때 — 누르면 바로 켠다(설정 화면으로 안 보내고 그 자리에서 처리).
     private var disabledRow: some View {
         Button {
-            settings.liveActivityEnabled = true
+            settings.localActivityEnabled = true
             state.setLiveActivity(enabled: true)
         } label: {
             HStack(spacing: 4) {
-                Text("실시간 활동 공유가 꺼져 있습니다")
+                Text("이 기기의 현재 활동 표시가 꺼져 있습니다")
                     .font(.amonCaption)
                     .foregroundStyle(.secondary)
                 Text("· 지금 켜기")

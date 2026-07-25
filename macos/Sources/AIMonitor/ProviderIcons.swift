@@ -48,7 +48,7 @@ enum ProviderIcons {
         let out = NSImage(size: size)
         out.lockFocus()
         raw.draw(in: NSRect(origin: .zero, size: size), from: .zero, operation: .sourceOver, fraction: 1)
-        (NSColor(hex: colorHex) ?? .labelColor).setFill()
+        (Palette.nsColor(fromHex: colorHex) ?? .labelColor).setFill()
         NSRect(origin: .zero, size: size).fill(using: .sourceIn)
         out.unlockFocus()
         out.isTemplate = false

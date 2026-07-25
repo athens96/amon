@@ -10,7 +10,7 @@ final class SessionHistoryManager: ObservableObject {
     @Published private(set) var records: [SessionRecord] = []
     @Published private(set) var isRefreshing = false
 
-    /// 직전 갱신 대비 새로 생기거나 바뀐 기록만 전달된다(서버 보고용).
+    /// 직전 갱신 대비 새로 생기거나 바뀐 기록만 로컬 SQLite 미러에 전달한다.
     var onChanged: (([SessionRecord]) -> Void)?
 
     /// 세션 로그 루트 — AppState 가 설정값으로 채워 준다(설정 변경 시 갱신).
@@ -55,6 +55,13 @@ final class SessionHistoryManager: ObservableObject {
         let codexPath = self.codexPath
         let cursorPath = self.cursorPath
         let cacheTTL = scanCacheTTL
+
+        // Cursor 세션 토큰 추정용 CSV 이벤트 — TTL(5분)이 지난 경우에만 네트워크를
+        // 친다. 실패해도 디스크 캐시의 직전 이벤트로 추정이 유지된다.
+        if CursorStateDB.resolveGlobalDB(from: cursorPath) != nil {
+            await CursorSessionTokens.refreshIfStale()
+        }
+
         let loaded = await Task.detached(priority: .utility) { () -> [SessionRecord] in
             // SessionEnd 를 못 받고 죽은 세션을 먼저 pending 으로 회수한다.
             SessionHistoryScanner.sweepStaleLiveSessions()

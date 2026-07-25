@@ -41,7 +41,7 @@ enum GrokUsageMapper {
             .badge(
                 label: "Pay as you go",
                 text: onDemandCapUnits > 0 ? "\(formatUnits(onDemandCapUnits)) cap" : "Disabled",
-                colorHex: onDemandCapUnits > 0 ? "#22c55e" : "#a3a3a3"
+                colorHex: onDemandCapUnits > 0 ? Palette.hexStatusGreen : Palette.hexStatusNeutral
             )
         ])
     }

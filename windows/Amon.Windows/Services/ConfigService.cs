@@ -21,7 +21,6 @@ public sealed class AppConfig
     [JsonPropertyName("user_key")] public string UserKey { get; set; } = "";
     [JsonPropertyName("paths")] public ToolPaths Paths { get; set; } = new();
     [JsonPropertyName("auto_update")] public bool AutoUpdate { get; set; } = true;
-    [JsonPropertyName("share_sessions")] public bool ShareSessions { get; set; }
     [JsonPropertyName("device_id")] public string DeviceId { get; set; } = "";
 }
 

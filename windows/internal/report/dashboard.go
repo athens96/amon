@@ -1,6 +1,6 @@
 // Package report — 에이전트 대시보드 업로드 채널. 로컬 usage.db 스냅샷을 multipart 로
-// 프로덕션 백엔드(POST /api/v1/ai-agents/report)에 올린다. user_key 인증(JWT 없음),
-// 세션 라이브 공유(session.Send)와 별개의 옵트인 채널이다 (SPEC §3).
+// 백엔드(POST /api/v1/ai-agents/report)에 올린다. 파일에는 meta와 usage_daily
+// 집계만 있으며 로컬 세션·프롬프트·프로젝트 정보는 포함하지 않는다.
 package report
 
 import (
@@ -28,6 +28,19 @@ func DashboardEndpoint(serverURL string) string {
 		s += dashboardPath
 	}
 	return s
+}
+
+// UploadSignature returns a destination-aware digest for automatic upload deduplication.
+// Changing the server or user key must resend unchanged usage to the new account.
+// Only the digest is persisted; the key is not copied into upload state.
+func UploadSignature(contentSignature, serverURL, userKey string) string {
+	h := sha256.New()
+	_, _ = io.WriteString(h, DashboardEndpoint(serverURL))
+	_, _ = h.Write([]byte{0})
+	_, _ = io.WriteString(h, strings.TrimSpace(userKey))
+	_, _ = h.Write([]byte{0})
+	_, _ = io.WriteString(h, contentSignature)
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // FileSHA256 — 파일의 SHA-256 hex. 업로드 변경 감지용.
