@@ -2,17 +2,13 @@
 
 ## Windows
 
-```bash
-cd windows
-make installer
-```
+Windows artifacts are produced by `.github/workflows/windows.yml` for
+`win-x64` and `win-arm64`. The workflow publishes self-contained WPF and updater
+executables, requires Authenticode secrets, signs every executable, and verifies
+the signatures before uploading artifacts.
 
-Output: `windows/dist/A-mon-Setup-<version>.exe`
-
-The installer runs without administrator privileges and installs into
-`%LOCALAPPDATA%\Programs\A-mon`. It creates Start Menu and startup shortcuts,
-registers A-mon in the Windows installed-app list, and includes `Uninstall.exe`.
-Pass `--silent` for unattended installation or removal.
+A replacement per-user installer is still a separate packaging milestone; the
+removed Go installer must not be used for the WPF release.
 
 ## macOS
 
@@ -28,8 +24,5 @@ The package contains the universal `AIMonitor.app`, installs it into
 Release distribution should additionally use Developer ID signing and Apple
 notarization.
 
-## Combined target
-
-On a macOS build machine, `make installer` at the repository root produces
-both platform installers. The macOS PKG requires `swift`, `codesign`, and
-`pkgbuild`; the Windows installer requires Go only.
+The macOS PKG requires `swift`, `codesign`, and `pkgbuild`. Windows publishing
+and runtime smoke tests require a Windows runner with .NET 10.

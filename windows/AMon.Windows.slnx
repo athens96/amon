@@ -1,0 +1,26 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AMon.Activity/AMon.Activity.csproj" />
+    <Project Path="src/AMon.App/AMon.App.csproj" />
+    <Project Path="src/AMon.ClaudeHook/AMon.ClaudeHook.csproj" />
+    <Project Path="src/AMon.ClaudeIntegration/AMon.ClaudeIntegration.csproj" />
+    <Project Path="src/AMon.Collectors/AMon.Collectors.csproj" />
+    <Project Path="src/AMon.Core/AMon.Core.csproj" />
+    <Project Path="src/AMon.LocalData/AMon.LocalData.csproj" />
+    <Project Path="src/AMon.Reporting/AMon.Reporting.csproj" />
+    <Project Path="src/AMon.Scanner/AMon.Scanner.csproj" />
+    <Project Path="src/AMon.Update/AMon.Update.csproj" />
+    <Project Path="src/AMon.Updater/AMon.Updater.csproj" />
+    <Project Path="src/AMon.WindowsPlatform/AMon.WindowsPlatform.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AMon.Activity.Tests/AMon.Activity.Tests.csproj" />
+    <Project Path="tests/AMon.App.Tests/AMon.App.Tests.csproj" />
+    <Project Path="tests/AMon.ClaudeIntegration.Tests/AMon.ClaudeIntegration.Tests.csproj" />
+    <Project Path="tests/AMon.Collectors.Tests/AMon.Collectors.Tests.csproj" />
+    <Project Path="tests/AMon.Core.Tests/AMon.Core.Tests.csproj" />
+    <Project Path="tests/AMon.LocalData.Tests/AMon.LocalData.Tests.csproj" />
+    <Project Path="tests/AMon.Reporting.Tests/AMon.Reporting.Tests.csproj" />
+    <Project Path="tests/AMon.Update.Tests/AMon.Update.Tests.csproj" />
+  </Folder>
+</Solution>

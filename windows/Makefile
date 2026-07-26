@@ -1,38 +1,50 @@
-# A-mon Windows 트레이 앱 — macOS 개발 머신에서 크로스컴파일한다.
-#
-#   make build        # windows/amd64 단일 exe (콘솔 창 없이 GUI 모드)
-#   make build-arm64  # windows/arm64
-#   make scan         # (개발용) 이 머신에서 스캐너만 실행 — 맥 앱과 패리티 검증
-#   make dist         # amd64+arm64 exe 를 dist/ 에 zip 으로
+APP := A-mon
+VERSION := 0.4.0
+CONFIGURATION := Release
 
-APP     := A-mon
-VERSION := 0.3.38
-LDFLAGS := -H windowsgui -s -w -X main.appVersion=$(VERSION)
+.PHONY: restore build test scan publish publish-x64 publish-arm64 dist clean
 
-.PHONY: build build-arm64 scan tidy dist installer clean
+restore:
+	dotnet restore AMon.Windows.slnx
 
-tidy:
-	go mod tidy
+build:
+	dotnet build AMon.Windows.slnx -c $(CONFIGURATION) --no-restore
 
-build: tidy
-	GOOS=windows GOARCH=amd64 go build -ldflags "$(LDFLAGS)" -o dist/$(APP)-amd64.exe .
-
-build-arm64: tidy
-	GOOS=windows GOARCH=arm64 go build -ldflags "$(LDFLAGS)" -o dist/$(APP)-arm64.exe .
+test:
+	dotnet test AMon.Windows.slnx -c $(CONFIGURATION) --no-build
 
 scan:
-	go run ./cmd/scan
+	dotnet run --project src/AMon.Scanner/AMon.Scanner.csproj -c $(CONFIGURATION)
 
-dist: build build-arm64
-	cd dist && zip -q $(APP)-windows-$(VERSION).zip $(APP)-amd64.exe $(APP)-arm64.exe
-	@ls -la dist/*.zip
+publish: publish-x64 publish-arm64
 
-installer: build
-	mkdir -p cmd/installer/payload
-	cp dist/$(APP)-amd64.exe cmd/installer/payload/A-mon.exe
-	GOOS=windows GOARCH=amd64 go build -tags installer -ldflags "-H windowsgui -s -w -X main.version=$(VERSION)" -o dist/$(APP)-Setup-$(VERSION).exe ./cmd/installer
-	rm -rf cmd/installer/payload
-	@ls -la dist/$(APP)-Setup-$(VERSION).exe
+publish-x64:
+	dotnet publish src/AMon.App/AMon.App.csproj -c $(CONFIGURATION) -r win-x64 \
+		--self-contained true -p:PublishSingleFile=true -p:Version=$(VERSION) \
+		-o dist/win-x64
+	dotnet publish src/AMon.Updater/AMon.Updater.csproj -c $(CONFIGURATION) -r win-x64 \
+		--self-contained true -p:PublishSingleFile=true -p:Version=$(VERSION) \
+		-o dist/win-x64
+
+publish-arm64:
+	dotnet publish src/AMon.App/AMon.App.csproj -c $(CONFIGURATION) -r win-arm64 \
+		--self-contained true -p:PublishSingleFile=true -p:Version=$(VERSION) \
+		-o dist/win-arm64
+	dotnet publish src/AMon.Updater/AMon.Updater.csproj -c $(CONFIGURATION) -r win-arm64 \
+		--self-contained true -p:PublishSingleFile=true -p:Version=$(VERSION) \
+		-o dist/win-arm64
+
+dist: publish
+	mkdir -p dist/releases/windows-x64 dist/releases/windows-arm64
+	cd dist/win-x64 && zip -qr ../releases/windows-x64/$(APP)-windows-x64-$(VERSION).zip .
+	cd dist/win-arm64 && zip -qr ../releases/windows-arm64/$(APP)-windows-arm64-$(VERSION).zip .
+	node scripts/write-release-manifest.mjs \
+		dist/releases/windows-x64/$(APP)-windows-x64-$(VERSION).zip x64 $(VERSION) \
+		dist/releases/windows-x64/latest.json
+	node scripts/write-release-manifest.mjs \
+		dist/releases/windows-arm64/$(APP)-windows-arm64-$(VERSION).zip arm64 $(VERSION) \
+		dist/releases/windows-arm64/latest.json
 
 clean:
-	rm -rf dist
+	dotnet clean AMon.Windows.slnx
+	rm -rf dist artifacts TestResults
