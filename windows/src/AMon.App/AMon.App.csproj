@@ -13,6 +13,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
     <ProjectReference Include="..\AMon.Activity\AMon.Activity.csproj" />
     <ProjectReference Include="..\AMon.ClaudeIntegration\AMon.ClaudeIntegration.csproj" />
     <ProjectReference Include="..\AMon.ClaudeHook\AMon.ClaudeHook.csproj"
@@ -24,6 +25,7 @@
     <ProjectReference Include="..\AMon.Collectors\AMon.Collectors.csproj" />
     <ProjectReference Include="..\AMon.Core\AMon.Core.csproj" />
     <ProjectReference Include="..\AMon.LocalData\AMon.LocalData.csproj" />
+    <ProjectReference Include="..\AMon.Reporting\AMon.Reporting.csproj" />
     <ProjectReference Include="..\AMon.Update\AMon.Update.csproj" />
     <ProjectReference Include="..\AMon.WindowsPlatform\AMon.WindowsPlatform.csproj" />
   </ItemGroup>

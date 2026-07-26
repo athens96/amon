@@ -145,9 +145,12 @@ public sealed class UpdateService
             var info = new FileInfo(temporary);
             if (update.SizeBytes > 0 && info.Length != update.SizeBytes)
                 throw new InvalidDataException("The update size did not match the manifest.");
-            await using var file = File.OpenRead(temporary);
-            var digest = Convert.ToHexString(
-                await SHA256.HashDataAsync(file, cancellationToken)).ToLowerInvariant();
+            string digest;
+            await using (var file = File.OpenRead(temporary))
+            {
+                digest = Convert.ToHexString(
+                    await SHA256.HashDataAsync(file, cancellationToken)).ToLowerInvariant();
+            }
             if (!CryptographicOperations.FixedTimeEquals(
                 Convert.FromHexString(digest), Convert.FromHexString(update.Sha256)))
                 throw new InvalidDataException("The update SHA-256 did not match the manifest.");

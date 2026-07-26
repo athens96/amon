@@ -88,7 +88,7 @@ struct PetSettingsRow: View {
                 Spacer()
             }
 
-            Text("호환 파일: codex-pets.net ZIP 또는 투명 PNG/WebP · 스프라이트시트는 정확히 1536×1872 px, 최대 20 MiB. ZIP은 pet.json의 spritesheetPath를 읽습니다.")
+            Text("호환 파일: Codex Pet V1(1536×1872)·V2(1536×2288) ZIP 또는 투명 PNG/WebP, 최대 20 MiB. ZIP은 pet.json의 spritesheetPath와 spriteVersionNumber를 자동 적용합니다.")
                 .font(.amonCaption)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -124,7 +124,7 @@ struct PetSettingsRow: View {
         panel.allowedContentTypes = allowedTypes
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-        panel.message = "Codex 펫 ZIP 또는 호환 스프라이트 시트(1536×1872)를 선택하세요."
+        panel.message = "Codex Pet V1(1536×1872) 또는 V2(1536×2288) ZIP·스프라이트시트를 선택하세요."
 
         NSApp.activate(ignoringOtherApps: true)
         guard panel.runModal() == .OK, let sourceURL = panel.url else { return }
@@ -139,8 +139,12 @@ struct PetSettingsRow: View {
             )
             let installedURL = try installLocalCopy(
                 data: payload.data,
-                format: payload.metadata.format
+                format: payload.metadata.format,
+                spriteVersion: payload.metadata.spriteVersion
             )
+            if let resolvedVersion = payload.metadata.spriteVersion {
+                settings.petSpriteVersion = resolvedVersion.rawValue
+            }
             settings.petSpritePath = installedURL.path
             settings.petEnabled = true
             validationFailed = false
@@ -176,7 +180,8 @@ struct PetSettingsRow: View {
 
     private func installLocalCopy(
         data: Data,
-        format: CodexPetAssetFormat
+        format: CodexPetAssetFormat,
+        spriteVersion: CodexPetSpriteVersion?
     ) throws -> URL {
         let fm = FileManager.default
         let support = try fm.url(
@@ -200,9 +205,7 @@ struct PetSettingsRow: View {
         try data.write(to: temporary, options: [.atomic])
         _ = try CodexPetAssetValidator.validate(
             fileURL: temporary,
-            spriteVersion: CodexPetSpriteVersion(
-                rawValue: settings.petSpriteVersion == 2 ? 2 : 1
-            )
+            spriteVersion: spriteVersion
         )
 
         if fm.fileExists(atPath: destination.path) {

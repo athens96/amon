@@ -2,8 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:AMon.App"
-        Width="390"
-        Height="178"
+        Width="356"
+        Height="320"
         AllowsTransparency="True"
         Background="Transparent"
         ResizeMode="NoResize"
@@ -14,128 +14,161 @@
         WindowStyle="None">
   <Window.Resources>
     <BooleanToVisibilityConverter x:Key="BooleanToVisibility" />
+    <local:InverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibility" />
+    <Style x:Key="PetCarouselButtonStyle" TargetType="Button">
+      <Setter Property="Width" Value="22" />
+      <Setter Property="Height" Value="22" />
+      <Setter Property="Padding" Value="0" />
+      <Setter Property="Foreground" Value="{DynamicResource PetBubbleTextBrush}" />
+      <Setter Property="Background" Value="{DynamicResource PetBubbleSubtleBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource PetBubbleBorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="FontSize" Value="14" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Cursor" Value="Hand" />
+    </Style>
   </Window.Resources>
-  <Grid>
-    <Grid.ColumnDefinitions>
-      <ColumnDefinition Width="240" />
-      <ColumnDefinition Width="14" />
-      <ColumnDefinition Width="136" />
-    </Grid.ColumnDefinitions>
 
+  <Grid>
     <Border x:Name="ActivityBubble"
-            Padding="14"
+            Width="286"
+            Height="166"
+            Margin="8,8,0,0"
+            Padding="15,13"
+            HorizontalAlignment="Left"
+            VerticalAlignment="Top"
             AutomationProperties.LiveSetting="Polite"
             AutomationProperties.Name="{Binding AccessibilityDescription}"
-            Background="#F21F2029"
-            BorderBrush="{StaticResource LineBrush}"
+            Background="{DynamicResource PetBubbleBrush}"
+            BorderBrush="{DynamicResource PetBubbleBorderBrush}"
             BorderThickness="1"
-            CornerRadius="14">
+            CornerRadius="17"
+            Cursor="Hand"
+            MouseLeftButtonUp="OnBubbleClick"
+            ToolTip="클릭하여 현재 세션 열기">
+      <Border.Effect>
+        <DropShadowEffect BlurRadius="22"
+                          Direction="270"
+                          Opacity="0.25"
+                          ShadowDepth="5" />
+      </Border.Effect>
       <Grid>
         <Grid.RowDefinitions>
           <RowDefinition Height="Auto" />
           <RowDefinition Height="Auto" />
-          <RowDefinition Height="Auto" />
-          <RowDefinition Height="Auto" />
           <RowDefinition Height="*" />
-          <RowDefinition Height="Auto" />
           <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <DockPanel>
-          <TextBlock DockPanel.Dock="Left"
-                     Foreground="{StaticResource AccentBrush}"
-                     FontSize="11"
-                     FontWeight="SemiBold"
-                     Text="{Binding Current.Provider}" />
-          <TextBlock DockPanel.Dock="Right"
-                     Foreground="{StaticResource MutedBrush}"
-                     FontSize="11"
-                     Text="{Binding Current.StatusText}" />
-        </DockPanel>
-        <TextBlock Grid.Row="1"
-                   Margin="0,4,0,0"
-                   FontSize="14"
-                   FontWeight="SemiBold"
-                   Text="{Binding Current.Title}"
-                   TextTrimming="CharacterEllipsis" />
-        <TextBlock Grid.Row="2"
-                   Margin="0,8,0,0"
-                   AutomationProperties.Name="현재 입력"
-                   Foreground="{StaticResource TextBrush}"
-                   FontSize="12"
-                   Text="{Binding Current.InputText}"
-                   TextTrimming="CharacterEllipsis"
-                   Visibility="{Binding ShowsCurrentTask, Converter={StaticResource BooleanToVisibility}}" />
-        <TextBlock Grid.Row="3"
-                   Margin="0,3,0,0"
-                   AutomationProperties.Name="최근 출력"
-                   Foreground="{StaticResource MutedBrush}"
-                   FontSize="12"
-                   Text="{Binding Current.OutputText}"
-                   TextTrimming="CharacterEllipsis"
-                   Visibility="{Binding ShowsCurrentTask, Converter={StaticResource BooleanToVisibility}}" />
-
-        <local:PetTokenBar Grid.Row="5"
-                           Height="5"
-                           Margin="0,9,0,0"
-                           InputFraction="{Binding InputFraction}"
-                           OutputFraction="{Binding OutputFraction}"
-                           RemainderFraction="{Binding RemainderFraction}"
-                           Visibility="{Binding HasTokenBreakdown, Converter={StaticResource BooleanToVisibility}}" />
-
-        <Grid Grid.Row="6" Margin="0,7,0,0">
+        <Grid>
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" />
             <ColumnDefinition Width="Auto" />
           </Grid.ColumnDefinitions>
           <StackPanel Orientation="Horizontal">
-            <TextBlock Foreground="{StaticResource AccentBrush}"
+            <Ellipse Width="7"
+                     Height="7"
+                     Margin="0,0,7,0"
+                     VerticalAlignment="Center"
+                     Fill="{DynamicResource PetBubbleAccentBrush}" />
+            <TextBlock VerticalAlignment="Center"
+                       Foreground="{DynamicResource PetBubbleAccentBrush}"
                        FontSize="11"
+                       FontWeight="SemiBold"
+                       Text="{Binding Current.Provider}" />
+          </StackPanel>
+          <Border Grid.Column="1"
+                  Padding="8,3"
+                  Background="{DynamicResource PetBubbleSubtleBrush}"
+                  CornerRadius="999">
+            <TextBlock Foreground="{DynamicResource PetBubbleMutedBrush}"
+                       FontSize="10"
+                       FontWeight="SemiBold"
+                       Text="{Binding Current.StatusText}" />
+          </Border>
+        </Grid>
+
+        <TextBlock Grid.Row="1"
+                   Margin="0,9,0,0"
+                   AutomationProperties.Name="현재 작업"
+                   Foreground="{DynamicResource PetBubbleMutedBrush}"
+                   FontSize="11"
+                   Text="{Binding TaskText}"
+                   TextTrimming="CharacterEllipsis"
+                   Visibility="{Binding ShowsCurrentTask, Converter={StaticResource BooleanToVisibility}}" />
+
+        <TextBlock Grid.Row="2"
+                   Margin="0,7,0,5"
+                   AutomationProperties.Name="Codex 펫 메시지"
+                   Foreground="{DynamicResource PetBubbleTextBrush}"
+                   FontSize="14"
+                   FontWeight="Medium"
+                   LineHeight="20"
+                   MaxHeight="60"
+                   Text="{Binding BubbleText}"
+                   TextTrimming="WordEllipsis"
+                   TextWrapping="Wrap" />
+
+        <Grid Grid.Row="3">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
+            <TextBlock Foreground="{DynamicResource PetBubbleAccentBrush}"
+                       FontSize="10"
                        Text="{Binding InputTokenText}" />
-            <TextBlock Margin="9,0,0,0"
-                       Foreground="{StaticResource MutedBrush}"
-                       FontSize="11"
+            <TextBlock Margin="8,0,0,0"
+                       Foreground="{DynamicResource PetBubbleMutedBrush}"
+                       FontSize="10"
                        Text="{Binding OutputTokenText}" />
-            <TextBlock Foreground="{StaticResource MutedBrush}"
-                       FontSize="11"
+            <TextBlock Foreground="{DynamicResource PetBubbleMutedBrush}"
+                       FontSize="10"
                        Text="{Binding TotalTokenText}" />
           </StackPanel>
-
           <StackPanel Grid.Column="1"
                       Orientation="Horizontal"
                       Visibility="{Binding HasRunningCarousel, Converter={StaticResource BooleanToVisibility}}">
-            <Button Width="24"
-                    Height="22"
-                    Padding="0"
-                    AutomationProperties.Name="이전 동시 세션"
+            <Button AutomationProperties.Name="이전 동시 세션"
                     Command="{Binding PreviousCommand}"
                     Content="‹"
+                    Style="{StaticResource PetCarouselButtonStyle}"
                     ToolTip="이전 세션" />
-            <TextBlock MinWidth="35"
-                       Margin="5,0"
+            <TextBlock MinWidth="30"
+                       Margin="4,0"
                        VerticalAlignment="Center"
                        AutomationProperties.LiveSetting="Polite"
                        AutomationProperties.Name="{Binding AccessiblePositionText}"
-                       FontSize="11"
+                       Foreground="{DynamicResource PetBubbleTextBrush}"
+                       FontSize="10"
                        Text="{Binding CounterText}"
                        TextAlignment="Center" />
-            <Button Width="24"
-                    Height="22"
-                    Padding="0"
-                    AutomationProperties.Name="다음 동시 세션"
+            <Button AutomationProperties.Name="다음 동시 세션"
                     Command="{Binding NextCommand}"
                     Content="›"
+                    Style="{StaticResource PetCarouselButtonStyle}"
                     ToolTip="다음 세션" />
           </StackPanel>
         </Grid>
       </Grid>
     </Border>
 
+    <!-- Codex Pet's speech-tail silhouette points from the message to the pet. -->
+    <Path Width="25"
+          Height="25"
+          Margin="254,160,0,0"
+          HorizontalAlignment="Left"
+          VerticalAlignment="Top"
+          Data="M 0,0 L 25,0 L 25,25 Z"
+          Fill="{DynamicResource PetBubbleBrush}"
+          Stroke="{DynamicResource PetBubbleBorderBrush}"
+          StrokeThickness="1" />
+
     <Button x:Name="AvatarButton"
-            Grid.Column="2"
-            Width="128"
-            Height="158"
-            HorizontalAlignment="Center"
+            Width="166"
+            Height="184"
+            Margin="0,0,4,3"
+            HorizontalAlignment="Right"
             VerticalAlignment="Bottom"
             AutomationProperties.HelpText="왼쪽 클릭으로 대시보드를 열고 오른쪽 클릭으로 메뉴를 엽니다"
             AutomationProperties.Name="{Binding AccessibilityDescription}"
@@ -144,8 +177,7 @@
             Click="OnAvatarClick"
             PreviewMouseRightButtonUp="OnAvatarRightClick"
             ToolTip="A-mon 대시보드 열기">
-      <Grid x:Name="AvatarVisual"
-            RenderTransformOrigin="0.5,0.5">
+      <Grid x:Name="AvatarVisual" RenderTransformOrigin="0.5,0.5">
         <Grid.RenderTransform>
           <TransformGroup>
             <ScaleTransform x:Name="AvatarScale" ScaleX="1" ScaleY="1" />
@@ -198,27 +230,37 @@
           </VisualStateGroup>
         </VisualStateManager.VisualStateGroups>
 
-        <Ellipse Width="116"
-                 Height="116"
+        <Ellipse Width="126"
+                 Height="126"
                  VerticalAlignment="Bottom"
-                 Fill="#EE2A2C39"
-                 Stroke="{StaticResource AccentBrush}"
-                 StrokeThickness="2" />
-        <TextBlock Margin="0,0,0,23"
+                 Fill="{DynamicResource PetBubbleSubtleBrush}"
+                 Stroke="{DynamicResource PetBubbleAccentBrush}"
+                 StrokeThickness="2"
+                 Visibility="{Binding HasCustomSprite, Converter={StaticResource InverseBooleanToVisibility}}" />
+        <TextBlock Margin="0,0,0,27"
                    HorizontalAlignment="Center"
                    VerticalAlignment="Bottom"
                    FontFamily="Segoe UI Symbol"
-                   FontSize="54"
-                   Foreground="{StaticResource TextBrush}"
-                   Text="✦" />
-        <Border Width="72"
-                Margin="0,0,0,5"
-                Padding="5,2"
+                   FontSize="58"
+                   Foreground="{DynamicResource PetBubbleTextBrush}"
+                   Text="✦"
+                   Visibility="{Binding HasCustomSprite, Converter={StaticResource InverseBooleanToVisibility}}" />
+        <Grid Width="158"
+              Height="180"
+              HorizontalAlignment="Center"
+              VerticalAlignment="Bottom"
+              Visibility="{Binding HasCustomSprite, Converter={StaticResource BooleanToVisibility}}">
+          <local:CodexPetSpriteControl SourcePath="{Binding SpritePath}"
+                                       SpriteVersion="{Binding SpriteVersion}"
+                                       Status="{Binding Current.Status}" />
+        </Grid>
+        <Border Margin="0,0,0,4"
+                Padding="9,3"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Bottom"
-                Background="{StaticResource AccentBrush}"
-                CornerRadius="8">
-          <TextBlock HorizontalAlignment="Center"
+                Background="{DynamicResource PetBadgeBrush}"
+                CornerRadius="999">
+          <TextBlock Foreground="{DynamicResource PetBadgeTextBrush}"
                      FontSize="10"
                      FontWeight="SemiBold"
                      Text="{Binding Current.StatusText}" />

@@ -6,19 +6,44 @@ import XCTest
 @testable import AIMonitor
 
 final class CodexPetAssetValidatorTests: XCTestCase {
-    func testValidPNGPreservesSpriteVersionMetadata() throws {
+    func testValidV1PNGPreservesSpriteVersionMetadata() throws {
         let data = try makePNG(
             width: CodexPetAssetValidator.requiredPixelWidth,
-            height: CodexPetAssetValidator.requiredPixelHeight
+            height: CodexPetAssetValidator.requiredPixelHeightV1
         )
 
-        let metadata = try CodexPetAssetValidator.validate(data: data, spriteVersion: .v2)
+        let metadata = try CodexPetAssetValidator.validate(data: data, spriteVersion: .v1)
 
         XCTAssertEqual(metadata.format, .png)
         XCTAssertEqual(metadata.pixelWidth, 1536)
         XCTAssertEqual(metadata.pixelHeight, 1872)
         XCTAssertEqual(metadata.byteCount, data.count)
+        XCTAssertEqual(metadata.spriteVersion, .v1)
+    }
+
+    func testValidV2PNGIsInferredFromDimensions() throws {
+        let data = try makePNG(
+            width: CodexPetAssetValidator.requiredPixelWidth,
+            height: CodexPetAssetValidator.requiredPixelHeightV2
+        )
+
+        let metadata = try CodexPetAssetValidator.validate(data: data)
+
+        XCTAssertEqual(metadata.pixelHeight, 2288)
         XCTAssertEqual(metadata.spriteVersion, .v2)
+    }
+
+    func testRejectsManifestVersionDimensionMismatch() throws {
+        let data = try makePNG(width: 1536, height: 1872)
+
+        XCTAssertThrowsError(
+            try CodexPetAssetValidator.validate(data: data, spriteVersion: .v2)
+        ) { error in
+            XCTAssertEqual(
+                error as? CodexPetAssetValidationError,
+                .invalidDimensions(width: 1536, height: 1872)
+            )
+        }
     }
 
     func testRejectsWrongDimensions() throws {
@@ -35,7 +60,7 @@ final class CodexPetAssetValidatorTests: XCTestCase {
     func testRejectsOpaquePNGWithoutAlphaChannel() throws {
         let data = try makePNG(
             width: CodexPetAssetValidator.requiredPixelWidth,
-            height: CodexPetAssetValidator.requiredPixelHeight,
+            height: CodexPetAssetValidator.requiredPixelHeightV1,
             hasAlpha: false
         )
 

@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.IO;
 using System.Windows.Input;
 using AMon.Activity;
 
@@ -11,12 +12,15 @@ public sealed class PetViewModel : ObservableObject
     private readonly RelayCommand _previousCommand;
     private readonly RelayCommand _nextCommand;
     private int _currentIndex;
+    private bool _showsCurrentTask;
+    private string _spritePath = string.Empty;
+    private int _spriteVersion = 1;
 
     public PetViewModel(
         IEnumerable<PetPresentation>? presentations = null,
         bool showsCurrentTask = true)
     {
-        ShowsCurrentTask = showsCurrentTask;
+        _showsCurrentTask = showsCurrentTask;
         _previousCommand = new RelayCommand(Previous, () => HasRunningCarousel);
         _nextCommand = new RelayCommand(Next, () => HasRunningCarousel);
         PreviousCommand = _previousCommand;
@@ -26,7 +30,29 @@ public sealed class PetViewModel : ObservableObject
 
     public IReadOnlyList<PetPresentation> Presentations => _presentations;
 
-    public bool ShowsCurrentTask { get; }
+    public bool ShowsCurrentTask
+    {
+        get => _showsCurrentTask;
+        private set => SetProperty(ref _showsCurrentTask, value);
+    }
+
+    public string SpritePath
+    {
+        get => _spritePath;
+        private set
+        {
+            if (SetProperty(ref _spritePath, value))
+                OnPropertyChanged(nameof(HasCustomSprite));
+        }
+    }
+
+    public bool HasCustomSprite => !string.IsNullOrWhiteSpace(SpritePath);
+
+    public int SpriteVersion
+    {
+        get => _spriteVersion;
+        private set => SetProperty(ref _spriteVersion, value);
+    }
 
     public ICommand PreviousCommand { get; }
 
@@ -77,6 +103,10 @@ public sealed class PetViewModel : ObservableObject
             ? $"합계 {FormatTokens(value)}"
             : string.Empty;
 
+    public string BubbleText => CompactPreview(Current.OutputText);
+
+    public string TaskText => CompactPreview(Current.Title, 72);
+
     public bool HasTokenBreakdown =>
         Current.InputTokens is not null || Current.OutputTokens is not null;
 
@@ -122,6 +152,20 @@ public sealed class PetViewModel : ObservableObject
         _nextCommand.NotifyCanExecuteChanged();
     }
 
+    public void ConfigureAppearance(
+        bool showsCurrentTask,
+        string? spritePath,
+        int spriteVersion = 1)
+    {
+        ShowsCurrentTask = showsCurrentTask;
+        SpriteVersion = CodexPetSpriteLayout.NormalizeVersion(spriteVersion);
+        SpritePath = CodexPetAssetService.IsValidSprite(
+            spritePath,
+            SpriteVersion)
+            ? Path.GetFullPath(spritePath!)
+            : string.Empty;
+    }
+
     private void Previous() => CurrentIndex--;
 
     private void Next() => CurrentIndex++;
@@ -146,6 +190,8 @@ public sealed class PetViewModel : ObservableObject
         OnPropertyChanged(nameof(InputTokenText));
         OnPropertyChanged(nameof(OutputTokenText));
         OnPropertyChanged(nameof(TotalTokenText));
+        OnPropertyChanged(nameof(BubbleText));
+        OnPropertyChanged(nameof(TaskText));
         OnPropertyChanged(nameof(HasTokenBreakdown));
         OnPropertyChanged(nameof(InputFraction));
         OnPropertyChanged(nameof(OutputFraction));
@@ -174,4 +220,16 @@ public sealed class PetViewModel : ObservableObject
             >= 1_000 => $"{value / 1_000d:0.#}K",
             _ => value.ToString("N0", CultureInfo.CurrentCulture)
         };
+
+    private static string CompactPreview(string value, int maximumLength = 160)
+    {
+        var normalized = string.Join(
+            " ",
+            value.Split(
+                [' ', '\t', '\r', '\n'],
+                StringSplitOptions.RemoveEmptyEntries));
+        return normalized.Length <= maximumLength
+            ? normalized
+            : $"{normalized[..(maximumLength - 1)]}…";
+    }
 }

@@ -5,6 +5,21 @@ namespace AMon.App.Tests;
 
 public sealed class PetViewModelTests
 {
+    [Fact]
+    public void BubbleTextCompactsMultilineOutputForOverlay()
+    {
+        var presentation = First with
+        {
+            OutputPreview = "첫 줄\r\n\r\n두 번째   줄",
+            Title = new string('가', 90),
+        };
+        var viewModel = new PetViewModel([presentation]);
+
+        Assert.Equal("첫 줄 두 번째 줄", viewModel.BubbleText);
+        Assert.EndsWith("…", viewModel.TaskText);
+        Assert.Equal(72, viewModel.TaskText.Length);
+    }
+
     private static readonly PetPresentation First = Presentation(
         "codex:first", "Codex", "첫 번째 작업", 1_200, 340, 1_800);
     private static readonly PetPresentation Second = Presentation(

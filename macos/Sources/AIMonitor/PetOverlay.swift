@@ -546,7 +546,7 @@ private struct PetAvatarView: View {
     }
 }
 
-/// 공식 호환 시트(1536×1872)를 현재 192×208 프레임 프로필로 재생한다.
+/// 공식 V1/V2 호환 시트의 표준 192×208 프레임 행을 재생한다.
 private struct CodexPetSpriteView: View {
     let path: String
     let status: PetActivityStatus

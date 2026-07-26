@@ -14,17 +14,56 @@ public sealed class AppConfig
     [JsonPropertyName("device_id")]
     public string DeviceId { get; set; } = string.Empty;
 
+    [JsonPropertyName("last_upload_signature")]
+    public string LastUploadSignature { get; set; } = string.Empty;
+
     [JsonPropertyName("auto_update")]
     public bool? AutoUpdate { get; set; }
 
     [JsonIgnore]
     public bool AutoUpdateEnabled => AutoUpdate ?? true;
 
+    [JsonPropertyName("launch_at_login")]
+    public bool? LaunchAtLogin { get; set; }
+
+    [JsonIgnore]
+    public bool LaunchAtLoginEnabled => LaunchAtLogin ?? false;
+
+    [JsonPropertyName("quota_alerts")]
+    public bool? QuotaAlerts { get; set; }
+
+    [JsonIgnore]
+    public bool QuotaAlertsEnabled => QuotaAlerts ?? true;
+
+    [JsonPropertyName("tray_quota")]
+    public TrayQuotaConfig TrayQuota { get; set; } = new();
+
     [JsonPropertyName("paths")]
     public ToolPaths Paths { get; set; } = new();
 
     [JsonPropertyName("pet")]
     public PetConfig Pet { get; set; } = new();
+
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement> Extra { get; set; } = [];
+}
+
+public sealed class TrayQuotaConfig
+{
+    [JsonPropertyName("enabled")]
+    public bool? Enabled { get; set; }
+
+    [JsonIgnore]
+    public bool IsEnabled => Enabled ?? true;
+
+    [JsonPropertyName("provider")]
+    public string Provider { get; set; } = string.Empty;
+
+    [JsonPropertyName("shows_remaining")]
+    public bool? ShowsRemaining { get; set; }
+
+    [JsonIgnore]
+    public bool IsShowingRemaining => ShowsRemaining ?? true;
 
     [JsonExtensionData]
     public Dictionary<string, JsonElement> Extra { get; set; } = [];

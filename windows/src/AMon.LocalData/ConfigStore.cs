@@ -30,9 +30,15 @@ public sealed class ConfigStore
             return created;
         }
 
-        await using var stream = File.OpenRead(Path);
-        var config = await JsonSerializer.DeserializeAsync<AppConfig>(stream, JsonOptions, cancellationToken)
-            ?? throw new InvalidDataException("Configuration file contained JSON null.");
+        AppConfig config;
+        await using (var stream = File.OpenRead(Path))
+        {
+            config = await JsonSerializer.DeserializeAsync<AppConfig>(
+                stream,
+                JsonOptions,
+                cancellationToken)
+                ?? throw new InvalidDataException("Configuration file contained JSON null.");
+        }
         config.Paths ??= new ToolPaths();
         config.Pet ??= new PetConfig();
         if (string.IsNullOrWhiteSpace(config.DeviceId))

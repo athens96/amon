@@ -111,6 +111,7 @@ enum CodexPetPackageImporter {
 
         let selectedEntry: ArchiveEntry
         var displayName: String?
+        var resolvedSpriteVersion = spriteVersion
         if let manifestEntry = manifestEntries.first {
             let manifestData = try unzip(
                 arguments: ["-p", fileURL.path, manifestEntry.originalPath],
@@ -134,6 +135,14 @@ enum CodexPetPackageImporter {
             }
             selectedEntry = entry
             displayName = sanitizedDisplayName(manifest.displayName)
+            if let rawVersion = manifest.spriteVersionNumber {
+                guard let manifestVersion = CodexPetSpriteVersion(
+                    rawValue: rawVersion
+                ) else {
+                    throw CodexPetPackageImportError.invalidManifest
+                }
+                resolvedSpriteVersion = manifestVersion
+            }
         } else {
             let candidates = entries.filter {
                 guard !$0.isDirectory, !$0.isMetadata else { return false }
@@ -155,7 +164,7 @@ enum CodexPetPackageImporter {
         )
         let metadata = try CodexPetAssetValidator.validate(
             data: spriteData,
-            spriteVersion: spriteVersion
+            spriteVersion: resolvedSpriteVersion
         )
         return CodexPetImportPayload(
             data: spriteData,
@@ -371,4 +380,5 @@ private struct ArchiveEntry {
 private struct PetManifest: Decodable {
     let displayName: String?
     let spritesheetPath: String
+    let spriteVersionNumber: Int?
 }
