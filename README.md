@@ -21,7 +21,7 @@ macOS에서는 메뉴바 앱으로, Windows에서는 시스템 트레이 앱으�
 ```text
 .
 |-- macos/       Swift 5.9, SwiftUI 메뉴바 앱
-|-- windows/     Go 1.24 시스템 트레이 앱
+|-- windows/     .NET 10 WPF 시스템 트레이 앱
 |-- artwork/     공통 앱 아이콘 원본
 |-- Makefile     공통 빌드 및 버전 관리 진입점
 `-- LICENSE
@@ -41,15 +41,16 @@ make mac-dist
 
 ## Windows
 
-Go 1.24 이상이 필요합니다. Windows에서 직접 테스트하고 빌드하려면:
+.NET 10 SDK가 필요합니다. Windows에서 직접 테스트하고 빌드하려면:
 
 ```powershell
 cd windows
-go test ./...
-go build -o dist/A-mon.exe .
+dotnet restore AMon.Windows.slnx
+dotnet build AMon.Windows.slnx -c Release
+dotnet test AMon.Windows.slnx -c Release
 ```
 
-macOS 또는 Linux에서 Windows 배포 파일을 만들려면:
+서명된 x64·Arm64 배포 파일은 Windows CI에서 생성합니다:
 
 ```bash
 make win-build

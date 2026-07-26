@@ -1,6 +1,6 @@
 # A-mon 루트 Makefile — 맥(macos/)·윈도우(windows/) 공통 진입점.
 #
-#   make build              # 두 플랫폼 모두 빌드 (mac release + windows amd64/arm64)
+#   make build              # macOS + Windows .NET 빌드
 #   make dist               # 두 플랫폼 배포 아티팩트 (mac universal zip + windows zip)
 #   make run                # 맥 앱 번들 조립 후 실행 (윈도우 exe 는 맥에서 실행 불가)
 #   make scan               # 두 스캐너를 이 머신에서 실행 — 파싱 패리티 비교용
@@ -16,13 +16,11 @@ version:
 	@printf "macOS   : "; $(MAKE) -s -C macos version
 	@printf "Windows : A-mon %s\n" "$$(sed -n 's/^VERSION := //p' windows/Makefile)"
 
-## 두 플랫폼 버전 동시 변경 — mac 은 Info.plist(build +1), windows 는
-## Makefile VERSION(빌드 시 ldflags 로 main.appVersion 주입) + main.go 기본값.
+## 두 플랫폼 버전 동시 변경 — mac 은 Info.plist, Windows 는 Makefile VERSION.
 set-version:
 	@if [ -z "$(V)" ]; then echo "❌ 사용법: make set-version V=0.3.3"; exit 1; fi
 	@$(MAKE) -s -C macos set-version V=$(V)
 	@sed -i '' -E 's/^VERSION := .*/VERSION := $(V)/' windows/Makefile
-	@sed -i '' -E 's/appVersion = "[^"]*"/appVersion = "$(V)"/' windows/main.go
 	@echo "✅ Windows 버전 변경: $(V)"
 
 build: mac-build win-build
@@ -51,16 +49,16 @@ mac-scan:
 	@$(MAKE) -C macos build >/dev/null
 	@cd macos && ./.build/release/AIMonitor --scan
 
-# ── Windows (Go, 크로스컴파일) ────────────────────────────────
+# ── Windows (.NET 10 / WPF) ──────────────────────────────────
 win-build:
-	$(MAKE) -C windows build build-arm64
+	$(MAKE) -C windows restore build
 
 win-dist:
 	$(MAKE) -C windows dist
 
 win-installer:
-	$(MAKE) -C windows installer
+	@echo "Windows installer is produced by the Windows CI packaging job."
 
 win-scan:
-	@echo "── Windows 스캐너 (Go, 이 머신 경로로 실행) ──"
-	@cd windows && go run ./cmd/scan
+	@echo "── Windows 스캐너 (.NET) ──"
+	@$(MAKE) -C windows scan

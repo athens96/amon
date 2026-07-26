@@ -1,0 +1,51 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>AMon.App</RootNamespace>
+    <AssemblyName>A-mon</AssemblyName>
+    <ApplicationIcon>..\..\assets\amon.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AMon.Activity\AMon.Activity.csproj" />
+    <ProjectReference Include="..\AMon.ClaudeIntegration\AMon.ClaudeIntegration.csproj" />
+    <ProjectReference Include="..\AMon.ClaudeHook\AMon.ClaudeHook.csproj"
+                      Condition="'$(RuntimeIdentifier)' != ''"
+                      BuildReference="false"
+                      Private="false"
+                      ReferenceOutputAssembly="false"
+                      PrivateAssets="all" />
+    <ProjectReference Include="..\AMon.Collectors\AMon.Collectors.csproj" />
+    <ProjectReference Include="..\AMon.Core\AMon.Core.csproj" />
+    <ProjectReference Include="..\AMon.LocalData\AMon.LocalData.csproj" />
+    <ProjectReference Include="..\AMon.Update\AMon.Update.csproj" />
+    <ProjectReference Include="..\AMon.WindowsPlatform\AMon.WindowsPlatform.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="..\..\assets\amon.ico" Link="Assets\amon.ico" />
+  </ItemGroup>
+
+  <Target Name="PublishClaudeHook"
+          AfterTargets="Publish"
+          Condition="'$(RuntimeIdentifier)' == 'win-x64' Or '$(RuntimeIdentifier)' == 'win-arm64'">
+    <PropertyGroup>
+      <_ClaudeHookPublishDir>$([System.IO.Path]::Combine('$(PublishDir)', 'Hooks'))</_ClaudeHookPublishDir>
+      <_ClaudeHookExecutable>$([System.IO.Path]::Combine('$(_ClaudeHookPublishDir)', 'AMon.ClaudeHook.exe'))</_ClaudeHookExecutable>
+    </PropertyGroup>
+    <MakeDir Directories="$(_ClaudeHookPublishDir)" />
+    <MSBuild Projects="..\AMon.ClaudeHook\AMon.ClaudeHook.csproj"
+             Targets="Publish"
+             BuildInParallel="false"
+             RemoveProperties="TargetFramework;TargetFrameworks;OutputPath;IntermediateOutputPath"
+             Properties="Configuration=$(Configuration);RuntimeIdentifier=$(RuntimeIdentifier);SelfContained=true;PublishSingleFile=true;PublishDir=$(_ClaudeHookPublishDir);Version=$(Version)" />
+    <Error Condition="!Exists('$(_ClaudeHookExecutable)')"
+           Text="Claude hook publish did not produce $(_ClaudeHookExecutable)." />
+  </Target>
+</Project>

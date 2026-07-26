@@ -1,0 +1,183 @@
+name: Windows WPF
+
+on:
+  pull_request:
+    paths:
+      - 'windows/**'
+      - '.github/workflows/windows.yml'
+  push:
+    branches: [main]
+    tags: ['v*']
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet restore windows/AMon.Windows.slnx
+      - run: dotnet build windows/AMon.Windows.slnx -c Release --no-restore
+      - run: dotnet test windows/AMon.Windows.slnx -c Release --no-build
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: test
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - rid: win-x64
+            platform: windows-x64
+            architecture: x64
+          - rid: win-arm64
+            platform: windows-arm64
+            architecture: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Resolve stable release version
+        id: release_version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          if ($tag -notmatch '^v?(?<version>(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*))$') {
+            throw "Windows releases require a stable numeric vX.Y.Z tag; got '$tag'."
+          }
+          "value=$($Matches.version)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+      - run: >-
+          dotnet publish windows/src/AMon.App/AMon.App.csproj -c Release
+          -r ${{ matrix.rid }} --self-contained true -p:PublishSingleFile=true
+          -p:Version=${{ steps.release_version.outputs.value }}
+          -p:AssemblyVersion=${{ steps.release_version.outputs.value }}.0
+          -p:FileVersion=${{ steps.release_version.outputs.value }}.0
+          -p:InformationalVersion=${{ steps.release_version.outputs.value }}
+          -p:IncludeSourceRevisionInInformationalVersion=false
+          -o artifacts/${{ matrix.rid }}
+      - run: >-
+          dotnet publish windows/src/AMon.Updater/AMon.Updater.csproj -c Release
+          -r ${{ matrix.rid }} --self-contained true -p:PublishSingleFile=true
+          -p:Version=${{ steps.release_version.outputs.value }}
+          -p:AssemblyVersion=${{ steps.release_version.outputs.value }}.0
+          -p:FileVersion=${{ steps.release_version.outputs.value }}.0
+          -p:InformationalVersion=${{ steps.release_version.outputs.value }}
+          -p:IncludeSourceRevisionInInformationalVersion=false
+          -o artifacts/${{ matrix.rid }}
+      - name: Validate Windows payload
+        shell: pwsh
+        run: |
+          $root = (Resolve-Path "artifacts/${{ matrix.rid }}").Path
+          $required = @(
+            "A-mon.exe",
+            "AMon.Updater.exe",
+            "Hooks\AMon.ClaudeHook.exe"
+          )
+          foreach ($relative in $required) {
+            $path = Join-Path $root $relative
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Required Windows payload is missing: $relative"
+            }
+          }
+
+          $expectedVersion = [Version] "${{ steps.release_version.outputs.value }}.0"
+          function Assert-ReleaseVersion([string] $actual, [string] $label) {
+            $numeric = ($actual -split '\+', 2)[0]
+            $parsed = [Version] $numeric
+            if ($parsed.Major -ne $expectedVersion.Major
+                -or $parsed.Minor -ne $expectedVersion.Minor
+                -or $parsed.Build -ne $expectedVersion.Build
+                -or ($parsed.Revision -ne -1 -and $parsed.Revision -ne 0)) {
+              throw "Version mismatch for ${label}: expected $expectedVersion, got '$actual'."
+            }
+          }
+          foreach ($relative in $required) {
+            $info = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $root $relative))
+            Assert-ReleaseVersion $info.FileVersion "$relative FileVersion"
+            Assert-ReleaseVersion $info.ProductVersion "$relative ProductVersion"
+          }
+          $managedApp = (
+            Resolve-Path "windows/src/AMon.App/bin/Release/net10.0-windows/${{ matrix.rid }}/A-mon.dll"
+          ).Path
+          $assemblyVersion = [Reflection.AssemblyName]::GetAssemblyName($managedApp).Version
+          if ($assemblyVersion -ne $expectedVersion) {
+            throw "A-mon assembly version mismatch: expected $expectedVersion, got $assemblyVersion."
+          }
+
+          function Get-PeMachine([string] $path) {
+            $stream = [IO.File]::OpenRead($path)
+            $reader = [IO.BinaryReader]::new($stream)
+            try {
+              if ($reader.ReadUInt16() -ne 0x5A4D) {
+                throw "Invalid DOS header: $path"
+              }
+              $stream.Position = 0x3C
+              $peOffset = $reader.ReadInt32()
+              if ($peOffset -lt 0 -or $peOffset -gt ($stream.Length - 6)) {
+                throw "Invalid PE header offset: $path"
+              }
+              $stream.Position = $peOffset
+              if ($reader.ReadUInt32() -ne 0x00004550) {
+                throw "Invalid PE signature: $path"
+              }
+              return $reader.ReadUInt16()
+            }
+            finally {
+              $reader.Dispose()
+              $stream.Dispose()
+            }
+          }
+
+          $expectedMachine = switch ("${{ matrix.rid }}") {
+            "win-x64" { 0x8664 }
+            "win-arm64" { 0xAA64 }
+            default { throw "Unsupported Windows RID: ${{ matrix.rid }}" }
+          }
+          $executables = @(Get-ChildItem -LiteralPath $root -Filter *.exe -File -Recurse)
+          if ($executables.Count -lt $required.Count) {
+            throw "Windows payload contains too few executables."
+          }
+          foreach ($executable in $executables) {
+            $machine = Get-PeMachine $executable.FullName
+            if ($machine -ne $expectedMachine) {
+              $relative = [IO.Path]::GetRelativePath($root, $executable.FullName)
+              throw "Architecture mismatch for ${relative}: expected 0x$($expectedMachine.ToString('X4')), got 0x$($machine.ToString('X4'))."
+            }
+          }
+      - name: Authenticode sign
+        shell: pwsh
+        run: |
+          if (-not $env:WINDOWS_SIGNING_CERTIFICATE -or -not $env:WINDOWS_SIGNING_PASSWORD) {
+            throw "Production publishing requires the Windows signing certificate and password."
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP "amon-signing.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_SIGNING_CERTIFICATE))
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $signtool) { throw "signtool.exe was not found." }
+          Get-ChildItem "artifacts/${{ matrix.rid }}" -Filter *.exe -File -Recurse | ForEach-Object {
+            & $signtool.FullName sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f $pfx /p $env:WINDOWS_SIGNING_PASSWORD $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "Authenticode signing failed: $($_.Name)" }
+            & $signtool.FullName verify /pa /all $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "Authenticode verification failed: $($_.Name)" }
+          }
+          Remove-Item $pfx -Force
+        env:
+          WINDOWS_SIGNING_CERTIFICATE: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE }}
+          WINDOWS_SIGNING_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PASSWORD }}
+      - name: Build architecture release channel
+        shell: pwsh
+        run: |
+          $version = "${{ steps.release_version.outputs.value }}"
+          $release = "release/${{ matrix.platform }}"
+          New-Item -ItemType Directory -Path $release -Force | Out-Null
+          $archive = Join-Path $release "A-mon-${{ matrix.platform }}-$version.zip"
+          Compress-Archive -Path "artifacts/${{ matrix.rid }}/*" -DestinationPath $archive
+          node windows/scripts/write-release-manifest.mjs `
+            $archive "${{ matrix.architecture }}" $version (Join-Path $release "latest.json")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: A-mon-${{ matrix.platform }}
+          path: release/${{ matrix.platform }}
