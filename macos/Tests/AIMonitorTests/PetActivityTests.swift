@@ -395,7 +395,7 @@ final class PetActivityTests: XCTestCase {
             x: 0,
             y: 0,
             width: CodexPetSpriteLayout.sheetPixelWidth,
-            height: CodexPetSpriteLayout.sheetPixelHeight
+            height: CodexPetSpriteLayout.v1SheetPixelHeight
         )
         for animation in CodexPetSpriteLayout.Animation.allCases {
             let strip = try XCTUnwrap(CodexPetSpriteLayout.strips[animation])

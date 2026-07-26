@@ -3,17 +3,25 @@ import Foundation
 
 /// 현재 Codex custom pet sprite sheet 와 호환되는 프레임 배치.
 ///
-/// 이 값은 A-mon 렌더러가 sheet 를 자르는 데만 사용한다. 개별 프레임의 시각적
-/// 내용이나 spriteVersion 1/2 사이의 의미 차이를 임의로 추론하지 않는다.
+/// V1의 9개 표준 행과 V2의 같은 표준 행을 재생하며, V2의 추가 시선 방향
+/// 2개 행은 시트에 그대로 보존한다.
 enum CodexPetSpriteLayout {
-    /// spriteVersion 과 동일시하지 않는 현재 호환성 프로필 이름.
-    static let compatibilityProfile = "current"
     static let sheetPixelWidth = 1536
-    static let sheetPixelHeight = 1872
+    static let v1SheetPixelHeight = 1872
+    static let v2SheetPixelHeight = 2288
     static let framePixelWidth = 192
     static let framePixelHeight = 208
     static let columnCount = 8
-    static let rowCount = 9
+    static let v1RowCount = 9
+    static let v2RowCount = 11
+
+    static func sheetPixelHeight(for version: CodexPetSpriteVersion) -> Int {
+        version.requiredPixelHeight
+    }
+
+    static func rowCount(for version: CodexPetSpriteVersion) -> Int {
+        version.rowCount
+    }
 
     enum Animation: String, CaseIterable {
         case idle

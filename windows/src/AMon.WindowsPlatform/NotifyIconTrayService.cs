@@ -60,6 +60,15 @@ public sealed class NotifyIconTrayService : IDisposable
         _notifyIcon.Text = text.Length <= 63 ? text : text[..63];
     }
 
+    public void ShowQuotaAlert(string provider, string meter, double remainingPercent)
+    {
+        _notifyIcon.BalloonTipTitle = $"{provider} 할당량 알림";
+        _notifyIcon.BalloonTipText =
+            $"{meter} 잔여량이 {remainingPercent:0.#}% 남았습니다.";
+        _notifyIcon.BalloonTipIcon = Forms.ToolTipIcon.Warning;
+        _notifyIcon.ShowBalloonTip(8000);
+    }
+
     public void ShowContextMenu()
     {
         _contextMenu.Show(Forms.Cursor.Position);

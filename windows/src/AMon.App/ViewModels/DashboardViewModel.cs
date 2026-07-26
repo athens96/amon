@@ -15,6 +15,8 @@ public sealed class DashboardViewModel : ObservableObject
 
     public ObservableCollection<ToolUsageCardViewModel> Tools { get; } = [];
 
+    public ObservableCollection<ProviderQuotaViewModel> ProviderQuotas { get; } = [];
+
     public string StatusText
     {
         get => _statusText;
@@ -80,6 +82,13 @@ public sealed class DashboardViewModel : ObservableObject
         OnPropertyChanged(nameof(HasTools));
     }
 
+    public void ApplyProviderQuotas(IReadOnlyList<ProviderQuotaViewModel> quotas)
+    {
+        ProviderQuotas.Clear();
+        foreach (var quota in quotas)
+            ProviderQuotas.Add(quota);
+    }
+
     public void MarkFailed(string message)
     {
         IsScanning = false;
@@ -105,6 +114,30 @@ public sealed class ToolUsageCardViewModel
             summary.Usage.CacheReadTokens + summary.Usage.CacheWriteTokens));
         Sessions = summary.Sessions.ToString("N0", CultureInfo.CurrentCulture);
         Note = summary.Note ?? string.Empty;
+        LastActivity = summary.LastActivity is null
+            ? "최근 활동 정보 없음"
+            : $"최근 활동 {summary.LastActivity.Value.ToLocalTime():yyyy-MM-dd HH:mm}";
+        Models = summary.Models is null || summary.Models.Count == 0
+            ? "모델 정보 없음"
+            : string.Join(
+                " · ",
+                summary.Models
+                    .OrderByDescending(static pair => pair.Value)
+                    .Take(3)
+                    .Select(pair => $"{ShortModelName(pair.Key)} {Format(pair.Value)}"));
+        RecentDays = new ObservableCollection<DailyUsageRowViewModel>(
+            summary.Daily
+                .GroupBy(static day => day.Date)
+                .Select(group => new
+                {
+                    Date = group.Key,
+                    Tokens = group.Sum(static day => day.Usage.TotalTokens),
+                })
+                .OrderByDescending(static day => day.Date)
+                .Take(7)
+                .Select(day => new DailyUsageRowViewModel(
+                    day.Date.ToString("MM/dd", CultureInfo.CurrentCulture),
+                    Format(day.Tokens))));
     }
 
     public string Name { get; }
@@ -115,7 +148,19 @@ public sealed class ToolUsageCardViewModel
     public string Cache { get; }
     public string Sessions { get; }
     public string Note { get; }
+    public string LastActivity { get; }
+    public string Models { get; }
+    public ObservableCollection<DailyUsageRowViewModel> RecentDays { get; }
 
     private static string Format(long value) =>
         value.ToString("N0", CultureInfo.CurrentCulture);
+
+    private static string ShortModelName(string model)
+    {
+        var slash = model.LastIndexOf('/');
+        return slash >= 0 ? model[(slash + 1)..] : model;
+    }
+
 }
+
+public sealed record DailyUsageRowViewModel(string Date, string Tokens);

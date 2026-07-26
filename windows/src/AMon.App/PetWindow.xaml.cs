@@ -90,7 +90,14 @@ public partial class PetWindow : Window
         PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(PetViewModel.Current))
+        {
             ApplyPresentation(announce: true);
+        }
+        else if (e.PropertyName is nameof(PetViewModel.HasCustomSprite)
+                 or nameof(PetViewModel.SpritePath))
+        {
+            ApplyPresentation(announce: false);
+        }
     }
 
     private void OnSystemParametersChanged(
@@ -113,7 +120,7 @@ public partial class PetWindow : Window
 
         var animationsEnabled =
             IsVisible && SystemParameters.ClientAreaAnimation;
-        var state = animationsEnabled
+        var state = animationsEnabled && !_viewModel.HasCustomSprite
             ? _viewModel.Current.Status.ToString()
             : "Still";
         VisualStateManager.GoToElementState(
@@ -146,6 +153,12 @@ public partial class PetWindow : Window
 
     private void OnAvatarClick(object sender, RoutedEventArgs e) =>
         DashboardToggleRequested?.Invoke(this, EventArgs.Empty);
+
+    private void OnBubbleClick(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        DashboardToggleRequested?.Invoke(this, EventArgs.Empty);
+    }
 
     private void OnAvatarRightClick(object sender, MouseButtonEventArgs e)
     {

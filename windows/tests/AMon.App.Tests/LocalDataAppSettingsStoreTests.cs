@@ -53,6 +53,34 @@ public sealed class LocalDataAppSettingsStoreTests : IDisposable
             document.RootElement.GetProperty("future_option").GetProperty("enabled").GetString());
     }
 
+    [Fact]
+    public void ServerPrivacyAndPathsRoundTrip()
+    {
+        var path = Path.Combine(_directory, "config.json");
+        var store = new LocalDataAppSettingsStore(path);
+        var settings = new AppSettingsState(
+            AutoUpdateEnabled: false,
+            LaunchAtLoginEnabled: true,
+            QuotaAlertsEnabled: false,
+            TrayQuotaEnabled: true,
+            TrayQuotaShowsRemaining: false,
+            TrayQuotaProvider: "Codex",
+            ServerUrl: "https://monitor.example.com",
+            UserKey: "user-key",
+            PetEnabled: false,
+            LocalActivityEnabled: true,
+            ShowsCurrentTask: false,
+            PetSpritePath: @"C:\pets\amon.png",
+            PetSpriteVersion: 2,
+            ClaudePath: @"C:\logs\claude",
+            CodexPath: @"C:\logs\codex");
+
+        store.Save(settings);
+        var loaded = store.Load();
+
+        Assert.Equal(settings, loaded);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_directory))

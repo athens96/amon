@@ -3,32 +3,83 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              ShutdownMode="OnExplicitShutdown">
   <Application.Resources>
-    <Color x:Key="WindowColor">#171820</Color>
-    <Color x:Key="SurfaceColor">#22242E</Color>
-    <Color x:Key="SurfaceHoverColor">#2C2F3B</Color>
-    <Color x:Key="LineColor">#393C49</Color>
-    <Color x:Key="TextColor">#F4F4F7</Color>
-    <Color x:Key="MutedColor">#A9ABBA</Color>
-    <Color x:Key="AccentColor">#7C6BFF</Color>
+    <!-- OpenUsage-inspired compact dashboard: native Windows typography and quiet cards. -->
+    <FontFamily x:Key="DisplayFont">Segoe UI Variable Display, Segoe UI</FontFamily>
+    <FontFamily x:Key="BodyFont">Inter, Segoe UI Variable Text, Segoe UI</FontFamily>
 
-    <SolidColorBrush x:Key="WindowBrush" Color="{StaticResource WindowColor}" />
-    <SolidColorBrush x:Key="SurfaceBrush" Color="{StaticResource SurfaceColor}" />
-    <SolidColorBrush x:Key="SurfaceHoverBrush" Color="{StaticResource SurfaceHoverColor}" />
-    <SolidColorBrush x:Key="LineBrush" Color="{StaticResource LineColor}" />
-    <SolidColorBrush x:Key="TextBrush" Color="{StaticResource TextColor}" />
-    <SolidColorBrush x:Key="MutedBrush" Color="{StaticResource MutedColor}" />
-    <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}" />
+    <Color x:Key="WindowColor">#F5F5F5</Color>
+    <Color x:Key="SurfaceColor">#FFFFFF</Color>
+    <Color x:Key="SurfaceHoverColor">#F0EFED</Color>
+    <Color x:Key="SurfaceStrongColor">#F0EFED</Color>
+    <Color x:Key="LineColor">#E7E5E4</Color>
+    <Color x:Key="TextColor">#0C0A09</Color>
+    <Color x:Key="BodyColor">#4E4E4E</Color>
+    <Color x:Key="MutedColor">#777169</Color>
+    <Color x:Key="AccentColor">#292524</Color>
+    <Color x:Key="AccentTextColor">#FFFFFF</Color>
+    <Color x:Key="SuccessColor">#16A34A</Color>
+    <Color x:Key="ErrorColor">#DC2626</Color>
+    <Color x:Key="PetBubbleColor">#F2FFFFFF</Color>
+    <Color x:Key="PetBubbleSubtleColor">#FFF4F2EF</Color>
+    <Color x:Key="PetBubbleBorderColor">#330C0A09</Color>
+    <Color x:Key="PetBubbleTextColor">#1C1917</Color>
+    <Color x:Key="PetBubbleMutedColor">#6B6560</Color>
+    <Color x:Key="PetBubbleAccentColor">#5B21B6</Color>
+    <Color x:Key="PetBadgeColor">#292524</Color>
+    <Color x:Key="PetBadgeTextColor">#FFFFFF</Color>
+
+    <SolidColorBrush x:Key="WindowBrush" Color="{DynamicResource WindowColor}" />
+    <SolidColorBrush x:Key="SurfaceBrush" Color="{DynamicResource SurfaceColor}" />
+    <SolidColorBrush x:Key="SurfaceHoverBrush" Color="{DynamicResource SurfaceHoverColor}" />
+    <SolidColorBrush x:Key="SurfaceStrongBrush" Color="{DynamicResource SurfaceStrongColor}" />
+    <SolidColorBrush x:Key="LineBrush" Color="{DynamicResource LineColor}" />
+    <SolidColorBrush x:Key="TextBrush" Color="{DynamicResource TextColor}" />
+    <SolidColorBrush x:Key="BodyBrush" Color="{DynamicResource BodyColor}" />
+    <SolidColorBrush x:Key="MutedBrush" Color="{DynamicResource MutedColor}" />
+    <SolidColorBrush x:Key="AccentBrush" Color="{DynamicResource AccentColor}" />
+    <SolidColorBrush x:Key="AccentTextBrush" Color="{DynamicResource AccentTextColor}" />
+    <SolidColorBrush x:Key="SuccessBrush" Color="{DynamicResource SuccessColor}" />
+    <SolidColorBrush x:Key="ErrorBrush" Color="{DynamicResource ErrorColor}" />
+    <SolidColorBrush x:Key="PetBubbleBrush" Color="{DynamicResource PetBubbleColor}" />
+    <SolidColorBrush x:Key="PetBubbleSubtleBrush" Color="{DynamicResource PetBubbleSubtleColor}" />
+    <SolidColorBrush x:Key="PetBubbleBorderBrush" Color="{DynamicResource PetBubbleBorderColor}" />
+    <SolidColorBrush x:Key="PetBubbleTextBrush" Color="{DynamicResource PetBubbleTextColor}" />
+    <SolidColorBrush x:Key="PetBubbleMutedBrush" Color="{DynamicResource PetBubbleMutedColor}" />
+    <SolidColorBrush x:Key="PetBubbleAccentBrush" Color="{DynamicResource PetBubbleAccentColor}" />
+    <SolidColorBrush x:Key="PetBadgeBrush" Color="{DynamicResource PetBadgeColor}" />
+    <SolidColorBrush x:Key="PetBadgeTextBrush" Color="{DynamicResource PetBadgeTextColor}" />
+
+    <LinearGradientBrush x:Key="AtmosphereBrush" StartPoint="0,0" EndPoint="1,1">
+      <GradientStop Offset="0" Color="#A7E5D3" />
+      <GradientStop Offset="0.34" Color="#F4C5A8" />
+      <GradientStop Offset="0.67" Color="#C8B8E0" />
+      <GradientStop Offset="1" Color="#A8C8E8" />
+    </LinearGradientBrush>
 
     <Style TargetType="TextBlock">
-      <Setter Property="FontFamily" Value="Segoe UI Variable Text" />
+      <Setter Property="FontFamily" Value="{StaticResource BodyFont}" />
       <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
       <Setter Property="TextOptions.TextFormattingMode" Value="Display" />
+    </Style>
+
+    <Style TargetType="TextBox">
+      <Setter Property="Height" Value="44" />
+      <Setter Property="Padding" Value="12,9" />
+      <Setter Property="FontFamily" Value="{StaticResource BodyFont}" />
+      <Setter Property="FontSize" Value="15" />
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+      <Setter Property="Background" Value="{StaticResource SurfaceBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
     </Style>
 
     <Style x:Key="NavigationButtonStyle" TargetType="Button">
       <Setter Property="Height" Value="44" />
       <Setter Property="Padding" Value="14,0" />
       <Setter Property="HorizontalContentAlignment" Value="Left" />
+      <Setter Property="FontFamily" Value="{StaticResource BodyFont}" />
+      <Setter Property="FontSize" Value="15" />
+      <Setter Property="FontWeight" Value="Medium" />
       <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="BorderThickness" Value="0" />
@@ -39,7 +90,7 @@
             <Border x:Name="Border"
                     Padding="{TemplateBinding Padding}"
                     Background="{TemplateBinding Background}"
-                    CornerRadius="9">
+                    CornerRadius="22">
               <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                 VerticalAlignment="Center" />
             </Border>
@@ -49,9 +100,56 @@
               </Trigger>
               <Trigger Property="IsKeyboardFocused" Value="True">
                 <Setter TargetName="Border" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
-                <Setter TargetName="Border" Property="BorderThickness" Value="2" />
+                <Setter TargetName="Border" Property="BorderThickness" Value="1" />
               </Trigger>
             </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style x:Key="PrimaryButtonStyle" TargetType="Button">
+      <Setter Property="Height" Value="40" />
+      <Setter Property="Padding" Value="20,0" />
+      <Setter Property="Foreground" Value="{StaticResource AccentTextBrush}" />
+      <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="FontSize" Value="15" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border Background="{TemplateBinding Background}"
+                    Padding="{TemplateBinding Padding}"
+                    CornerRadius="20">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <Style x:Key="OutlineButtonStyle" TargetType="Button">
+      <Setter Property="Height" Value="40" />
+      <Setter Property="Padding" Value="19,0" />
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="{StaticResource LineBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="FontSize" Value="15" />
+      <Setter Property="FontWeight" Value="Medium" />
+      <Setter Property="Cursor" Value="Hand" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    Padding="{TemplateBinding Padding}"
+                    CornerRadius="20">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
           </ControlTemplate>
         </Setter.Value>
       </Setter>

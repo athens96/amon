@@ -21,11 +21,12 @@ final class CodexPetPackageImporterTests: XCTestCase {
         try Data("not the sprite".utf8).write(
             to: package.appendingPathComponent("preview.png")
         )
-        let sprite = try makePNG(width: 1536, height: 1872)
+        let sprite = try makePNG(width: 1536, height: 2288)
         try sprite.write(to: package.appendingPathComponent("spritesheet.png"))
         try manifestData(
             displayName: "Pixel Coder",
-            spritesheetPath: "spritesheet.png"
+            spritesheetPath: "spritesheet.png",
+            spriteVersionNumber: 2
         ).write(to: package.appendingPathComponent("pet.json"))
 
         let archive = try createArchive(
@@ -35,14 +36,14 @@ final class CodexPetPackageImporterTests: XCTestCase {
         )
         let payload = try CodexPetPackageImporter.load(
             fileURL: archive,
-            spriteVersion: .v2
+            spriteVersion: .v1
         )
 
         XCTAssertEqual(payload.displayName, "Pixel Coder")
         XCTAssertEqual(payload.data, sprite)
         XCTAssertEqual(payload.metadata.format, .png)
         XCTAssertEqual(payload.metadata.pixelWidth, 1536)
-        XCTAssertEqual(payload.metadata.pixelHeight, 1872)
+        XCTAssertEqual(payload.metadata.pixelHeight, 2288)
         XCTAssertEqual(payload.metadata.spriteVersion, .v2)
     }
 
@@ -163,8 +164,9 @@ final class CodexPetPackageImporterTests: XCTestCase {
         )
 
         XCTAssertEqual(payload.metadata.pixelWidth, 1536)
-        XCTAssertEqual(payload.metadata.pixelHeight, 1872)
-        XCTAssertEqual(payload.metadata.format, .png)
+        XCTAssertEqual(payload.metadata.pixelHeight, 2288)
+        XCTAssertEqual(payload.metadata.spriteVersion, .v2)
+        XCTAssertEqual(payload.metadata.format, .webP)
     }
 
     private func makeTemporaryDirectory() throws -> URL {
@@ -199,14 +201,19 @@ final class CodexPetPackageImporterTests: XCTestCase {
 
     private func manifestData(
         displayName: String,
-        spritesheetPath: String
+        spritesheetPath: String,
+        spriteVersionNumber: Int? = nil
     ) throws -> Data {
-        try JSONSerialization.data(
-            withJSONObject: [
-                "id": "test-pet",
-                "displayName": displayName,
-                "spritesheetPath": spritesheetPath
-            ],
+        var manifest: [String: Any] = [
+            "id": "test-pet",
+            "displayName": displayName,
+            "spritesheetPath": spritesheetPath
+        ]
+        if let spriteVersionNumber {
+            manifest["spriteVersionNumber"] = spriteVersionNumber
+        }
+        return try JSONSerialization.data(
+            withJSONObject: manifest,
             options: [.sortedKeys]
         )
     }
