@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Automation.Peers;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using AMon.App.ViewModels;
 using AMon.WindowsPlatform;
@@ -14,6 +15,20 @@ public partial class PetWindow : Window
     private PetViewModel? _viewModel;
     private string? _lastAnnouncementKey;
     private bool _systemParametersSubscribed;
+    private System.Windows.Point _dragStartScreen;
+    private System.Windows.Point _windowStart;
+    private bool _isDragging;
+    private bool _bubbleVisible = true;
+    private double _bubbleWidth = 340;
+    private double _bubbleHeight = 240;
+
+    private const double BubbleMinimumWidth = 300;
+    private const double BubbleMaximumWidth = 520;
+    private const double BubbleMinimumHeight = 210;
+    private const double BubbleMaximumHeight = 380;
+    private const double PetOnlyWidth = 190;
+    private const double BubbleWindowExtraWidth = 190;
+    private const double WindowVerticalPadding = 32;
 
     public PetWindow(INativeWindowStyleService nativeWindowStyleService)
     {
@@ -151,8 +166,79 @@ public partial class PetWindow : Window
         peer?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
     }
 
-    private void OnAvatarClick(object sender, RoutedEventArgs e) =>
-        DashboardToggleRequested?.Invoke(this, EventArgs.Empty);
+    private void OnAvatarMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        _dragStartScreen = PointToScreen(e.GetPosition(this));
+        _windowStart = new System.Windows.Point(Left, Top);
+        _isDragging = false;
+        AvatarButton.CaptureMouse();
+        e.Handled = true;
+    }
+
+    private void OnAvatarMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (!AvatarButton.IsMouseCaptured || e.LeftButton != MouseButtonState.Pressed)
+            return;
+
+        var current = PointToScreen(e.GetPosition(this));
+        var delta = current - _dragStartScreen;
+        if (!_isDragging
+            && Math.Abs(delta.X) < SystemParameters.MinimumHorizontalDragDistance
+            && Math.Abs(delta.Y) < SystemParameters.MinimumVerticalDragDistance)
+        {
+            return;
+        }
+
+        _isDragging = true;
+        var workArea = SystemParameters.WorkArea;
+        Left = Math.Clamp(_windowStart.X + delta.X, workArea.Left, workArea.Right - ActualWidth);
+        Top = Math.Clamp(_windowStart.Y + delta.Y, workArea.Top, workArea.Bottom - ActualHeight);
+        e.Handled = true;
+    }
+
+    private void OnAvatarMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!AvatarButton.IsMouseCaptured)
+            return;
+
+        AvatarButton.ReleaseMouseCapture();
+        if (!_isDragging)
+            SetBubbleVisible(!_bubbleVisible);
+        e.Handled = true;
+    }
+
+    private void SetBubbleVisible(bool visible)
+    {
+        var right = Left + ActualWidth;
+        _bubbleVisible = visible;
+        var visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        ActivityBubble.Visibility = visibility;
+        Width = visible ? _bubbleWidth + BubbleWindowExtraWidth : PetOnlyWidth;
+        Height = visible
+            ? Math.Max(220, _bubbleHeight + WindowVerticalPadding)
+            : 220;
+        Left = Math.Max(SystemParameters.WorkArea.Left, right - Width);
+    }
+
+    private void OnBubbleResize(object sender, DragDeltaEventArgs e)
+    {
+        _bubbleWidth = Math.Clamp(
+            ActivityBubble.ActualWidth + e.HorizontalChange,
+            BubbleMinimumWidth,
+            BubbleMaximumWidth);
+        _bubbleHeight = Math.Clamp(
+            ActivityBubble.ActualHeight + e.VerticalChange,
+            BubbleMinimumHeight,
+            BubbleMaximumHeight);
+        ActivityBubble.Width = _bubbleWidth;
+        ActivityBubble.Height = _bubbleHeight;
+        Width = _bubbleWidth + BubbleWindowExtraWidth;
+        Height = Math.Max(220, _bubbleHeight + WindowVerticalPadding);
+
+        var workArea = SystemParameters.WorkArea;
+        Left = Math.Clamp(Left, workArea.Left, workArea.Right - Width);
+        Top = Math.Clamp(Top, workArea.Top, workArea.Bottom - Height);
+    }
 
     private void OnBubbleClick(object sender, MouseButtonEventArgs e)
     {

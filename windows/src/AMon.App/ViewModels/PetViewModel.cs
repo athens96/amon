@@ -89,12 +89,12 @@ public sealed class PetViewModel : ObservableObject
         $"A-mon 펫, {Current.StatusText}, {Current.Title}";
 
     public string InputTokenText => Current.InputTokens is { } value
-        ? $"입력 {FormatTokens(value)}"
-        : string.Empty;
+        ? $"INPUT {FormatTokens(value)}"
+        : "INPUT —";
 
     public string OutputTokenText => Current.OutputTokens is { } value
-        ? $"출력 {FormatTokens(value)}"
-        : string.Empty;
+        ? $"OUTPUT {FormatTokens(value)}"
+        : "OUTPUT —";
 
     public string TotalTokenText =>
         Current.InputTokens is null
@@ -104,6 +104,10 @@ public sealed class PetViewModel : ObservableObject
             : string.Empty;
 
     public string BubbleText => CompactPreview(Current.OutputText);
+
+    public string InputBubbleText => CompactPreview(Current.InputText);
+
+    public string OutputBubbleText => CompactPreview(Current.OutputText);
 
     public string TaskText => CompactPreview(Current.Title, 72);
 
@@ -191,6 +195,8 @@ public sealed class PetViewModel : ObservableObject
         OnPropertyChanged(nameof(OutputTokenText));
         OnPropertyChanged(nameof(TotalTokenText));
         OnPropertyChanged(nameof(BubbleText));
+        OnPropertyChanged(nameof(InputBubbleText));
+        OnPropertyChanged(nameof(OutputBubbleText));
         OnPropertyChanged(nameof(TaskText));
         OnPropertyChanged(nameof(HasTokenBreakdown));
         OnPropertyChanged(nameof(InputFraction));
