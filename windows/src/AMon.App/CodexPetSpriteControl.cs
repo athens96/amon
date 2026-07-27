@@ -73,9 +73,41 @@ public sealed class CodexPetSpriteControl : FrameworkElement
             double.IsInfinity(availableSize.Width) ? 126 : availableSize.Width,
             double.IsInfinity(availableSize.Height) ? 148 : availableSize.Height);
 
+    protected override void OnMouseEnter(System.Windows.Input.MouseEventArgs e)
+    {
+        base.OnMouseEnter(e);
+        InvalidateVisual();
+    }
+
+    protected override void OnMouseLeave(System.Windows.Input.MouseEventArgs e)
+    {
+        base.OnMouseLeave(e);
+        InvalidateVisual();
+    }
+
+    protected override void OnMouseMove(System.Windows.Input.MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        if (Status == PetActivityStatus.Idle && SpriteVersion == 2)
+            InvalidateVisual();
+    }
+
     protected override void OnRender(DrawingContext drawingContext)
     {
-        var animation = CodexPetSpriteLayout.AnimationFor(Status);
+        var gazeDirection = 0;
+        if (Status == PetActivityStatus.Idle
+            && CodexPetSpriteLayout.NormalizeVersion(SpriteVersion) == 2
+            && IsMouseOver)
+        {
+            gazeDirection =
+                System.Windows.Input.Mouse.GetPosition(this).X >= ActualWidth / 2
+                    ? 1
+                    : -1;
+        }
+        var animation = CodexPetSpriteLayout.AnimationFor(
+            Status,
+            SpriteVersion,
+            gazeDirection);
         if (!_frames.TryGetValue(animation, out var frames) || frames.Count == 0)
             return;
         var index = CodexPetSpriteLayout.FrameIndex(
@@ -110,6 +142,8 @@ public sealed class CodexPetSpriteControl : FrameworkElement
             var sheet = CodexPetAssetService.LoadBitmapSource(SourcePath);
             foreach (var (animation, strip) in CodexPetSpriteLayout.Strips)
             {
+                if (strip.Row >= CodexPetSpriteLayout.RowCountFor(SpriteVersion))
+                    continue;
                 var frames = new List<BitmapSource>(strip.FrameCount);
                 for (var column = 0; column < strip.FrameCount; column++)
                 {

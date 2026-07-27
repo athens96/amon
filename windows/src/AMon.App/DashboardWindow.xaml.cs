@@ -16,6 +16,7 @@ public partial class DashboardWindow : Window
     public DashboardWindow()
     {
         InitializeComponent();
+        SourceInitialized += (_, _) => WindowsWindowStyle.Apply(this);
     }
 
     public PetViewModel? PetViewModel
