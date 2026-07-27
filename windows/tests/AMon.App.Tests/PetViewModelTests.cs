@@ -16,6 +16,8 @@ public sealed class PetViewModelTests
         var viewModel = new PetViewModel([presentation]);
 
         Assert.Equal("첫 줄 두 번째 줄", viewModel.BubbleText);
+        Assert.Equal("첫 번째 입력", viewModel.InputBubbleText);
+        Assert.Equal("첫 줄 두 번째 줄", viewModel.OutputBubbleText);
         Assert.EndsWith("…", viewModel.TaskText);
         Assert.Equal(72, viewModel.TaskText.Length);
     }
@@ -34,8 +36,8 @@ public sealed class PetViewModelTests
         Assert.Equal("1/2", viewModel.CounterText);
         Assert.Equal("첫 번째 입력", viewModel.Current.InputText);
         Assert.Equal("첫 번째 출력", viewModel.Current.OutputText);
-        Assert.Equal("입력 1.2K", viewModel.InputTokenText);
-        Assert.Equal("출력 340", viewModel.OutputTokenText);
+        Assert.Equal("INPUT 1.2K", viewModel.InputTokenText);
+        Assert.Equal("OUTPUT 340", viewModel.OutputTokenText);
         Assert.Contains("2개 동시 세션 중 1번째", viewModel.AccessiblePositionText);
     }
 
@@ -121,6 +123,8 @@ public sealed class PetViewModelTests
             First with { InputTokens = null, OutputTokens = null, TotalTokens = 42 }
         ]);
         Assert.False(viewModel.HasTokenBreakdown);
+        Assert.Equal("INPUT —", viewModel.InputTokenText);
+        Assert.Equal("OUTPUT —", viewModel.OutputTokenText);
         Assert.Equal("합계 42", viewModel.TotalTokenText);
     }
 
@@ -146,8 +150,8 @@ public sealed class PetViewModelTests
         Assert.False(viewModel.ShowsCurrentTask);
         Assert.True(viewModel.HasRunningCarousel);
         Assert.Equal("1/2", viewModel.CounterText);
-        Assert.Equal("입력 1.2K", viewModel.InputTokenText);
-        Assert.Equal("출력 340", viewModel.OutputTokenText);
+        Assert.Equal("INPUT 1.2K", viewModel.InputTokenText);
+        Assert.Equal("OUTPUT 340", viewModel.OutputTokenText);
         Assert.Null(viewModel.Current.InputPreview);
         Assert.Null(viewModel.Current.OutputPreview);
     }

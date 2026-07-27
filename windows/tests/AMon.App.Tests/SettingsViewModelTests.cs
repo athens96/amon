@@ -79,6 +79,37 @@ public sealed class SettingsViewModelTests
         Assert.Contains("Svinushka", viewModel.PetImportStatus);
     }
 
+    [Theory]
+    [InlineData("127.0.0.1:3000")]
+    [InlineData("localhost:3000")]
+    [InlineData("http://127.0.0.1:3000")]
+    [InlineData("https://monitor.example.com")]
+    public void ReportIsConfiguredForSupportedServerAddresses(string serverUrl)
+    {
+        var store = new RecordingSettingsStore(new AppSettingsState(
+            AutoUpdateEnabled: true,
+            ServerUrl: serverUrl,
+            UserKey: "amon_test_key"));
+        var viewModel = new SettingsViewModel(store);
+
+        Assert.True(viewModel.ReportConfigured);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("monitor.example.com")]
+    [InlineData("ftp://monitor.example.com")]
+    public void ReportRejectsUnsupportedServerAddresses(string serverUrl)
+    {
+        var store = new RecordingSettingsStore(new AppSettingsState(
+            AutoUpdateEnabled: true,
+            ServerUrl: serverUrl,
+            UserKey: "amon_test_key"));
+        var viewModel = new SettingsViewModel(store);
+
+        Assert.False(viewModel.ReportConfigured);
+    }
+
     private sealed class RecordingSettingsStore(AppSettingsState initial) : IAppSettingsStore
     {
         public List<AppSettingsState> Saved { get; } = [];

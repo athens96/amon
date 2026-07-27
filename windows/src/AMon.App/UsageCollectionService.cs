@@ -137,7 +137,7 @@ public sealed class UsageCollectionService : IDisposable
         CancellationToken cancellationToken)
     {
         var config = await _configStore.LoadAsync(cancellationToken);
-        if (!Uri.TryCreate(config.ServerUrl.Trim(), UriKind.Absolute, out var server)
+        if (!ServerEndpoint.TryNormalize(config.ServerUrl, out var server)
             || string.IsNullOrWhiteSpace(config.UserKey))
         {
             await SetReportStatusAsync("서버 URL과 유저 키를 입력하면 집계 사용량을 자동 전송합니다.");
@@ -146,7 +146,7 @@ public sealed class UsageCollectionService : IDisposable
 
         var contentSignature = ContentSignature.Compute(summaries);
         var uploadSignature = ContentSignature.ComputeUploadSignature(
-            new Uri(server, "/api/v1/ai-agents/report").AbsoluteUri,
+            new Uri(server!, "/api/v1/ai-agents/report").AbsoluteUri,
             config.UserKey,
             contentSignature);
         if (!force && string.Equals(
@@ -166,7 +166,7 @@ public sealed class UsageCollectionService : IDisposable
                 "usage-upload.db");
             await _database.CreateUploadSnapshotAsync(snapshotPath, cancellationToken);
             using var response = await new DashboardReporter(_httpClient).UploadAsync(
-                server,
+                server!,
                 config.UserKey,
                 snapshotPath,
                 cancellationToken);
@@ -197,8 +197,14 @@ public sealed class UsageCollectionService : IDisposable
         }
     }
 
-    private Task SetReportStatusAsync(string status) =>
-        _dispatcher.InvokeAsync(() => _settings.SetReportStatus(status)).Task;
+    private async Task SetReportStatusAsync(string status)
+    {
+        var statusPath = Path.Combine(
+            Path.GetDirectoryName(_databasePath) ?? ".",
+            "report-status.log");
+        await File.WriteAllTextAsync(statusPath, status);
+        await _dispatcher.InvokeAsync(() => _settings.SetReportStatus(status));
+    }
 
     public void Dispose()
     {

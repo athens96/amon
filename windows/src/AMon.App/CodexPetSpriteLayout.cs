@@ -13,6 +13,8 @@ public enum CodexPetAnimation
     Waiting,
     Running,
     Review,
+    LookingRight,
+    LookingLeft,
 }
 
 public sealed record CodexPetStrip(int Row, int FrameCount);
@@ -62,17 +64,33 @@ public static class CodexPetSpriteLayout
             [CodexPetAnimation.Waiting] = new(6, 6),
             [CodexPetAnimation.Running] = new(7, 6),
             [CodexPetAnimation.Review] = new(8, 6),
+            [CodexPetAnimation.LookingRight] = new(9, 6),
+            [CodexPetAnimation.LookingLeft] = new(10, 6),
         };
 
-    public static CodexPetAnimation AnimationFor(PetActivityStatus status) => status switch
+    public static CodexPetAnimation AnimationFor(
+        PetActivityStatus status,
+        int spriteVersion = 1,
+        int gazeDirection = 0)
     {
-        PetActivityStatus.Idle => CodexPetAnimation.Idle,
-        PetActivityStatus.Running => CodexPetAnimation.Running,
-        PetActivityStatus.NeedsInput => CodexPetAnimation.Waiting,
-        PetActivityStatus.Ready => CodexPetAnimation.Waving,
-        PetActivityStatus.Blocked => CodexPetAnimation.Failed,
-        _ => CodexPetAnimation.Idle,
-    };
+        if (status == PetActivityStatus.Idle && NormalizeVersion(spriteVersion) == 2)
+        {
+            if (gazeDirection > 0)
+                return CodexPetAnimation.LookingRight;
+            if (gazeDirection < 0)
+                return CodexPetAnimation.LookingLeft;
+        }
+
+        return status switch
+        {
+            PetActivityStatus.Idle => CodexPetAnimation.Idle,
+            PetActivityStatus.Running => CodexPetAnimation.Running,
+            PetActivityStatus.NeedsInput => CodexPetAnimation.Waiting,
+            PetActivityStatus.Ready => CodexPetAnimation.Waving,
+            PetActivityStatus.Blocked => CodexPetAnimation.Failed,
+            _ => CodexPetAnimation.Idle,
+        };
+    }
 
     public static IReadOnlyList<TimeSpan> FrameDurations(CodexPetAnimation animation)
     {
@@ -101,6 +119,8 @@ public static class CodexPetSpriteLayout
             CodexPetAnimation.Failed => (0.14, 0.24),
             CodexPetAnimation.Waiting => (0.15, 0.26),
             CodexPetAnimation.Review => (0.15, 0.28),
+            CodexPetAnimation.LookingRight
+                or CodexPetAnimation.LookingLeft => (0.15, 0.28),
             _ => (0.15, 0.25),
         };
         return Enumerable.Range(0, strip.FrameCount)

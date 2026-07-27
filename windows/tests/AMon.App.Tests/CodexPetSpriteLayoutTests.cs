@@ -28,13 +28,34 @@ public sealed class CodexPetSpriteLayoutTests
         Assert.Equal(8, CodexPetSpriteLayout.ColumnCount);
         Assert.Equal(9, CodexPetSpriteLayout.V1RowCount);
         Assert.Equal(11, CodexPetSpriteLayout.V2RowCount);
-        Assert.Equal(9, CodexPetSpriteLayout.Strips.Count);
+        Assert.Equal(11, CodexPetSpriteLayout.Strips.Count);
         Assert.Equal(
             1,
             CodexPetSpriteLayout.VersionForDimensions(1536, 1872));
         Assert.Equal(
             2,
             CodexPetSpriteLayout.VersionForDimensions(1536, 2288));
+    }
+
+    [Theory]
+    [InlineData(-1, CodexPetAnimation.LookingLeft)]
+    [InlineData(1, CodexPetAnimation.LookingRight)]
+    public void V2IdleUsesDirectionalGazeAnimation(
+        int gazeDirection,
+        CodexPetAnimation expected)
+    {
+        Assert.Equal(
+            expected,
+            CodexPetSpriteLayout.AnimationFor(
+                PetActivityStatus.Idle,
+                spriteVersion: 2,
+                gazeDirection));
+        Assert.Equal(
+            CodexPetAnimation.Idle,
+            CodexPetSpriteLayout.AnimationFor(
+                PetActivityStatus.Idle,
+                spriteVersion: 1,
+                gazeDirection));
     }
 
     [Fact]
