@@ -17,6 +17,7 @@ CONFIG     := release
 BUILD_DIR  := .build/$(CONFIG)
 APP_BUNDLE := $(APP_NAME).app
 CONTENTS   := $(APP_BUNDLE)/Contents
+PET_BUNDLE := $(APP_NAME)_$(APP_NAME).bundle
 
 # 배포 패키징
 VERSION    := $(shell /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Resources/Info.plist 2>/dev/null)
@@ -57,6 +58,7 @@ app: build
 	cp $(BUILD_DIR)/$(APP_NAME) $(CONTENTS)/MacOS/$(APP_NAME)
 	cp Resources/Info.plist $(CONTENTS)/Info.plist
 	cp Resources/AppIcon.icns $(CONTENTS)/Resources/AppIcon.icns
+	cp -R $(BUILD_DIR)/$(PET_BUNDLE) $(CONTENTS)/Resources/$(PET_BUNDLE)
 	@echo "✅ $(APP_BUNDLE) 생성됨"
 
 ## 번들을 만들고 실행 (상태바에 아이콘이 뜬다)
@@ -72,6 +74,7 @@ universal:
 	 cp $$BIN/$(APP_NAME) $(CONTENTS)/MacOS/$(APP_NAME); \
 	 cp Resources/Info.plist $(CONTENTS)/Info.plist; \
 	 cp Resources/AppIcon.icns $(CONTENTS)/Resources/AppIcon.icns; \
+	 cp -R $$BIN/$(PET_BUNDLE) $(CONTENTS)/Resources/$(PET_BUNDLE); \
 	 echo "✅ universal $(APP_BUNDLE):"; \
 	 lipo -info $(CONTENTS)/MacOS/$(APP_NAME)
 

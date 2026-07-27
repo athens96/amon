@@ -17,7 +17,7 @@ struct PetSettingsRow: View {
                     Label("Codex 스프라이트 호환 A-mon 펫", systemImage: "pawprint.fill")
                         .font(.amonSection)
                         .foregroundStyle(MenuBarContentView.accent)
-                    Text("작업 상태를 플로팅 펫과 말풍선으로 표시합니다. 현재 작업 문구는 이 Mac에서만 읽고 서버로 보내지 않습니다.")
+                    Text("작업 상태를 플로팅 펫과 말풍선으로 표시합니다. 표시에 쓰는 현재 작업은 이 Mac 안에서만 읽으며, 펫 때문에 서버로 나가는 데이터는 없습니다.")
                         .font(.amonCaption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -39,15 +39,43 @@ struct PetSettingsRow: View {
                 .font(.amonCaption)
                 .disabled(!settings.petEnabled || !settings.localActivityEnabled)
 
+            HStack(spacing: 8) {
+                Text("완료 후 말풍선 접기")
+                    .font(.amonCaption)
+                Picker("", selection: $settings.petReadyAutoHideSeconds) {
+                    ForEach(PetBubbleVisibility.readyAutoHideChoices, id: \.self) { seconds in
+                        Text(PetBubbleVisibility.autoHideLabel(forSeconds: seconds))
+                            .tag(seconds)
+                    }
+                }
+                .labelsHidden()
+                .controlSize(.small)
+                .frame(width: 110)
+                Spacer()
+            }
+            .disabled(
+                !settings.petEnabled
+                    || !settings.petShowsCurrentTask
+                    || !settings.localActivityEnabled
+            )
+            .help("입력 필요·문제 발생은 손이 필요한 상태라 시간이 지나도 접지 않습니다.")
+
             if !settings.localActivityEnabled {
                 Label(
-                    "현재 작업을 보려면 로컬 감지를 켜세요. 세션·프롬프트·응답·프로젝트 정보는 서버로 전송하지 않습니다.",
+                    "현재 작업을 보려면 감지를 켜세요. 세션·프롬프트·응답·프로젝트 정보는 서버로 전송하지 않습니다.",
                     systemImage: "lock.shield"
                 )
                 .font(.amonCaption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             }
+
+            BundledPetPicker(
+                selectedID: settings.petBundledID,
+                usesCustomSprite: !settings.petSpritePath.isEmpty,
+                onSelect: use(bundled:)
+            )
+            .disabled(!settings.petEnabled)
 
             HStack(spacing: 8) {
                 Button {
@@ -59,15 +87,6 @@ struct PetSettingsRow: View {
                     )
                 }
                 .buttonStyle(.bordered)
-
-                if !settings.petSpritePath.isEmpty {
-                    Button("기본 펫") {
-                        settings.petSpritePath = ""
-                        validationFailed = false
-                        validationMessage = "A-mon 기본 펫을 사용합니다."
-                    }
-                    .buttonStyle(.borderless)
-                }
 
                 Button {
                     openCodexPetGallery()
@@ -88,7 +107,7 @@ struct PetSettingsRow: View {
                 Spacer()
             }
 
-            Text("호환 파일: Codex Pet V1(1536×1872)·V2(1536×2288) ZIP 또는 투명 PNG/WebP, 최대 20 MiB. ZIP은 pet.json의 spritesheetPath와 spriteVersionNumber를 자동 적용합니다.")
+            Text("호환 파일: codex-pets.net ZIP 또는 투명 PNG/WebP · 스프라이트시트는 1536×1872(v1) 또는 1536×2288(v2) px, 최대 20 MiB. ZIP은 pet.json의 spritesheetPath와 spriteVersionNumber를 읽습니다. v2 펫은 대기 중 마우스가 움직이면 그쪽을 둘러봅니다.")
                 .font(.amonCaption)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -115,6 +134,15 @@ struct PetSettingsRow: View {
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
+    /// 번들 펫을 고르면 커스텀 펫보다 우선하도록 커스텀 지정을 함께 해제한다.
+    private func use(bundled pet: BundledPet) {
+        settings.petBundledID = pet.id
+        settings.petSpritePath = ""
+        settings.petSpriteVersion = pet.spriteVersion.rawValue
+        validationFailed = false
+        validationMessage = "기본 펫 \(pet.displayName) 을(를) 사용합니다."
+    }
+
     private func pickCompatibleSprite() {
         let panel = NSOpenPanel()
         var allowedTypes: [UTType] = [.zip, .png]
@@ -124,32 +152,25 @@ struct PetSettingsRow: View {
         panel.allowedContentTypes = allowedTypes
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-        panel.message = "Codex Pet V1(1536×1872) 또는 V2(1536×2288) ZIP·스프라이트시트를 선택하세요."
+        panel.message = "Codex 펫 ZIP 또는 호환 스프라이트 시트(v1 1536×1872, v2 1536×2288)를 선택하세요."
 
         NSApp.activate(ignoringOtherApps: true)
         guard panel.runModal() == .OK, let sourceURL = panel.url else { return }
 
         do {
-            let version = CodexPetSpriteVersion(
-                rawValue: settings.petSpriteVersion == 2 ? 2 : 1
-            )
-            let payload = try CodexPetPackageImporter.load(
-                fileURL: sourceURL,
-                spriteVersion: version
-            )
+            // 버전은 패키지(pet.json spriteVersionNumber)와 실제 시트 크기가 정한다.
+            let payload = try CodexPetPackageImporter.load(fileURL: sourceURL)
             let installedURL = try installLocalCopy(
                 data: payload.data,
-                format: payload.metadata.format,
-                spriteVersion: payload.metadata.spriteVersion
+                format: payload.metadata.format
             )
-            if let resolvedVersion = payload.metadata.spriteVersion {
-                settings.petSpriteVersion = resolvedVersion.rawValue
-            }
             settings.petSpritePath = installedURL.path
+            settings.petSpriteVersion = (payload.metadata.spriteVersion ?? .v1).rawValue
             settings.petEnabled = true
             validationFailed = false
             let name = payload.displayName.map { "\($0) · " } ?? ""
-            validationMessage = "\(name)\(payload.metadata.pixelWidth)×\(payload.metadata.pixelHeight) \(payload.metadata.format.displayName) 펫을 적용했습니다."
+            let version = payload.metadata.spriteVersion ?? .v1
+            validationMessage = "\(name)v\(version.rawValue) \(payload.metadata.pixelWidth)×\(payload.metadata.pixelHeight) \(payload.metadata.format.displayName) 펫을 적용했습니다."
         } catch {
             validationFailed = true
             validationMessage =
@@ -180,8 +201,7 @@ struct PetSettingsRow: View {
 
     private func installLocalCopy(
         data: Data,
-        format: CodexPetAssetFormat,
-        spriteVersion: CodexPetSpriteVersion?
+        format: CodexPetAssetFormat
     ) throws -> URL {
         let fm = FileManager.default
         let support = try fm.url(
@@ -203,10 +223,8 @@ struct PetSettingsRow: View {
         )
         defer { try? fm.removeItem(at: temporary) }
         try data.write(to: temporary, options: [.atomic])
-        _ = try CodexPetAssetValidator.validate(
-            fileURL: temporary,
-            spriteVersion: spriteVersion
-        )
+        // 디스크에 쓴 사본도 같은 계약을 만족하는지 한 번 더 본다(버전은 크기로 재판별).
+        _ = try CodexPetAssetValidator.validate(fileURL: temporary)
 
         if fm.fileExists(atPath: destination.path) {
             _ = try fm.replaceItemAt(destination, withItemAt: temporary)
@@ -221,6 +239,111 @@ struct PetSettingsRow: View {
             try? fm.removeItem(at: obsolete)
         }
         return destination
+    }
+}
+
+/// 함께 들어 있는 펫 중 하나를 고른다. 각 카드에는 그 펫의 idle 첫 프레임을 보여준다.
+private struct BundledPetPicker: View {
+    let selectedID: String
+    /// 커스텀 펫이 지정돼 있으면 번들 펫은 그려지지 않는다 — 그 사실을 알려준다.
+    let usesCustomSprite: Bool
+    let onSelect: (BundledPet) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("기본 펫")
+                .font(.amonCaption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            // 펫이 늘어나도 설정 창(420pt) 밖으로 나가지 않도록 줄바꿈한다.
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 168), spacing: 8, alignment: .leading)],
+                alignment: .leading,
+                spacing: 8
+            ) {
+                ForEach(BundledPet.all) { pet in
+                    card(for: pet)
+                }
+            }
+
+            if usesCustomSprite {
+                Text("지금은 커스텀 펫을 쓰는 중입니다. 위에서 고르면 커스텀 펫 대신 그 펫으로 돌아갑니다.")
+                    .font(.amonCaption)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func card(for pet: BundledPet) -> some View {
+        let isSelected = !usesCustomSprite && pet.id == selectedID
+        return Button {
+            onSelect(pet)
+        } label: {
+            HStack(spacing: 7) {
+                BundledPetThumbnail(pet: pet)
+                    .frame(width: 30, height: 32)
+                Text(pet.displayName)
+                    .font(.amonCaption.weight(isSelected ? .semibold : .regular))
+                    .foregroundStyle(isSelected ? MenuBarContentView.accent : .primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(
+                        isSelected
+                            ? MenuBarContentView.accent.opacity(0.12)
+                            : Color.primary.opacity(0.04)
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(
+                        isSelected
+                            ? MenuBarContentView.accent.opacity(0.85)
+                            : Color.primary.opacity(0.12),
+                        lineWidth: isSelected ? 1.5 : 1
+                    )
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help("\(pet.displayName) 펫으로 바꿉니다.")
+        .accessibilityLabel(pet.displayName)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+/// 번들 펫의 idle 첫 프레임. 시트를 못 읽으면 발자국 아이콘으로 자리만 지킨다.
+private struct BundledPetThumbnail: View {
+    let pet: BundledPet
+
+    @State private var frame: CGImage?
+
+    var body: some View {
+        Group {
+            if let frame {
+                Image(decorative: frame, scale: 1)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+            } else {
+                Image(systemName: "pawprint.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .task(id: pet.id) {
+            guard let path = pet.path else { return }
+            frame = PetSpriteFrames
+                .load(path: path, version: pet.spriteVersion)
+                .frames(for: .idle)?
+                .first
+        }
     }
 }
 

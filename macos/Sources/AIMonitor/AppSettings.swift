@@ -110,6 +110,12 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(petSpritePath, forKey: "pet.spritePath") }
     }
 
+    /// 커스텀 펫을 넣지 않았을 때 그릴 번들 펫 식별자.
+    /// 현재 번들 카탈로그에는 Dozy Boo 한 종만 있다.
+    @Published var petBundledID: String {
+        didSet { defaults.set(petBundledID, forKey: "pet.bundledID") }
+    }
+
     /// Codex 설치 링크와 함께 보존할 스프라이트 포맷 버전(1 또는 2).
     /// 실제 프레임 레이아웃은 파일 검증 결과와 호환 프로필을 따른다.
     @Published var petSpriteVersion: Int {
@@ -119,6 +125,26 @@ final class AppSettings: ObservableObject {
     /// 작업 중일 때 펫 옆에 프로젝트와 현재 작업의 첫 줄을 표시한다.
     @Published var petShowsCurrentTask: Bool {
         didSet { defaults.set(petShowsCurrentTask, forKey: "pet.showsCurrentTask") }
+    }
+
+    /// 완료 상태를 보여준 뒤 말풍선을 접기까지의 시간(초). 0이면 접지 않는다.
+    @Published var petReadyAutoHideSeconds: Double {
+        didSet { defaults.set(petReadyAutoHideSeconds, forKey: "pet.readyAutoHideSeconds") }
+    }
+
+    /// 사용자가 조절한 말풍선 크기.
+    @Published var petBubbleWidth: Double {
+        didSet { defaults.set(petBubbleWidth, forKey: "pet.bubbleWidth") }
+    }
+
+    @Published var petBubbleHeight: Double {
+        didSet { defaults.set(petBubbleHeight, forKey: "pet.bubbleHeight") }
+    }
+
+    var petBubbleSize: CGSize {
+        PetOverlayGeometry.clampedBubbleSize(
+            CGSize(width: petBubbleWidth, height: petBubbleHeight)
+        )
     }
 
     /// 마지막 업로드 성공 시의 논리 콘텐츠 서명(UsageStore.contentSignature, hex) —
@@ -176,12 +202,38 @@ final class AppSettings: ObservableObject {
         localActivityEnabled =
             UserDefaults.standard.object(forKey: "localActivity.enabled") as? Bool ?? false
         petEnabled = UserDefaults.standard.object(forKey: "pet.enabled") as? Bool ?? true
-        petSpritePath = UserDefaults.standard.string(forKey: "pet.spritePath") ?? ""
         let loadedPetSpriteVersion =
             UserDefaults.standard.object(forKey: "pet.spriteVersion") as? Int ?? 1
-        petSpriteVersion = loadedPetSpriteVersion == 2 ? 2 : 1
+        // Dozy Boo 단일 기본값으로 옮기되 사용자가 가져온 커스텀 펫은 유지한다.
+        let petMigration = BundledPetMigration.resolve(
+            storedVersion: UserDefaults.standard.object(forKey: "pet.migration") as? Int,
+            storedBundledID: UserDefaults.standard.string(forKey: "pet.bundledID"),
+            storedSpritePath: UserDefaults.standard.string(forKey: "pet.spritePath") ?? "",
+            storedSpriteVersion: loadedPetSpriteVersion == 2 ? 2 : 1
+        )
+        petBundledID = petMigration.resolvedPet.id
+        petSpritePath = petMigration.spritePath
+        petSpriteVersion = petMigration.spriteVersion
+        if petMigration.persists {
+            UserDefaults.standard.set(
+                BundledPetMigration.currentVersion,
+                forKey: "pet.migration"
+            )
+            UserDefaults.standard.removeObject(forKey: "pet.bundledID")
+            UserDefaults.standard.set(petMigration.spritePath, forKey: "pet.spritePath")
+            UserDefaults.standard.set(petMigration.spriteVersion, forKey: "pet.spriteVersion")
+        }
         petShowsCurrentTask =
             UserDefaults.standard.object(forKey: "pet.showsCurrentTask") as? Bool ?? true
+        petReadyAutoHideSeconds =
+            UserDefaults.standard.object(forKey: "pet.readyAutoHideSeconds") as? Double
+            ?? PetBubbleVisibility.defaultReadyAutoHideDelay
+        petBubbleWidth =
+            UserDefaults.standard.object(forKey: "pet.bubbleWidth") as? Double
+            ?? PetOverlayGeometry.defaultBubbleSize.width
+        petBubbleHeight =
+            UserDefaults.standard.object(forKey: "pet.bubbleHeight") as? Double
+            ?? PetOverlayGeometry.defaultBubbleSize.height
         // dashboard.syncEnabled 토글은 제거됨 — 서버 연동(URL+유저 키) 설정이 곧 전송 동의.
     }
 

@@ -3,30 +3,17 @@ import ImageIO
 
 /// Codex custom pet 설치 링크가 받는 sprite version 메타데이터.
 ///
-/// V1/V2가 선언하는 시트 높이와 행 수를 함께 보존한다.
+/// 프레임 그리드는 공개 계약이 아니므로 여기서는 버전 값만 보존한다.
 enum CodexPetSpriteVersion: Int, Codable, CaseIterable {
     case v1 = 1
     case v2 = 2
 
     var requiredPixelHeight: Int {
-        switch self {
-        case .v1: return 1872
-        case .v2: return 2288
-        }
+        CodexPetSpriteLayout.sheetPixelHeight(for: self)
     }
 
     var rowCount: Int {
-        switch self {
-        case .v1: return 9
-        case .v2: return 11
-        }
-    }
-
-    static func infer(width: Int, height: Int) -> CodexPetSpriteVersion? {
-        guard width == CodexPetAssetValidator.requiredPixelWidth else {
-            return nil
-        }
-        return allCases.first { $0.requiredPixelHeight == height }
+        CodexPetSpriteLayout.rowCount(for: self)
     }
 }
 
@@ -48,6 +35,12 @@ enum CodexPetAssetValidationError: Error, Equatable, LocalizedError {
     case unsupportedFormat
     case unreadableImage
     case invalidDimensions(width: Int, height: Int)
+    case versionDimensionMismatch(
+        declaredVersion: Int,
+        width: Int,
+        height: Int,
+        expectedHeight: Int
+    )
     case missingTransparency
 
     var errorDescription: String? {
@@ -59,7 +52,9 @@ enum CodexPetAssetValidationError: Error, Equatable, LocalizedError {
         case .unreadableImage:
             return "펫 이미지의 픽셀 정보를 읽을 수 없습니다."
         case let .invalidDimensions(width, height):
-            return "Codex Pet V1은 1536×1872 px, V2는 1536×2288 px이어야 합니다 (현재 \(width)×\(height) px)."
+            return "펫 이미지는 1536×1872(v1) 또는 1536×2288(v2) px 이어야 합니다 (현재 \(width)×\(height) px)."
+        case let .versionDimensionMismatch(declaredVersion, width, height, expectedHeight):
+            return "pet.json 이 선언한 spriteVersionNumber \(declaredVersion) 는 1536×\(expectedHeight) px 이어야 합니다 (현재 \(width)×\(height) px)."
         case .missingTransparency:
             return "펫 이미지는 투명도를 지원하는 PNG 또는 WebP여야 합니다."
         }
@@ -68,11 +63,12 @@ enum CodexPetAssetValidationError: Error, Equatable, LocalizedError {
 
 /// 공식 custom pet 파일 계약만 검증한다.
 ///
-/// 애니메이션 프레임 위치나 의미는 추측하지 않으며, 파일을 네트워크로 전송하지 않는다.
+/// v1(1536×1872)과 v2(1536×2288)를 모두 받는다. 애니메이션 프레임의 시각적 의미는
+/// 추측하지 않으며, 파일을 네트워크로 전송하지 않는다.
 enum CodexPetAssetValidator {
-    static let requiredPixelWidth = 1536
-    static let requiredPixelHeightV1 = 1872
-    static let requiredPixelHeightV2 = 2288
+    static let requiredPixelWidth = CodexPetSpriteLayout.sheetPixelWidth
+    static let requiredPixelHeightV1 = CodexPetSpriteLayout.v1SheetPixelHeight
+    static let requiredPixelHeightV2 = CodexPetSpriteLayout.v2SheetPixelHeight
     static let maximumByteCount = 20 * 1024 * 1024
 
     static func validate(
@@ -114,24 +110,20 @@ enum CodexPetAssetValidator {
         else {
             throw CodexPetAssetValidationError.unreadableImage
         }
-        let resolvedVersion: CodexPetSpriteVersion
-        if let spriteVersion {
-            guard width == requiredPixelWidth,
-                  height == spriteVersion.requiredPixelHeight
-            else {
-                throw CodexPetAssetValidationError.invalidDimensions(
-                    width: width,
-                    height: height
-                )
-            }
-            resolvedVersion = spriteVersion
-        } else if let inferred = CodexPetSpriteVersion.infer(
-            width: width,
-            height: height
-        ) {
-            resolvedVersion = inferred
-        } else {
+        // 실제 시트 크기가 버전을 결정한다 — 매니페스트 선언은 이 값과 맞는지만 본다.
+        guard let detectedVersion = CodexPetSpriteLayout.version(
+            forPixelWidth: width,
+            pixelHeight: height
+        ) else {
             throw CodexPetAssetValidationError.invalidDimensions(width: width, height: height)
+        }
+        if let spriteVersion, spriteVersion != detectedVersion {
+            throw CodexPetAssetValidationError.versionDimensionMismatch(
+                declaredVersion: spriteVersion.rawValue,
+                width: width,
+                height: height,
+                expectedHeight: CodexPetSpriteLayout.sheetPixelHeight(for: spriteVersion)
+            )
         }
         guard let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
             throw CodexPetAssetValidationError.unreadableImage
@@ -144,7 +136,7 @@ enum CodexPetAssetValidator {
             pixelWidth: width,
             pixelHeight: height,
             byteCount: data.count,
-            spriteVersion: resolvedVersion
+            spriteVersion: detectedVersion
         )
     }
 
