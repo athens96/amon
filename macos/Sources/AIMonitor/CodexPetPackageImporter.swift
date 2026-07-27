@@ -111,7 +111,8 @@ enum CodexPetPackageImporter {
 
         let selectedEntry: ArchiveEntry
         var displayName: String?
-        var resolvedSpriteVersion = spriteVersion
+        // 매니페스트가 버전을 선언하면 그 값이 호출자 기본값보다 우선한다.
+        var declaredVersion = spriteVersion
         if let manifestEntry = manifestEntries.first {
             let manifestData = try unzip(
                 arguments: ["-p", fileURL.path, manifestEntry.originalPath],
@@ -135,13 +136,9 @@ enum CodexPetPackageImporter {
             }
             selectedEntry = entry
             displayName = sanitizedDisplayName(manifest.displayName)
-            if let rawVersion = manifest.spriteVersionNumber {
-                guard let manifestVersion = CodexPetSpriteVersion(
-                    rawValue: rawVersion
-                ) else {
-                    throw CodexPetPackageImportError.invalidManifest
-                }
-                resolvedSpriteVersion = manifestVersion
+            if let number = manifest.spriteVersionNumber {
+                // 모르는 버전 번호는 실패시키지 않고 크기 판별에 맡긴다.
+                declaredVersion = CodexPetSpriteVersion(rawValue: number) ?? declaredVersion
             }
         } else {
             let candidates = entries.filter {
@@ -164,7 +161,7 @@ enum CodexPetPackageImporter {
         )
         let metadata = try CodexPetAssetValidator.validate(
             data: spriteData,
-            spriteVersion: resolvedSpriteVersion
+            spriteVersion: declaredVersion
         )
         return CodexPetImportPayload(
             data: spriteData,
@@ -380,5 +377,6 @@ private struct ArchiveEntry {
 private struct PetManifest: Decodable {
     let displayName: String?
     let spritesheetPath: String
+    /// codex-pets 패키지가 선언하는 스프라이트 포맷 버전. 없으면 v1 로 본다.
     let spriteVersionNumber: Int?
 }

@@ -21,12 +21,11 @@ final class CodexPetPackageImporterTests: XCTestCase {
         try Data("not the sprite".utf8).write(
             to: package.appendingPathComponent("preview.png")
         )
-        let sprite = try makePNG(width: 1536, height: 2288)
+        let sprite = try makePNG(width: 1536, height: 1872)
         try sprite.write(to: package.appendingPathComponent("spritesheet.png"))
         try manifestData(
             displayName: "Pixel Coder",
-            spritesheetPath: "spritesheet.png",
-            spriteVersionNumber: 2
+            spritesheetPath: "spritesheet.png"
         ).write(to: package.appendingPathComponent("pet.json"))
 
         let archive = try createArchive(
@@ -34,17 +33,77 @@ final class CodexPetPackageImporterTests: XCTestCase {
             inputs: ["pixel-coder"],
             extension: "zip"
         )
-        let payload = try CodexPetPackageImporter.load(
-            fileURL: archive,
-            spriteVersion: .v1
-        )
+        let payload = try CodexPetPackageImporter.load(fileURL: archive)
 
         XCTAssertEqual(payload.displayName, "Pixel Coder")
         XCTAssertEqual(payload.data, sprite)
         XCTAssertEqual(payload.metadata.format, .png)
         XCTAssertEqual(payload.metadata.pixelWidth, 1536)
+        XCTAssertEqual(payload.metadata.pixelHeight, 1872)
+        XCTAssertEqual(payload.metadata.spriteVersion, .v1)
+    }
+
+    /// 실제 codex-pets v2 패키지처럼 pet.json 이 버전을 선언하고 시트가 11행인 경우.
+    func testImportsV2PackageDeclaredByManifestSpriteVersionNumber() throws {
+        let directory = try makeTemporaryDirectory()
+        let package = directory.appendingPathComponent("svinushka", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: package,
+            withIntermediateDirectories: true
+        )
+        let sprite = try makePNG(width: 1536, height: 2288)
+        try sprite.write(to: package.appendingPathComponent("spritesheet.png"))
+        try manifestData(
+            displayName: "Svinushka",
+            spritesheetPath: "spritesheet.png",
+            spriteVersionNumber: 2
+        ).write(to: package.appendingPathComponent("pet.json"))
+
+        let archive = try createArchive(
+            in: directory,
+            inputs: ["svinushka"],
+            extension: "zip"
+        )
+        let payload = try CodexPetPackageImporter.load(fileURL: archive)
+
+        XCTAssertEqual(payload.displayName, "Svinushka")
         XCTAssertEqual(payload.metadata.pixelHeight, 2288)
         XCTAssertEqual(payload.metadata.spriteVersion, .v2)
+    }
+
+    /// 매니페스트 선언과 실제 시트 크기가 어긋나면 설치를 막는다.
+    func testRejectsManifestVersionThatDoesNotMatchSheet() throws {
+        let directory = try makeTemporaryDirectory()
+        let package = directory.appendingPathComponent("mismatch", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: package,
+            withIntermediateDirectories: true
+        )
+        try makePNG(width: 1536, height: 1872)
+            .write(to: package.appendingPathComponent("spritesheet.png"))
+        try manifestData(
+            displayName: "Mismatch",
+            spritesheetPath: "spritesheet.png",
+            spriteVersionNumber: 2
+        ).write(to: package.appendingPathComponent("pet.json"))
+
+        let archive = try createArchive(
+            in: directory,
+            inputs: ["mismatch"],
+            extension: "zip"
+        )
+
+        XCTAssertThrowsError(try CodexPetPackageImporter.load(fileURL: archive)) { error in
+            XCTAssertEqual(
+                error as? CodexPetAssetValidationError,
+                .versionDimensionMismatch(
+                    declaredVersion: 2,
+                    width: 1536,
+                    height: 1872,
+                    expectedHeight: 2288
+                )
+            )
+        }
     }
 
     func testRecognizesZIPBySignatureWhenExtensionIsDifferent() throws {
@@ -164,9 +223,8 @@ final class CodexPetPackageImporterTests: XCTestCase {
         )
 
         XCTAssertEqual(payload.metadata.pixelWidth, 1536)
-        XCTAssertEqual(payload.metadata.pixelHeight, 2288)
-        XCTAssertEqual(payload.metadata.spriteVersion, .v2)
-        XCTAssertEqual(payload.metadata.format, .webP)
+        XCTAssertEqual(payload.metadata.pixelHeight, 1872)
+        XCTAssertEqual(payload.metadata.format, .png)
     }
 
     private func makeTemporaryDirectory() throws -> URL {
@@ -204,16 +262,16 @@ final class CodexPetPackageImporterTests: XCTestCase {
         spritesheetPath: String,
         spriteVersionNumber: Int? = nil
     ) throws -> Data {
-        var manifest: [String: Any] = [
+        var object: [String: Any] = [
             "id": "test-pet",
             "displayName": displayName,
             "spritesheetPath": spritesheetPath
         ]
         if let spriteVersionNumber {
-            manifest["spriteVersionNumber"] = spriteVersionNumber
+            object["spriteVersionNumber"] = spriteVersionNumber
         }
         return try JSONSerialization.data(
-            withJSONObject: manifest,
+            withJSONObject: object,
             options: [.sortedKeys]
         )
     }

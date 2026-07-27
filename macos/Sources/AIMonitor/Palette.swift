@@ -84,6 +84,26 @@ enum Palette {
     /// Grok / xAI
     static let hexGrok        = "#111111"
 
+    static let providerHexByID: [String: String] = [
+        "claude": hexClaude,
+        "codex": hexCodex,
+        "openai": hexCodex,
+        "cursor": hexCursor,
+        "copilot": hexCopilot,
+        "openrouter": hexOpenRouter,
+        "devin": hexDevin,
+        "zai": hexZAI,
+        "z.ai": hexZAI,
+        "antigravity": hexAntigravity,
+        "grok": hexGrok,
+    ]
+
+    static func providerTint(forID id: String) -> Color? {
+        providerHexByID[id.lowercased()].flatMap { hex in
+            nsColor(fromHex: hex).map(Color.init(nsColor:))
+        }
+    }
+
     // MARK: - 상태 배지 색 hex (MetricLine badge colorHex)
 
     /// 대기 / 주의 — Amber

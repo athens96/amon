@@ -8,17 +8,25 @@ import Foundation
 enum PetActivityStatus: String, Codable, CaseIterable {
     case idle
     case running
+    /// 결과를 검토·검증하는 중 — Codex Pet 의 review 행에 대응한다.
+    case reviewing
     case needsInput
     case ready
     case blocked
+
+    /// 지금 손이 움직이고 있는 상태 — 캐러셀의 1/N 은 이 상태들만 센다.
+    var isWorking: Bool {
+        self == .running || self == .reviewing
+    }
 
     fileprivate var presentationPriority: Int {
         switch self {
         case .idle: 0
         case .running: 1
-        case .ready: 2
-        case .blocked: 3
-        case .needsInput: 4
+        case .reviewing: 2
+        case .ready: 3
+        case .blocked: 4
+        case .needsInput: 5
         }
     }
 }
@@ -141,7 +149,7 @@ enum PetStateAdapter {
 
         // 1/N은 오직 지금 작동 중인 세션들만 의미한다.
         let running = candidates
-            .filter { $0.status == .running }
+            .filter { $0.status.isWorking }
             .sorted(by: isHigherPriority)
         if !running.isEmpty {
             return running.map {
@@ -193,6 +201,8 @@ enum PetStateAdapter {
             return .blocked
         case "ready", "complete", "completed", "done", "success", "succeeded":
             return .ready
+        case "review", "reviewing", "in_review", "verify", "verifying", "checking":
+            return .reviewing
         case "active", "running", "working", "in_progress", "busy":
             return .running
         case "idle", "inactive", "paused", "waiting":
@@ -210,7 +220,9 @@ enum PetStateAdapter {
             status: selected.status,
             title: selected.title,
             detail: selected.detail,
-            output: normalizedLine(selected.session.lastResult, limit: 160),
+            // 훅이 저장하는 응답 첫 줄 상한(200자)까지 그대로 넘긴다 —
+            // 말풍선을 키우면 잘리지 않고 더 보인다.
+            output: normalizedLine(selected.session.lastResult, limit: 200),
             provider: selected.session.provider,
             sessionID: selected.session.sessionId,
             sessionIdentity: selected.session.identity,
@@ -257,6 +269,51 @@ enum PetStateAdapter {
         let normalized = provider.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return "A-mon" }
         return normalized.prefix(1).uppercased() + normalized.dropFirst()
+    }
+}
+
+/// 말풍선을 펼칠지 접을지 정하는 순수 판정.
+///
+/// 완료는 "다 됐다"는 알림 성격이라 잠깐 보여준 뒤 접는다. 입력 필요·문제 발생은
+/// 사람이 손을 대야 하는 상태이므로 시간이 지나도 그대로 둔다.
+enum PetBubbleVisibility {
+    /// 완료 상태를 보여주는 기본 시간. 설정에서 바꿀 수 있다.
+    static let defaultReadyAutoHideDelay: TimeInterval = 30
+
+    /// 설정에서 고를 수 있는 값들 — 0 은 "숨기지 않음".
+    static let readyAutoHideChoices: [TimeInterval] = [0, 10, 15, 30, 60, 120, 300]
+
+    static func showsBubble(
+        presentation: PetPresentation,
+        showsCurrentTask: Bool,
+        localActivityEnabled: Bool,
+        now: Date,
+        readyAutoHideDelay: TimeInterval = defaultReadyAutoHideDelay
+    ) -> Bool {
+        guard showsCurrentTask else { return false }
+        // 감지가 꺼져 있으면 상태 대신 안내 문구를 띄운다.
+        guard localActivityEnabled else { return true }
+
+        switch presentation.status {
+        case .idle:
+            return false
+        case .ready:
+            // 0 이하면 자동으로 접지 않는다.
+            guard readyAutoHideDelay > 0 else { return true }
+            guard let updatedAt = presentation.updatedAt else { return true }
+            return now.timeIntervalSince(updatedAt) < readyAutoHideDelay
+        case .running, .reviewing, .needsInput, .blocked:
+            return true
+        }
+    }
+
+    /// 설정 UI 에 쓰는 사람이 읽는 라벨.
+    static func autoHideLabel(forSeconds seconds: TimeInterval) -> String {
+        guard seconds > 0 else { return "숨기지 않음" }
+        guard seconds >= 60 else { return "\(Int(seconds))초" }
+        let minutes = Int(seconds / 60)
+        let remainder = Int(seconds.truncatingRemainder(dividingBy: 60))
+        return remainder == 0 ? "\(minutes)분" : "\(minutes)분 \(remainder)초"
     }
 }
 

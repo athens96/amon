@@ -651,15 +651,19 @@ def handle_userpromptsubmit(payload):
     data = load_session(session_id, cwd)
     remember_transcript(data, payload)
     data["status"] = "active"
-    # UserPromptSubmit 페이로드 자체엔 프롬프트 원문이 없어(공식 문서 미기재),
-    # 항상 오는 transcript_path 에서 방금 제출된 사용자 메시지를 직접 읽는다.
-    # 로컬 현재 활동 UI에는 이 중 첫 줄 120자만 표시한다.
-    transcript_path = payload.get("transcript_path")
-    if transcript_path:
-        text = read_last_message(transcript_path, "user")
+    # 페이로드의 prompt 가 방금 제출된 원문이다. 트랜스크립트는 이 시점에 아직
+    # 새 프롬프트가 안 써진 경우가 있어 먼저 읽으면 직전 입력으로 한 턴 밀린다.
+    # 로컬 UI에는 첫 줄 120자만 저장하고 서버로는 보내지 않는다.
+    prompt = payload.get("prompt")
+    latest = first_line(prompt, 120) if isinstance(prompt, str) else None
+    if latest:
+        data["current_task"] = latest
+        data["last_result"] = None
+    elif payload.get("transcript_path"):
+        text = read_last_message(payload["transcript_path"], "user")
         if text:
             data["current_task"] = first_line(text, 120)
-            data["last_result"] = None  # 새 요청 시작 — 직전 응답 요약은 지운다
+            data["last_result"] = None
         else:
             refresh_current_task(data, payload)
     refresh_model_tokens(data, payload)

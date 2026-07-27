@@ -13,7 +13,8 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "AIMonitor",
-            path: "Sources/AIMonitor"
+            path: "Sources/AIMonitor",
+            resources: [.process("PetSprites")]
         ),
         .testTarget(
             name: "AIMonitorTests",

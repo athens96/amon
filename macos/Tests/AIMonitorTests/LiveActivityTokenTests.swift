@@ -349,6 +349,71 @@ final class LiveActivityTokenTests: XCTestCase {
         XCTAssertEqual(result["last_result"] as? String, String(repeating: "답", count: 200))
     }
 
+    func testClaudeUserPromptUsesPayloadBeforeStaleTranscriptAndClearsResult() throws {
+        let home = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let transcript = home.appendingPathComponent("transcript.jsonl")
+        try writeJSONLines(
+            [
+                ["type": "user", "message": ["content": "직전 입력"]],
+                [
+                    "type": "assistant",
+                    "message": [
+                        "content": [["type": "text", "text": "직전 응답"]],
+                    ],
+                ],
+            ],
+            to: transcript
+        )
+        let script = home.appendingPathComponent("live_hook.py")
+        try HookInstaller.hookScriptSource.write(to: script, atomically: true, encoding: .utf8)
+
+        func run(_ payload: [String: Any]) throws {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = ["python3", script.path]
+            var environment = ProcessInfo.processInfo.environment
+            environment["HOME"] = home.path
+            process.environment = environment
+            let input = Pipe()
+            process.standardInput = input
+            process.standardOutput = Pipe()
+            process.standardError = Pipe()
+            try process.run()
+            input.fileHandleForWriting.write(
+                try JSONSerialization.data(withJSONObject: payload)
+            )
+            try input.fileHandleForWriting.close()
+            process.waitUntilExit()
+            XCTAssertEqual(process.terminationStatus, 0)
+        }
+
+        let common: [String: Any] = [
+            "session_id": "prompt-priority",
+            "cwd": home.path,
+            "transcript_path": transcript.path,
+        ]
+        try run(common.merging(["hook_event_name": "Stop"]) { _, new in new })
+        try run(
+            common.merging(
+                [
+                    "hook_event_name": "UserPromptSubmit",
+                    "prompt": "방금 입력\n저장하지 않을 둘째 줄",
+                ]
+            ) { _, new in new }
+        )
+
+        let live = home.appendingPathComponent(
+            "Library/Application Support/A-mon/live/prompt-priority.json"
+        )
+        let result = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: live)) as? [String: Any]
+        )
+        XCTAssertEqual(result["current_task"] as? String, "방금 입력")
+        XCTAssertTrue(result["last_result"] is NSNull)
+    }
+
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("amon-live-\(UUID().uuidString)", isDirectory: true)

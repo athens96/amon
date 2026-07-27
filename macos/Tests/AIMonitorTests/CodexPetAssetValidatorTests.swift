@@ -6,13 +6,10 @@ import XCTest
 @testable import AIMonitor
 
 final class CodexPetAssetValidatorTests: XCTestCase {
-    func testValidV1PNGPreservesSpriteVersionMetadata() throws {
-        let data = try makePNG(
-            width: CodexPetAssetValidator.requiredPixelWidth,
-            height: CodexPetAssetValidator.requiredPixelHeightV1
-        )
+    func testValidV1SheetDetectsSpriteVersionFromDimensions() throws {
+        let data = try makePNG(width: 1536, height: 1872)
 
-        let metadata = try CodexPetAssetValidator.validate(data: data, spriteVersion: .v1)
+        let metadata = try CodexPetAssetValidator.validate(data: data)
 
         XCTAssertEqual(metadata.format, .png)
         XCTAssertEqual(metadata.pixelWidth, 1536)
@@ -21,19 +18,17 @@ final class CodexPetAssetValidatorTests: XCTestCase {
         XCTAssertEqual(metadata.spriteVersion, .v1)
     }
 
-    func testValidV2PNGIsInferredFromDimensions() throws {
-        let data = try makePNG(
-            width: CodexPetAssetValidator.requiredPixelWidth,
-            height: CodexPetAssetValidator.requiredPixelHeightV2
-        )
+    func testAcceptsV2SheetWithTwoExtraLookRows() throws {
+        let data = try makePNG(width: 1536, height: 2288)
 
-        let metadata = try CodexPetAssetValidator.validate(data: data)
+        let metadata = try CodexPetAssetValidator.validate(data: data, spriteVersion: .v2)
 
         XCTAssertEqual(metadata.pixelHeight, 2288)
         XCTAssertEqual(metadata.spriteVersion, .v2)
     }
 
-    func testRejectsManifestVersionDimensionMismatch() throws {
+    /// 매니페스트가 선언한 버전과 실제 시트 크기가 어긋나면 조용히 넘기지 않는다.
+    func testRejectsDeclaredVersionThatContradictsSheetHeight() throws {
         let data = try makePNG(width: 1536, height: 1872)
 
         XCTAssertThrowsError(
@@ -41,7 +36,12 @@ final class CodexPetAssetValidatorTests: XCTestCase {
         ) { error in
             XCTAssertEqual(
                 error as? CodexPetAssetValidationError,
-                .invalidDimensions(width: 1536, height: 1872)
+                .versionDimensionMismatch(
+                    declaredVersion: 2,
+                    width: 1536,
+                    height: 1872,
+                    expectedHeight: 2288
+                )
             )
         }
     }
@@ -58,11 +58,7 @@ final class CodexPetAssetValidatorTests: XCTestCase {
     }
 
     func testRejectsOpaquePNGWithoutAlphaChannel() throws {
-        let data = try makePNG(
-            width: CodexPetAssetValidator.requiredPixelWidth,
-            height: CodexPetAssetValidator.requiredPixelHeightV1,
-            hasAlpha: false
-        )
+        let data = try makePNG(width: 1536, height: 1872, hasAlpha: false)
 
         XCTAssertThrowsError(try CodexPetAssetValidator.validate(data: data)) { error in
             XCTAssertEqual(

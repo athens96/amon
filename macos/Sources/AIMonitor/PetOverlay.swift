@@ -7,15 +7,22 @@ import SwiftUI
 /// 상태 체계로 표현하는 비활성 플로팅 패널을 관리한다.
 @MainActor
 final class PetOverlayController {
-    private static let compactSize = NSSize(width: 148, height: 166)
-    private static let expandedSize = NSSize(width: 382, height: 166)
+    private static let compactSize = NSSize(
+        width: PetOverlayGeometry.compactSize.width,
+        height: PetOverlayGeometry.compactSize.height
+    )
     private static let frameAutosaveName = "AmonPetOverlayFrame"
+    /// 완료 후 자동 접기를 판정하는 주기 — 라이브 세션 폴링과 같은 리듬으로 맞춘다.
+    private static let visibilityTickInterval: TimeInterval = 5
 
     private let panel: NSPanel
     private let state: AppState
     private let overlayModel = PetOverlayModel()
     private var cancellables = Set<AnyCancellable>()
     private var showsTaskBubble = false
+    /// 리사이즈 드래그를 시작한 시점의 말풍선 크기 — 이동량을 여기에 더한다.
+    private var resizeStartBubbleSize: CGSize?
+    private var resizeHandle: PetOverlayGeometry.ResizeHandle = .corner
 
     init(
         state: AppState,
@@ -49,19 +56,30 @@ final class PetOverlayController {
             rootView: PetOverlayView(
                 settings: state.settings,
                 overlayModel: overlayModel,
-                onAvatarAccessibilityClick: {
-                    onAvatarClick(isPanelOpen())
-                }
+                onAvatarAccessibilityClick: { onAvatarClick(isPanelOpen()) }
             )
         )
         contentView.frame = NSRect(origin: .zero, size: Self.compactSize)
         contentView.isPanelOpen = isPanelOpen
-        contentView.onAvatarClick = onAvatarClick
-        contentView.shouldTogglePanelClick = { [weak overlayModel] point, size in
+        contentView.shouldHandleAvatarClick = { [weak overlayModel] point, size in
             overlayModel?.isAvatarPoint(point, in: size) ?? false
         }
+        contentView.onAvatarClick = onAvatarClick
         contentView.shouldForwardLeftClick = { [weak overlayModel] point, size in
             overlayModel?.isCarouselControlPoint(point, in: size) ?? false
+        }
+        contentView.beginResize = { [weak self] point, size in
+            self?.beginResize(at: point, in: size) ?? false
+        }
+        contentView.onResizeChanged = { [weak self] translation in
+            self?.updateResize(translation: translation)
+        }
+        contentView.resizeCursorZones = { [weak self] size in
+            self?.resizeCursorZones(in: size) ?? []
+        }
+        contentView.onLocomotion = { [weak overlayModel] direction in
+            guard overlayModel?.locomotion != direction else { return }
+            overlayModel?.locomotion = direction
         }
         contentView.makeContextMenu = makeContextMenu
         panel.contentView = contentView
@@ -92,24 +110,37 @@ final class PetOverlayController {
         }
         .store(in: &cancellables)
 
-        Publishers.CombineLatest3(
+        // 완료 후 자동으로 접으려면 세션 변화가 없어도 시간을 다시 봐야 한다.
+        let ticker = Timer
+            .publish(every: Self.visibilityTickInterval, on: .main, in: .common)
+            .autoconnect()
+            .map { _ in () }
+            .prepend(())
+
+        Publishers.CombineLatest4(
             state.liveActivity.$sessions,
             state.settings.$petShowsCurrentTask,
-            state.settings.$localActivityEnabled
+            state.settings.$localActivityEnabled,
+            state.settings.$petReadyAutoHideSeconds
         )
-        .map { sessions, showsTask, localActivityEnabled in
-            showsTask
-                && (
-                    !localActivityEnabled
-                        || PetStateAdapter.presentation(
-                            for: sessions,
-                            localActivityEnabled: true
-                        ).status != .idle
-                )
+        .combineLatest(ticker)
+        .map { inputs, _ -> Bool in
+            let (sessions, showsTask, localActivityEnabled, autoHideSeconds) = inputs
+            let presentation = PetStateAdapter.presentation(
+                for: sessions,
+                localActivityEnabled: true
+            )
+            return PetBubbleVisibility.showsBubble(
+                presentation: presentation,
+                showsCurrentTask: showsTask,
+                localActivityEnabled: localActivityEnabled,
+                now: Date(),
+                readyAutoHideDelay: autoHideSeconds
+            )
         }
         .removeDuplicates()
-        .sink { [weak self] expanded in
-            self?.setExpanded(expanded)
+        .sink { [weak self] autoShows in
+            self?.applyBubbleVisibility(autoShows)
         }
         .store(in: &cancellables)
 
@@ -166,9 +197,17 @@ final class PetOverlayController {
         let visible = visibleFrame(for: oldFrame)
         let targetFrame: NSRect
         if expanded {
+            let fittedBubble = PetOverlayGeometry.bubbleSize(
+                state.settings.petBubbleSize,
+                fitting: visible
+            )
+            if fittedBubble != state.settings.petBubbleSize {
+                state.settings.petBubbleWidth = fittedBubble.width
+                state.settings.petBubbleHeight = fittedBubble.height
+            }
             let result = PetOverlayGeometry.expanded(
                 from: oldFrame,
-                expandedSize: Self.expandedSize,
+                expandedSize: PetOverlayGeometry.panelSize(bubble: fittedBubble),
                 visibleFrame: visible
             )
             overlayModel.bubblePlacement = result.bubblePlacement
@@ -183,7 +222,97 @@ final class PetOverlayController {
         }
         panel.setFrame(targetFrame, display: true, animate: true)
         constrainToVisibleScreen()
+        invalidateResizeCursors()
         setVisible(state.settings.petEnabled)
+    }
+
+    // MARK: - 말풍선 표시
+
+    /// 완료 시간과 현재 활동 상태에서 계산한 자동 표시 결정을 그대로 적용한다.
+    /// 펫 좌클릭은 대시보드 열기/닫기 전용이라 말풍선을 수동으로 바꾸지 않는다.
+    private func applyBubbleVisibility(_ shows: Bool) {
+        guard overlayModel.showsBubble != shows || showsTaskBubble != shows else { return }
+        overlayModel.showsBubble = shows
+        setExpanded(shows)
+    }
+
+    // MARK: - 말풍선 리사이즈
+
+    /// 누른 지점이 말풍선 테두리면 추적을 시작한다.
+    private func beginResize(at point: NSPoint, in size: NSSize) -> Bool {
+        guard showsTaskBubble,
+              let handle = PetOverlayGeometry.resizeHandle(
+                at: point,
+                in: size,
+                bubblePlacement: overlayModel.bubblePlacement
+              )
+        else {
+            return false
+        }
+        resizeHandle = handle
+        resizeStartBubbleSize = state.settings.petBubbleSize
+        return true
+    }
+
+    /// 테두리 위에서 커서를 바꿔 크기를 조절할 수 있음을 알린다.
+    private func resizeCursorZones(in size: NSSize) -> [(NSRect, NSCursor)] {
+        guard showsTaskBubble, PetOverlayGeometry.hasBubble(in: size) else { return [] }
+        let placement = overlayModel.bubblePlacement
+        let bubble = PetOverlayGeometry.bubbleFrame(in: size, bubblePlacement: placement)
+        let thickness = PetOverlayGeometry.resizeEdgeThickness
+        let outerEdgeX = placement == .left
+            ? bubble.minX
+            : bubble.maxX - thickness
+        return [
+            (
+                NSRect(x: outerEdgeX, y: bubble.minY, width: thickness, height: bubble.height),
+                .resizeLeftRight
+            ),
+            (
+                NSRect(
+                    x: bubble.minX,
+                    y: bubble.maxY - thickness,
+                    width: bubble.width,
+                    height: thickness
+                ),
+                .resizeUpDown
+            ),
+        ]
+    }
+
+    /// 그립 이동량을 말풍선 크기에 반영한다. 펫이 움직이지 않도록 패널 하단과
+    /// 아바타 쪽 모서리는 고정한 채 프레임만 다시 잡는다.
+    private func updateResize(translation: CGSize) {
+        guard let start = resizeStartBubbleSize else { return }
+        let requestedBubble = PetOverlayGeometry.resizedBubbleSize(
+            from: start,
+            translation: translation,
+            bubblePlacement: overlayModel.bubblePlacement,
+            handle: resizeHandle
+        )
+        let frame = panel.frame
+        let bubble = PetOverlayGeometry.bubbleSize(
+            requestedBubble,
+            fitting: visibleFrame(for: frame)
+        )
+        state.settings.petBubbleWidth = bubble.width
+        state.settings.petBubbleHeight = bubble.height
+        panel.setFrame(
+            PetOverlayGeometry.resizedPanelFrame(
+                from: frame,
+                bubble: bubble,
+                bubblePlacement: overlayModel.bubblePlacement,
+                visibleFrame: visibleFrame(for: frame)
+            ),
+            display: true
+        )
+        invalidateResizeCursors()
+    }
+
+    /// 테두리 위치가 바뀌면 커서 영역도 다시 잡아야 한다.
+    private func invalidateResizeCursors() {
+        guard let view = panel.contentView else { return }
+        panel.invalidateCursorRects(for: view)
     }
 
     private func placeAtDefaultPosition() {
@@ -203,10 +332,26 @@ final class PetOverlayController {
     /// 펫 전체가 보이도록 가장 가까운 가시 영역 안으로 되돌린다.
     private func constrainToVisibleScreen() {
         let current = panel.frame
-        let constrained = PetOverlayGeometry.constrained(
-            current,
-            to: visibleFrame(for: current)
-        )
+        let visible = visibleFrame(for: current)
+        let constrained: NSRect
+        if showsTaskBubble {
+            let bubble = PetOverlayGeometry.bubbleSize(
+                state.settings.petBubbleSize,
+                fitting: visible
+            )
+            if bubble != state.settings.petBubbleSize {
+                state.settings.petBubbleWidth = bubble.width
+                state.settings.petBubbleHeight = bubble.height
+            }
+            constrained = PetOverlayGeometry.resizedPanelFrame(
+                from: current,
+                bubble: bubble,
+                bubblePlacement: overlayModel.bubblePlacement,
+                visibleFrame: visible
+            )
+        } else {
+            constrained = PetOverlayGeometry.constrained(current, to: visible)
+        }
         panel.setFrame(constrained, display: false)
     }
 
@@ -220,6 +365,10 @@ final class PetOverlayController {
 @MainActor
 private final class PetOverlayModel: ObservableObject {
     @Published var bubblePlacement: PetBubblePlacement = .left
+    /// 말풍선 표시 여부는 컨트롤러가 시간까지 보고 정한다 — 뷰는 그 결정을 따른다.
+    @Published var showsBubble = false
+    /// 사용자가 펫을 끌고 가는 방향 — 놓으면 nil 로 돌아간다.
+    @Published var locomotion: PetLocomotion?
     @Published private(set) var presentations: [PetPresentation] = []
     @Published private(set) var selectedSessionIdentity: String?
 
@@ -254,6 +403,14 @@ private final class PetOverlayModel: ObservableObject {
         )
     }
 
+    /// 펫 아바타 영역 — 짧은 좌클릭이면 대시보드를 열거나 닫는다.
+    func isAvatarPoint(_ point: NSPoint, in size: NSSize) -> Bool {
+        PetOverlayGeometry.avatarFrame(
+            in: size,
+            bubblePlacement: bubblePlacement
+        ).contains(point)
+    }
+
     /// SwiftUI 버튼 영역은 hosting view의 일반 이벤트 경로로 보내야
     /// 패널 drag 처리에 가로막히지 않는다.
     func isCarouselControlPoint(_ point: NSPoint, in size: NSSize) -> Bool {
@@ -264,38 +421,104 @@ private final class PetOverlayModel: ObservableObject {
         ).contains(point)
     }
 
-    func isAvatarPoint(_ point: NSPoint, in size: NSSize) -> Bool {
-        PetOverlayGeometry.avatarFrame(
-            in: size,
-            bubblePlacement: bubblePlacement
-        ).contains(point)
-    }
 }
 
-/// 클릭과 드래그를 분리한다. NSPanel의 background dragging을 켜면 SwiftUI
-/// onTapGesture가 사라질 수 있어, AppKit의 단일 mouseDown 흐름에서 이동량을 본다.
+/// 펫 표면의 마우스 처리를 맡는다. 좌클릭 드래그는 패널 이동, 말풍선 테두리는
+/// 크기 조절, 캐러셀 버튼만 SwiftUI 로 넘긴다.
 private final class PetInteractiveHostingView<Content: View>: NSHostingView<Content> {
+    var makeContextMenu: (() -> NSMenu)?
     var isPanelOpen: (() -> Bool)?
     var onAvatarClick: ((Bool) -> Void)?
-    var makeContextMenu: (() -> NSMenu)?
-    var shouldTogglePanelClick: ((NSPoint, NSSize) -> Bool)?
+    var shouldHandleAvatarClick: ((NSPoint, NSSize) -> Bool)?
     var shouldForwardLeftClick: ((NSPoint, NSSize) -> Bool)?
+    var beginResize: ((NSPoint, NSSize) -> Bool)?
+    var onResizeChanged: ((CGSize) -> Void)?
+    var resizeCursorZones: ((NSSize) -> [(NSRect, NSCursor)])?
+    /// 끌고 가는 동안 좌우 방향, 놓으면 nil.
+    var onLocomotion: ((PetLocomotion?) -> Void)?
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    override func mouseDown(with event: NSEvent) {
+    /// 테두리 위에서 크기 조절 커서를 보여준다. 좌표는 지오메트리(하단 원점)
+    /// 기준이라 뷰의 뒤집힌 좌표계로 옮겨 등록한다.
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        for (rect, cursor) in resizeCursorZones?(bounds.size) ?? [] {
+            addCursorRect(viewRect(fromGeometry: rect), cursor: cursor)
+        }
+    }
+
+    private func viewRect(fromGeometry rect: NSRect) -> NSRect {
+        guard isFlipped else { return rect }
+        return NSRect(
+            x: rect.minX,
+            y: bounds.height - rect.maxY,
+            width: rect.width,
+            height: rect.height
+        )
+    }
+
+    /// `NSHostingView` 는 좌표계가 뒤집혀 있어(원점 좌상단) 마우스 y 가 위에서부터
+    /// 잰다. 히트 계산은 AppKit 표준(원점 좌하단)인 `PetOverlayGeometry` 기준이므로
+    /// 여기서 한 번 되돌린다.
+    private func geometryPoint(for event: NSEvent) -> NSPoint {
         let point = convert(event.locationInWindow, from: nil)
+        guard isFlipped else { return point }
+        return NSPoint(x: point.x, y: bounds.height - point.y)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = geometryPoint(for: event)
+        // 캐러셀 화살표가 테두리와 겹칠 수 있어 버튼을 먼저 살핀다.
         if shouldForwardLeftClick?(point, bounds.size) == true {
             super.mouseDown(with: event)
             return
         }
-        let wasPanelOpen = isPanelOpen?() ?? false
-        let start = NSEvent.mouseLocation
-        window?.performDrag(with: event)
-        let end = NSEvent.mouseLocation
-        let distance = hypot(end.x - start.x, end.y - start.y)
-        if distance < 4,
-           shouldTogglePanelClick?(point, bounds.size) == true {
+        if beginResize?(point, bounds.size) == true {
+            trackResize()
+            return
+        }
+        // 드래그는 펫 이동, 제자리 클릭은 대시보드 열기/닫기.
+        trackDragOrClick(
+            canClickAvatar: shouldHandleAvatarClick?(point, bounds.size) == true,
+            wasPanelOpen: isPanelOpen?() ?? false
+        )
+    }
+
+    /// 이동이 먼저다. 임계값을 넘으면 그 순간부터 패널을 끌고, 끝까지 넘지 않은 채
+    /// 버튼을 떼면 그때 클릭으로 처리한다. `performDrag` 는 미세한 흔들림에도
+    /// 창을 움직여 클릭과 뒤섞이므로 직접 추적한다.
+    private func trackDragOrClick(canClickAvatar: Bool, wasPanelOpen: Bool) {
+        guard let window else { return }
+        let mouseDown = NSEvent.mouseLocation
+        let originAtMouseDown = window.frame.origin
+        var isDragging = false
+        // 주행 방향은 누적 이동량이 아니라 직전 표본과의 차이로 본다 —
+        // 오른쪽으로 끌다가 왼쪽으로 되돌리면 그 자리에서 방향이 바뀌어야 한다.
+        var lastLocomotionX = mouseDown.x
+
+        while let next = window.nextEvent(
+            matching: [.leftMouseDragged, .leftMouseUp]
+        ) {
+            if next.type == .leftMouseUp { break }
+            let current = NSEvent.mouseLocation
+            let dx = current.x - mouseDown.x
+            let dy = current.y - mouseDown.y
+            if !isDragging, hypot(dx, dy) < PetOverlayGeometry.dragThreshold { continue }
+            isDragging = true
+            window.setFrameOrigin(
+                NSPoint(x: originAtMouseDown.x + dx, y: originAtMouseDown.y + dy)
+            )
+            let step = current.x - lastLocomotionX
+            if abs(step) >= PetOverlayGeometry.locomotionStep {
+                lastLocomotionX = current.x
+                onLocomotion?(step > 0 ? .right : .left)
+            }
+        }
+
+        if isDragging {
+            onLocomotion?(nil)
+        } else if canClickAvatar {
             onAvatarClick?(wasPanelOpen)
         }
     }
@@ -303,6 +526,25 @@ private final class PetInteractiveHostingView<Content: View>: NSHostingView<Cont
     override func rightMouseDown(with event: NSEvent) {
         guard let menu = makeContextMenu?() else { return }
         NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
+
+    /// borderless 패널은 AppKit 기본 리사이즈 테두리가 없으므로 그립 드래그를
+    /// 직접 추적한다. 이동량은 화면 좌표(위쪽 +y) 기준으로 넘긴다.
+    private func trackResize() {
+        guard let window else { return }
+        let start = NSEvent.mouseLocation
+        while let next = window.nextEvent(
+            matching: [.leftMouseDragged, .leftMouseUp]
+        ) {
+            if next.type == .leftMouseUp { break }
+            let current = NSEvent.mouseLocation
+            onResizeChanged?(
+                CGSize(
+                    width: current.x - start.x,
+                    height: current.y - start.y
+                )
+            )
+        }
     }
 }
 
@@ -315,9 +557,21 @@ private struct PetOverlayView: View {
         overlayModel.selectedPresentation ?? .idle
     }
 
-    private var showsBubble: Bool {
-        settings.petShowsCurrentTask
-            && (!settings.localActivityEnabled || presentation.status != .idle)
+    private var showsBubble: Bool { overlayModel.showsBubble }
+
+    private var bubbleSize: CGSize { settings.petBubbleSize }
+
+    /// 기본 크기보다 얼마나 키웠는지 — 늘어난 높이만큼 입력·출력을 더 보여준다.
+    private var extraHeight: CGFloat {
+        max(0, bubbleSize.height - PetOverlayGeometry.minimumBubbleSize.height)
+    }
+
+    private var detailLineLimit: Int {
+        min(6, 1 + Int(extraHeight / 46))
+    }
+
+    private var outputLineLimit: Int {
+        min(12, 1 + Int(extraHeight / 30))
     }
 
     var body: some View {
@@ -329,14 +583,19 @@ private struct PetOverlayView: View {
 
             PetAvatarView(
                 status: presentation.status,
-                spritePath: settings.petSpritePath
+                spritePath: settings.petSpritePath,
+                spriteVersion: settings.petSpriteVersion == 2 ? .v2 : .v1,
+                bundled: BundledPet.pet(id: settings.petBundledID),
+                locomotion: overlayModel.locomotion
             )
-            .frame(width: 126, height: 148)
+            .frame(
+                width: PetOverlayGeometry.avatarSize.width,
+                height: PetOverlayGeometry.avatarSize.height
+            )
             .accessibilityLabel(accessibilityDescription)
             .accessibilityAddTraits(.isButton)
-            .accessibilityAction {
-                onAvatarAccessibilityClick()
-            }
+            .accessibilityHint("대시보드 열기 또는 닫기")
+            .accessibilityAction { onAvatarAccessibilityClick() }
 
             if showsBubble, overlayModel.bubblePlacement == .right {
                 activityBubble
@@ -351,26 +610,22 @@ private struct PetOverlayView: View {
     private var activityBubble: some View {
         VStack(alignment: .leading, spacing: 7) {
             if !settings.localActivityEnabled {
-                Label("작업 감지 꺼짐", systemImage: "pause.circle.fill")
+                Label("현재 작업 감지 꺼짐", systemImage: "pause.circle.fill")
                     .font(.amonCaption.weight(.semibold))
                     .foregroundStyle(.orange)
-                Text("펫 설정 또는 우클릭 메뉴에서 현재 작업 감지를 켜세요.")
+                Text("펫 설정에서 현재 작업 감지를 켜면 표시됩니다.")
                     .font(.amonCaption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
             } else {
                 HStack(spacing: 6) {
-                    Circle()
-                        .fill(presentation.status.tint)
-                        .frame(width: 7, height: 7)
+                    PetStatusIndicator(status: presentation.status)
                     Text(presentation.status.displayName)
                         .font(.amonCaption.weight(.semibold))
                         .foregroundStyle(presentation.status.tint)
                     Spacer(minLength: 4)
                     if let provider = presentation.provider {
-                        Text(provider.uppercased())
-                            .font(.system(size: 9, weight: .bold, design: .rounded))
-                            .foregroundStyle(.tertiary)
+                        providerBadge(provider)
                     }
                     if overlayModel.presentations.count > 1 {
                         carouselIndicator
@@ -385,20 +640,23 @@ private struct PetOverlayView: View {
                 summaryLine(
                     label: "입력",
                     systemImage: "arrow.down.left",
-                    text: presentation.detail ?? "입력 내용 없음"
+                    text: presentation.detail ?? "입력 내용 없음",
+                    lineLimit: detailLineLimit
                 )
                 summaryLine(
                     label: "출력",
                     systemImage: "arrow.up.right",
                     text: presentation.output
-                        ?? (presentation.status == .running ? "응답 생성 중…" : "출력 내용 없음")
+                        ?? (presentation.status == .running ? "응답 생성 중…" : "출력 내용 없음"),
+                    lineLimit: outputLineLimit
                 )
 
+                Spacer(minLength: 0)
                 tokenRow
             }
         }
         .padding(12)
-        .frame(width: 226, height: 150, alignment: .topLeading)
+        .frame(width: bubbleSize.width, height: bubbleSize.height, alignment: .topLeading)
         .background(.regularMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
@@ -406,6 +664,11 @@ private struct PetOverlayView: View {
                 .strokeBorder(Color.primary.opacity(0.09), lineWidth: 0.5)
         )
         .shadow(color: .black.opacity(0.14), radius: 12, y: 5)
+        .overlay(
+            alignment: overlayModel.bubblePlacement == .left ? .topLeading : .topTrailing
+        ) {
+            resizeGrip
+        }
         .accessibilityAdjustableAction { direction in
             guard overlayModel.presentations.count > 1 else { return }
             switch direction {
@@ -417,6 +680,25 @@ private struct PetOverlayView: View {
                 break
             }
         }
+    }
+
+    /// 말풍선 바깥쪽 위 모서리의 크기 조절 손잡이. 실제 드래그 추적은 AppKit
+    /// 호스팅 뷰가 맡고, 여기서는 어디를 끌면 되는지 보여주기만 한다.
+    private var resizeGrip: some View {
+        Image(
+            systemName: overlayModel.bubblePlacement == .left
+                ? "arrow.up.left.and.arrow.down.right"
+                : "arrow.up.right.and.arrow.down.left"
+        )
+        .font(.system(size: 9, weight: .bold))
+        .foregroundStyle(.tertiary)
+        .frame(
+            width: PetOverlayGeometry.resizeGripLength,
+            height: PetOverlayGeometry.resizeGripLength
+        )
+        .contentShape(Rectangle())
+        .help("드래그해서 말풍선 크기 조절")
+        .accessibilityLabel("말풍선 크기 조절")
     }
 
     private var carouselIndicator: some View {
@@ -455,23 +737,66 @@ private struct PetOverlayView: View {
         )
     }
 
+    /// 한 줄만 보일 때는 라벨을 앞에 붙이고, 말풍선을 키워 여러 줄이 되면
+    /// 라벨을 위로 빼서 본문이 넓게 흐르도록 한다.
+    @ViewBuilder
     private func summaryLine(
         label: String,
         systemImage: String,
-        text: String
+        text: String,
+        lineLimit: Int
     ) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 4) {
+        if lineLimit <= 1 {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                summaryLabel(label, systemImage: systemImage)
+                Text(text)
+                    .font(.amonCaption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 2) {
+                summaryLabel(label, systemImage: systemImage)
+                Text(text)
+                    .font(.amonCaption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(lineLimit)
+                    .truncationMode(.tail)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    /// 어느 도구의 세션인지 — 공식 로고와 이름을 프로바이더 브랜드색으로 함께 보인다.
+    /// 로고가 없는 프로바이더는 이름만 같은 색으로 남는다.
+    private func providerBadge(_ provider: String) -> some View {
+        HStack(spacing: 3) {
+            if let icon = ProviderIcons.swiftUIImage(id: provider.lowercased()) {
+                icon
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 10, height: 10)
+            }
+            Text(provider.uppercased())
+                .font(.system(size: 9, weight: .bold, design: .rounded))
+        }
+        .foregroundStyle(Palette.providerTint(forID: provider) ?? Color.secondary)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("프로바이더 \(provider)")
+    }
+
+    private func summaryLabel(_ label: String, systemImage: String) -> some View {
+        HStack(spacing: 4) {
             Image(systemName: systemImage)
                 .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(.tertiary)
             Text("\(label) ·")
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.secondary)
-            Text(text)
-                .font(.amonCaption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
         }
     }
 
@@ -513,6 +838,7 @@ private extension PetActivityStatus {
         switch self {
         case .idle: return "대기 중"
         case .running: return "작업 중"
+        case .reviewing: return "검토 중"
         case .needsInput: return "입력 필요"
         case .ready: return "완료"
         case .blocked: return "문제 발생"
@@ -523,6 +849,7 @@ private extension PetActivityStatus {
         switch self {
         case .idle: return .secondary
         case .running: return MenuBarContentView.accent
+        case .reviewing: return .purple
         case .needsInput: return .orange
         case .ready: return .green
         case .blocked: return .red
@@ -533,12 +860,31 @@ private extension PetActivityStatus {
 private struct PetAvatarView: View {
     let status: PetActivityStatus
     let spritePath: String
+    let spriteVersion: CodexPetSpriteVersion
+    let bundled: BundledPet
+    let locomotion: PetLocomotion?
+
+    /// 커스텀 펫이 없으면 사용자가 고른 번들 펫으로 떨어진다.
+    private var selection: PetSpriteSelection? {
+        PetSpriteResolver.selection(
+            customPath: spritePath,
+            customVersion: spriteVersion,
+            bundled: bundled,
+            bundledPath: bundled.path
+        )
+    }
 
     var body: some View {
         Group {
-            if !spritePath.isEmpty, FileManager.default.fileExists(atPath: spritePath) {
-                CodexPetSpriteView(path: spritePath, status: status)
+            if let selection {
+                CodexPetSpriteView(
+                    path: selection.path,
+                    status: status,
+                    spriteVersion: selection.version,
+                    locomotion: locomotion
+                )
             } else {
+                // 번들 리소스까지 없는 예외 상황에서만 직접 그린 펫으로 버틴다.
                 AmonFallbackPetView(status: status)
             }
         }
@@ -546,67 +892,155 @@ private struct PetAvatarView: View {
     }
 }
 
-/// 공식 V1/V2 호환 시트의 표준 192×208 프레임 행을 재생한다.
+/// 공식 호환 시트(v1 1536×1872 · v2 1536×2288)를 192×208 프레임 프로필로 재생한다.
+///
+/// 어느 행을 재생할지는 `PetSpriteDirector` 가 정하고, 여기서는 그 결정을
+/// 프레임으로 바꿔 그리기만 한다.
 private struct CodexPetSpriteView: View {
     let path: String
     let status: PetActivityStatus
+    let spriteVersion: CodexPetSpriteVersion
+    let locomotion: PetLocomotion?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var frames: [CGImage] = []
-
-    private var animation: CodexPetSpriteLayout.Animation {
-        CodexPetSpriteLayout.animation(for: status)
-    }
+    @State private var frames = PetSpriteFrames.empty
+    /// 마우스가 펫의 어느 쪽에 있는지 재려면 아바타의 화면 좌표가 필요하다.
+    @State private var hostWindow: NSWindow?
+    /// 프레임마다 갱신되는 연출 상태 — 값 타입이면 그리는 도중 @State 를 바꾸게 되므로
+    /// 참조로 들고 있는다.
+    @State private var director = DirectorBox()
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 15.0, paused: reduceMotion)) { context in
-            if let frame = selectedFrame(at: context.date) {
-                Image(decorative: frame, scale: 1)
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
-            } else {
-                AmonFallbackPetView(status: status)
+        GeometryReader { proxy in
+            TimelineView(
+                .animation(minimumInterval: 1.0 / 15.0, paused: reduceMotion)
+            ) { context in
+                if let frame = selectedFrame(at: context.date, in: proxy) {
+                    Image(decorative: frame, scale: 1)
+                        .resizable()
+                        .interpolation(.high)
+                        .scaledToFit()
+                } else {
+                    AmonFallbackPetView(status: status)
+                }
             }
         }
-        .task(id: "\(path)|\(animation.rawValue)") {
-            frames = Self.loadFrames(path: path, animation: animation)
+        .background(PetWindowAccessor { hostWindow = $0 })
+        .task(id: "\(path)|\(spriteVersion.rawValue)") {
+            frames = PetSpriteFrames.load(path: path, version: spriteVersion)
         }
     }
 
-    private func selectedFrame(at date: Date) -> CGImage? {
+    private func selectedFrame(at date: Date, in proxy: GeometryProxy) -> CGImage? {
         guard !frames.isEmpty else { return nil }
-        guard let index = CodexPetSpriteLayout.frameIndex(
-            at: date.timeIntervalSinceReferenceDate,
-            animation: animation,
+        let playback = director.value.playback(
+            status: status,
+            version: spriteVersion,
+            locomotion: locomotion,
+            cursor: NSEvent.mouseLocation,
+            petCenter: petCenter(in: proxy),
+            now: date,
             reduceMotion: reduceMotion
-        ), frames.indices.contains(index)
-        else {
-            return frames.first
+        )
+        // 시트에 그 행이 없으면(잘라낸 빈 행 등) 상태 기본 행으로 되돌아간다.
+        let animation = frames.frames(for: playback.animation) != nil
+            ? playback.animation
+            : CodexPetSpriteLayout.animation(for: status)
+        guard let strip = frames.frames(for: animation) else { return nil }
+
+        let index: Int?
+        if let elapsed = playback.oneShotElapsed, animation == playback.animation {
+            index = CodexPetSpriteLayout.oneShotFrameIndex(
+                elapsed: elapsed,
+                animation: animation,
+                frameCount: strip.count,
+                reduceMotion: reduceMotion
+            )
+        } else {
+            index = CodexPetSpriteLayout.frameIndex(
+                at: date.timeIntervalSinceReferenceDate,
+                animation: animation,
+                frameCount: strip.count,
+                reduceMotion: reduceMotion
+            )
         }
-        return frames[index]
+        guard let index, strip.indices.contains(index) else { return strip.first }
+        return strip[index]
     }
 
-    private static func loadFrames(
-        path: String,
-        animation: CodexPetSpriteLayout.Animation
-    ) -> [CGImage] {
-        guard let strip = CodexPetSpriteLayout.strips[animation],
-              let source = CGImageSourceCreateWithURL(
-                URL(fileURLWithPath: path) as CFURL, nil
-              ),
-              let sheet = CGImageSourceCreateImageAtIndex(source, 0, nil)
-        else {
-            return []
-        }
+    /// 화면 좌표계의 아바타 중심 — SwiftUI 는 위에서 아래로, 화면은 아래에서
+    /// 위로 y 가 늘어나므로 창 상단 기준으로 뒤집는다.
+    private func petCenter(in proxy: GeometryProxy) -> CGPoint? {
+        guard let window = hostWindow else { return nil }
+        let bounds = proxy.frame(in: .global)
+        return CGPoint(
+            x: window.frame.minX + bounds.midX,
+            y: window.frame.maxY - bounds.midY
+        )
+    }
 
-        return (0..<strip.frameCount).compactMap { column in
-            guard let rect = CodexPetSpriteLayout.frameRect(
-                column: column,
-                animation: animation
-            ) else { return nil }
-            return sheet.cropping(to: rect)
+    @MainActor
+    private final class DirectorBox {
+        var value = PetSpriteDirector()
+    }
+}
+
+/// 말풍선 헤더 앞의 상태 표시.
+///
+/// 작업 중일 때만 점 3개가 차례로 부풀며 지나가고, 나머지 상태는 기존처럼
+/// 점 하나로 조용히 둔다. "동작 줄이기"를 켜면 움직이지 않는다.
+private struct PetStatusIndicator: View {
+    let status: PetActivityStatus
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        if status == .running {
+            TimelineView(
+                .animation(minimumInterval: 1.0 / 20.0, paused: reduceMotion)
+            ) { context in
+                HStack(spacing: 3) {
+                    ForEach(0..<PetWorkingDots.dotCount, id: \.self) { index in
+                        dot(
+                            level: PetWorkingDots.intensity(
+                                index: index,
+                                time: context.date.timeIntervalSinceReferenceDate,
+                                reduceMotion: reduceMotion
+                            )
+                        )
+                    }
+                }
+            }
+            .accessibilityHidden(true)
+        } else {
+            Circle()
+                .fill(status.tint)
+                .frame(width: 7, height: 7)
+                .accessibilityHidden(true)
         }
+    }
+
+    private func dot(level: Double) -> some View {
+        Circle()
+            .fill(status.tint)
+            .frame(width: 5, height: 5)
+            .scaleEffect(0.72 + 0.46 * level)
+            .opacity(0.45 + 0.55 * level)
+    }
+}
+
+/// SwiftUI 뷰가 올라간 실제 NSWindow 를 잡아 펫 중심의 화면 좌표 기준으로 쓴다.
+private struct PetWindowAccessor: NSViewRepresentable {
+    let onResolve: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async { onResolve(view.window) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { onResolve(nsView.window) }
     }
 }
 
