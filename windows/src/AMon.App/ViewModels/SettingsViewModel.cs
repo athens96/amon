@@ -1,5 +1,6 @@
 using System.Windows.Input;
 using AMon.App.Settings;
+using AMon.Reporting;
 
 namespace AMon.App.ViewModels;
 
@@ -207,7 +208,7 @@ public sealed class SettingsViewModel : ObservableObject
     }
 
     public bool ReportConfigured =>
-        Uri.TryCreate(ServerUrl.Trim(), UriKind.Absolute, out _)
+        ServerEndpoint.TryNormalize(ServerUrl, out _)
         && !string.IsNullOrWhiteSpace(UserKey);
 
     public bool IsSending
