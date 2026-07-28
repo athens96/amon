@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// A-mon 공통 타이포 스케일.
+/// amon 공통 타이포 스케일.
 ///
 /// macOS 에서 SwiftUI 의 `.caption` 과 `.caption2` 는 둘 다 10pt 로 렌더링돼
 /// 팝오버 전체가 10pt 잔글씨가 되는 문제가 있었다 — 시스템 텍스트 스타일 대신

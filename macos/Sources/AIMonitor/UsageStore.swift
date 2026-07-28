@@ -5,7 +5,7 @@ import SQLite3
 /// sqlite3_bind_text 용 — 바인딩 후 SQLite 가 문자열을 복사하도록 지시.
 private let SQLITE_TRANSIENT_STORE = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
-/// A-mon 로컬 사용량 저장 계층 (`usage.db`).
+/// amon 로컬 사용량 저장 계층 (`usage.db`).
 ///
 /// 스캔 결과(도구별 요약)와 종료 세션 기록을 SQLite 에 적재하고, UI 는 여기서 로드해
 /// 스캔 전에도 즉시 렌더한다. 서버 업로드에는 이 DB를 복제하지 않고
@@ -18,7 +18,8 @@ private let SQLITE_TRANSIENT_STORE = unsafeBitCast(-1, to: sqlite3_destructor_ty
 final class UsageStore: @unchecked Sendable {
     static let shared = UsageStore()
 
-    /// 저장 경로 — 기본 `~/Library/Application Support/A-mon/usage.db`.
+    /// 저장 경로 — 기존 설치와 호환되는
+    /// `~/Library/Application Support/A-mon/usage.db`.
     let dbURL: URL
     private let lock = NSLock()
 

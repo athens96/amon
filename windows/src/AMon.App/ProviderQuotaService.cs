@@ -125,7 +125,7 @@ public sealed class ProviderQuotaService : IDisposable
                 "https://chatgpt.com/backend-api/wham/usage");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             request.Headers.Accept.ParseAdd("application/json");
-            request.Headers.UserAgent.ParseAdd("A-mon");
+            request.Headers.UserAgent.ParseAdd("amon");
             if (Text(tokens, "account_id", out var accountId))
                 request.Headers.TryAddWithoutValidation("ChatGPT-Account-Id", accountId);
             using var response = await _httpClient.SendAsync(request, cancellationToken);

@@ -1,4 +1,4 @@
-# A-mon Installers
+# amon Installers
 
 ## Windows
 
@@ -17,7 +17,7 @@ cd macos
 make installer
 ```
 
-Output: `macos/dist/A-mon-<version>.pkg`
+Output: `macos/dist/amon-<version>.pkg`
 
 The package contains the universal `AIMonitor.app`, installs it into
 `/Applications`, stops an older running copy, and clears quarantine metadata.

@@ -4,6 +4,7 @@ using System.Windows.Automation;
 using System.Windows.Automation.Peers;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using AMon.Activity;
 using AMon.App.ViewModels;
 using AMon.WindowsPlatform;
 
@@ -108,7 +109,8 @@ public partial class PetWindow : Window
         {
             ApplyPresentation(announce: true);
         }
-        else if (e.PropertyName is nameof(PetViewModel.HasCustomSprite)
+        else if (e.PropertyName is nameof(PetViewModel.HasSprite)
+                 or nameof(PetViewModel.HasCustomSprite)
                  or nameof(PetViewModel.SpritePath))
         {
             ApplyPresentation(announce: false);
@@ -135,8 +137,10 @@ public partial class PetWindow : Window
 
         var animationsEnabled =
             IsVisible && SystemParameters.ClientAreaAnimation;
-        var state = animationsEnabled && !_viewModel.HasCustomSprite
-            ? _viewModel.Current.Status.ToString()
+        var state = animationsEnabled && !_viewModel.HasSprite
+            ? _viewModel.Current.Status == PetActivityStatus.Reviewing
+                ? PetActivityStatus.Running.ToString()
+                : _viewModel.Current.Status.ToString()
             : "Still";
         VisualStateManager.GoToElementState(
             AvatarVisual,
@@ -171,6 +175,7 @@ public partial class PetWindow : Window
         _dragStartScreen = PointToScreen(e.GetPosition(this));
         _windowStart = new System.Windows.Point(Left, Top);
         _isDragging = false;
+        _viewModel?.SetDragDirection(0);
         AvatarButton.CaptureMouse();
         e.Handled = true;
     }
@@ -190,6 +195,7 @@ public partial class PetWindow : Window
         }
 
         _isDragging = true;
+        _viewModel?.SetDragDirection(delta.X);
         var workArea = SystemParameters.WorkArea;
         Left = Math.Clamp(_windowStart.X + delta.X, workArea.Left, workArea.Right - ActualWidth);
         Top = Math.Clamp(_windowStart.Y + delta.Y, workArea.Top, workArea.Bottom - ActualHeight);
@@ -202,6 +208,7 @@ public partial class PetWindow : Window
             return;
 
         AvatarButton.ReleaseMouseCapture();
+        _viewModel?.SetDragDirection(0);
         if (!_isDragging)
             SetBubbleVisible(!_bubbleVisible);
         e.Handled = true;

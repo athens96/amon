@@ -59,6 +59,14 @@ final class PetSpriteFramesTests: XCTestCase {
         XCTAssertNil(frames.frames(for: .lookAroundLeft))
     }
 
+    func testV3SheetLoadsRunningAwayAtRowEleven() throws {
+        let url = try Self.writeSheet(version: .v3, usedColumns: [:])
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let frames = PetSpriteFrames.load(path: url.path, version: .v3)
+        XCTAssertEqual(frames.frames(for: .runningAway)?.count, 8)
+    }
+
     func testMissingFileLoadsNothing() {
         XCTAssertTrue(PetSpriteFrames.load(path: "", version: .v2).isEmpty)
         XCTAssertTrue(

@@ -22,7 +22,7 @@ enum LiveProviderRegistry {
 
 /// 라이브 프로바이더 쿼터의 조회·캐시·주기 갱신을 담당하는 관찰가능 상태.
 ///
-/// openusage 의 `WidgetDataStore` 를 A-mon 규모로 축소한 것 — 각 프로바이더의 최신
+/// openusage 의 `WidgetDataStore` 를 amon 규모로 축소한 것 — 각 프로바이더의 최신
 /// `ProviderSnapshot` 을 들고 있고, 자격증명이 있는 프로바이더만 갱신한다.
 @MainActor
 final class LiveProvidersManager: ObservableObject {

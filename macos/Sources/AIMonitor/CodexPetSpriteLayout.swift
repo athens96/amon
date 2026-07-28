@@ -3,13 +3,14 @@ import Foundation
 
 /// Codex custom pet sprite sheet 와 호환되는 프레임 배치.
 ///
-/// 공개된 두 스프라이트 버전을 모두 지원한다.
+/// 공개된 세 스프라이트 버전을 모두 지원한다.
 /// - v1: 1536×1872 = 8열 × 9행. 표준 애니메이션 9종.
 /// - v2: 1536×2288 = 8열 × 11행. 같은 9종 + 행 9~10 의 둘러보기 2종.
+/// - v3: 1536×2496 = 8열 × 12행. v2 + 행 11의 뒷모습 앞으로 달리기.
 ///
 /// 행 순서는 Codex 펫 명세를 그대로 따른다 —
 /// idle · Run right · Run left · Waving · Jumping · Failed · Waiting ·
-/// Running · Review · Look around(Right) · Look around(Left).
+/// Running · Review · Look around(Right) · Look around(Left) · Running away.
 /// 프레임 셀 크기(192×208)와 앞쪽 9행의 의미는 두 버전이 같다.
 enum CodexPetSpriteLayout {
     static let sheetPixelWidth = 1536
@@ -17,20 +18,26 @@ enum CodexPetSpriteLayout {
     static let framePixelHeight = 208
     static let columnCount = 8
 
-    /// 표준 애니메이션 행 수 — 두 버전이 공유한다.
+    /// 표준 애니메이션 행 수 — 모든 버전이 공유한다.
     static let standardRowCount = 9
     /// v2 가 추가하는 둘러보기 행 수(행 9~10).
     static let lookRowCount = 2
+    /// v3가 추가하는 뒷모습 앞으로 달리기 행(행 11).
+    static let runningAwayRowCount = 1
     static let v1SheetPixelHeight = standardRowCount * framePixelHeight
     static let v2SheetPixelHeight =
         (standardRowCount + lookRowCount) * framePixelHeight
+    static let v3SheetPixelHeight =
+        (standardRowCount + lookRowCount + runningAwayRowCount) * framePixelHeight
     static let v1RowCount = standardRowCount
     static let v2RowCount = standardRowCount + lookRowCount
+    static let v3RowCount = standardRowCount + lookRowCount + runningAwayRowCount
 
     static func rowCount(for version: CodexPetSpriteVersion) -> Int {
         switch version {
         case .v1: return standardRowCount
         case .v2: return standardRowCount + lookRowCount
+        case .v3: return standardRowCount + lookRowCount + runningAwayRowCount
         }
     }
 
@@ -62,6 +69,7 @@ enum CodexPetSpriteLayout {
         case review
         case lookAroundRight
         case lookAroundLeft
+        case runningAway
     }
 
     struct Strip: Equatable {
@@ -84,6 +92,7 @@ enum CodexPetSpriteLayout {
         // (명세: 마지막 사용 열 뒤의 셀은 완전히 투명하다).
         .lookAroundRight: Strip(row: 9, frameCount: columnCount),
         .lookAroundLeft: Strip(row: 10, frameCount: columnCount),
+        .runningAway: Strip(row: 11, frameCount: 8),
     ]
 
     /// 이 애니메이션을 담고 있는 최소 시트 버전.
@@ -91,6 +100,8 @@ enum CodexPetSpriteLayout {
         switch animation {
         case .lookAroundRight, .lookAroundLeft:
             return .v2
+        case .runningAway:
+            return .v3
         default:
             return .v1
         }
@@ -104,7 +115,7 @@ enum CodexPetSpriteLayout {
         Animation.allCases.filter { isAvailable($0, in: version) }
     }
 
-    /// 대기 중 마우스가 움직인 쪽을 바라보는 둘러보기 행. v2 에만 있다.
+    /// 대기 중 마우스가 움직인 쪽을 바라보는 둘러보기 행. v2 이상에 있다.
     static func lookAround(_ side: PetLocomotion) -> Animation {
         switch side {
         case .right: return .lookAroundRight
@@ -174,7 +185,7 @@ enum CodexPetSpriteLayout {
         switch animation {
         case .idle:
             full = [1.68, 0.66, 0.66, 0.84, 0.84, 1.92]
-        case .runningRight, .runningLeft, .running:
+        case .runningRight, .runningLeft, .running, .runningAway:
             full = repeatedDurations(count: declared, regular: 0.12, final: 0.22)
         case .waving, .jumping:
             full = repeatedDurations(count: declared, regular: 0.14, final: 0.28)

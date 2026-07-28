@@ -1,6 +1,6 @@
-# A-mon
+# amon
 
-A-mon의 **macOS 메뉴바(상태바) 앱**. 화면 최상단 상태바에
+amon의 **macOS 메뉴바(상태바) 앱**. 화면 최상단 상태바에
 아이콘이 뜨고, 클릭하면 패널이 나타난다. 로컬 AI 코딩 도구
 (**Claude Code · Codex CLI · OpenCode · Cursor · Gemini · Qwen · Copilot**)의
 로그를 읽어 **토큰 사용량**을 집계한다.
@@ -12,7 +12,7 @@ A-mon의 **macOS 메뉴바(상태바) 앱**. 화면 최상단 상태바에
 - 현재 활동과 세션 전문은 로컬 전용. 서버에는 `meta`와 `usage_daily` 집계만 업로드
 
 > 실행 파일/번들명은 ASCII `AIMonitor` 로 두고, Finder·메뉴바에 보이는 이름은
-> `Info.plist` 의 `CFBundleDisplayName`("A-mon")로 지정한다.
+> `Info.plist` 의 `CFBundleDisplayName`("amon")로 지정한다.
 
 ## 프레임워크 선택 — 네이티브 SwiftUI (`MenuBarExtra`)
 
@@ -35,7 +35,7 @@ macos/
 ├── Package.swift                 SwiftPM 매니페스트 (executable AIMonitor, macOS 13+)
 ├── Makefile                      빌드/번들/실행
 ├── Resources/
-│   └── Info.plist                LSUIElement=true, CFBundleDisplayName="A-mon"
+│   └── Info.plist                LSUIElement=true, CFBundleDisplayName="amon"
 ├── Sources/AIMonitor/
 │   ├── AIMonitorApp.swift        @main 진입점(--scan CLI 포함) + MenuBarExtra + AppDelegate
 │   ├── AppState.swift            전역 상태 — 스캔 결과·오늘/전체 총합
@@ -73,7 +73,7 @@ make run      # 빌드 + .app 번들 조립 + 실행 → 상태바에 아이콘 
 
 ```bash
 make build    # SPM 바이너리만 빌드
-make app      # AIMonitor.app 번들 조립 (Finder 표시명 "A-mon")
+make app      # AIMonitor.app 번들 조립 (Finder 표시명 "amon")
 make clean    # 산출물 삭제
 
 # GUI 없이 현재 설정 경로로 사용량 출력 (검증/스크립트용)
@@ -83,6 +83,14 @@ make clean    # 산출물 삭제
 실행하면 Dock 에는 뜨지 않고(메뉴바 전용, `LSUIElement`) 상태바에
 게이지 아이콘이 나타난다. 아이콘을 클릭하면 패널이 열리고, "종료"(⌘Q)로
 끝낼 수 있다.
+
+## 데스크톱 펫
+
+`Sources/AIMonitor/PetSprites/Amon.webp`는 기본 번들 펫 `amon`의 Codex Pet
+v3 스프라이트시트다. 시트는 1536×2496 WebP이며 표준 9개 애니메이션에
+좌우 둘러보기와 뒷모습 앞으로 달리기를 더한 12개 행을 사용한다.
+`amon`은 번들 카탈로그의 첫 항목이자 미선택 사용자의 기본값이다. 사용자가
+명시적으로 고른 Dozy Boo 또는 가져온 커스텀 펫은 변경하지 않는다.
 
 ## 다음 단계
 

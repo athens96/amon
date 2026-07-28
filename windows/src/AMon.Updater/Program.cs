@@ -42,6 +42,7 @@ catch (Exception error)
 {
     try
     {
+        // Preserve the legacy support path so update diagnostics survive upgrades.
         var log = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "A-mon", "update.log");

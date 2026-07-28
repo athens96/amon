@@ -1,4 +1,4 @@
-# A-mon for Windows
+# amon for Windows
 
 Native Windows notification-area client implemented with .NET 10 and WPF. The
 legacy Go client and the first WPF prototype were removed in favor of this clean
@@ -17,20 +17,21 @@ dotnet publish src/AMon.App/AMon.App.csproj -c Release -r win-x64 --self-contain
 Publishing `AMon.App` for `win-x64` or `win-arm64` also publishes the matching
 self-contained, single-file Claude hook at
 `Hooks/AMon.ClaudeHook.exe`. The app resolves the hook relative to
-`AppContext.BaseDirectory`, so keep the `Hooks` directory beside `A-mon.exe`
-when copying or packaging a published build. `make dist` preserves this
-directory in both architecture-specific ZIP files.
+`AppContext.BaseDirectory`, so keep the `Hooks` directory beside the legacy
+`A-mon.exe` filename when copying or packaging a published build. Existing
+updaters require that filename; the product shown to users is `amon`.
+`make dist` preserves this directory in both architecture-specific ZIP files.
 
 The app scans Claude Code, Codex CLI, OpenCode, Cursor, Gemini CLI, Qwen Code,
 and Copilot CLI on startup and every ten minutes. Only normalized token totals
-are written to `%APPDATA%\A-mon\usage.db`; prompts and response bodies are never
-stored or printed. The diagnostic scanner prints the same aggregate model as
-JSON so it can be compared with the macOS scanner.
+are written to the compatibility path `%APPDATA%\A-mon\usage.db`; prompts and
+response bodies are never stored or printed. The diagnostic scanner prints the
+same aggregate model as JSON so it can be compared with the macOS scanner.
 
 Cursor v3 no longer writes recent token counts to `state.vscdb`, so the Cursor
 collector uses the existing local Cursor access token to request the official
 `cursor.com` usage-events CSV. The token and response body are never persisted
-by A-mon; offline or signed-out clients retain the local historical result.
+by amon; offline or signed-out clients retain the local historical result.
 
 Official artifacts are built on Windows CI for `win-x64` and `win-arm64`.
 The uploaded release bundles use the server channel names `windows-x64` and
@@ -42,9 +43,23 @@ channel, which is treated as legacy x64. ARM64 never falls back across
 architectures.
 Tray, pet, installer, signing, and update replacement tests require Windows.
 
+## Bundled pet
+
+Published builds copy `assets/pets/Amon.webp` to
+`Assets/Pets/Amon.webp` beside the executable. Runtime selection is a valid
+custom sprite first, bundled `amon` second, and the existing geometric avatar
+last. Only the custom path is stored in `config.json`; reset clears that value
+and returns to bundled `amon` without persisting an installation-specific
+absolute path.
+
+The bundled v3 sheet uses all twelve rows. Reviewing activity selects `Review`,
+horizontal pet dragging selects `RunningLeft` or `RunningRight`, and a newly
+completed task plays `Jumping`, then `RunningAway`, before `Waving`.
+
 ## Settings and privacy
 
-Existing `%APPDATA%\A-mon\config.json` and `usage.db` are preserved. A missing
+Existing data remains under the legacy `%APPDATA%\A-mon\config.json` and
+`usage.db` paths to preserve upgrades. A missing
 `auto_update` setting means automatic updates are enabled. Changing the toggle
 in the WPF settings page is persisted immediately.
 

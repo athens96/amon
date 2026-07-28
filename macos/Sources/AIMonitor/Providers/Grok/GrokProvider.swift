@@ -2,7 +2,7 @@ import Foundation
 
 /// Grok 런타임 — 원본 openusage `GrokProvider` 의 refresh 로직을 그대로 이식하되,
 /// UI 위젯 서술자(WidgetDescriptor)·로컬 CLI 로그 기반 스팬드 타일(GrokLogUsageScanner)은
-/// 제외하고 A-mon 슬림 `Provider` 를 쓴다.
+/// 제외하고 amon 슬림 `Provider` 를 쓴다.
 @MainActor
 final class GrokProvider: ProviderRuntime {
     let provider = Provider(

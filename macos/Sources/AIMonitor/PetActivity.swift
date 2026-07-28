@@ -2,7 +2,7 @@ import Foundation
 
 /// Codex Pet 과 의미를 맞춘 활동 상태.
 ///
-/// `idle` 은 활동이 없을 때 사용하는 A-mon 확장 상태다. 나머지 네 상태의
+/// `idle` 은 활동이 없을 때 사용하는 amon 확장 상태다. 나머지 네 상태의
 /// 대표 활동 우선순위는 Codex Pet 과 동일하게
 /// Needs Input > Blocked > Ready > Running 순서다.
 enum PetActivityStatus: String, Codable, CaseIterable {
@@ -55,7 +55,7 @@ struct PetPresentation: Equatable {
 
     static let idle = PetPresentation(
         status: .idle,
-        title: "A-mon",
+        title: "amon",
         detail: nil,
         output: nil,
         provider: nil,
@@ -267,7 +267,7 @@ enum PetStateAdapter {
 
     private static func providerTitle(_ provider: String) -> String {
         let normalized = provider.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else { return "A-mon" }
+        guard !normalized.isEmpty else { return "amon" }
         return normalized.prefix(1).uppercased() + normalized.dropFirst()
     }
 }

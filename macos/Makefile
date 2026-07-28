@@ -1,4 +1,4 @@
-# A-mon — macOS 메뉴바 앱 빌드/실행/배포
+# amon — macOS 메뉴바 앱 빌드/실행/배포
 #
 #   make version          현재 앱 버전 출력
 #   make set-version V=x  앱 버전 변경(예: make set-version V=0.2.0, build 번호 자동 +1)
@@ -10,7 +10,7 @@
 #   make clean            빌드 산출물 삭제
 #
 # 실행 파일/번들 파일명은 ASCII(AIMonitor)로 두고, Finder·메뉴바에 보이는
-# 이름은 Info.plist 의 CFBundleDisplayName("A-mon")로 지정한다.
+# 이름은 Info.plist 의 CFBundleDisplayName("amon")로 지정한다.
 
 APP_NAME   := AIMonitor
 CONFIG     := release
@@ -22,9 +22,9 @@ PET_BUNDLE := $(APP_NAME)_$(APP_NAME).bundle
 # 배포 패키징
 VERSION    := $(shell /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Resources/Info.plist 2>/dev/null)
 DIST_DIR   := dist
-STAGE      := $(DIST_DIR)/AI-Monitor-$(VERSION)
-ZIP        := $(DIST_DIR)/AI-Monitor-$(VERSION).zip
-PKG        := $(DIST_DIR)/A-mon-$(VERSION).pkg
+STAGE      := $(DIST_DIR)/amon-$(VERSION)
+ZIP        := $(DIST_DIR)/amon-$(VERSION).zip
+PKG        := $(DIST_DIR)/amon-$(VERSION).pkg
 
 SERVER ?=
 NOTES  ?=
@@ -35,7 +35,7 @@ PLIST := Resources/Info.plist
 
 ## 현재 앱 버전 출력 (CFBundleShortVersionString + build 번호)
 version:
-	@echo "A-mon $(VERSION) (build $$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" $(PLIST) 2>/dev/null))"
+	@echo "amon $(VERSION) (build $$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" $(PLIST) 2>/dev/null))"
 
 ## 앱 버전 변경 — make set-version V=0.2.0 (build 번호 자동 +1)
 set-version:

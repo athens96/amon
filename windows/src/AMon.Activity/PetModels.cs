@@ -6,7 +6,8 @@ public enum PetActivityStatus
     Running,
     NeedsInput,
     Ready,
-    Blocked
+    Blocked,
+    Reviewing
 }
 
 public sealed record PetPresentation(
@@ -28,7 +29,7 @@ public sealed record PetPresentation(
         "새 작업을 기다리는 중",
         null,
         null,
-        "A-mon",
+        "amon",
         null,
         null,
         null,
@@ -44,6 +45,7 @@ public sealed record PetPresentation(
         PetActivityStatus.NeedsInput => "입력 필요",
         PetActivityStatus.Ready => "완료",
         PetActivityStatus.Blocked => "문제 발생",
+        PetActivityStatus.Reviewing => "검토 중",
         _ => "대기 중"
     };
 

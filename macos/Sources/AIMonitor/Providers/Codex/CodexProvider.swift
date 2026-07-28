@@ -2,7 +2,7 @@ import Foundation
 
 /// Codex 런타임 — 원본 openusage `CodexProvider` 의 refresh 로직을 그대로 이식하되,
 /// UI 위젯 서술자(WidgetDescriptor)·아이콘 시스템·로컬 로그 스캔 기반 스팬드 타일
-/// (CodexLogUsageScanner/SpendTileMapper)은 제외하고 A-mon 슬림 `Provider` 를 쓴다.
+/// (CodexLogUsageScanner/SpendTileMapper)은 제외하고 amon 슬림 `Provider` 를 쓴다.
 @MainActor
 final class CodexProvider: ProviderRuntime {
     let provider = Provider(

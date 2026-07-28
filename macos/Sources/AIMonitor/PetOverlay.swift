@@ -3,7 +3,7 @@ import Combine
 import ImageIO
 import SwiftUI
 
-/// A-mon의 데이터 수집 구조는 그대로 두고, 로컬 활동을 Codex Pet과 같은
+/// amon의 데이터 수집 구조는 그대로 두고, 로컬 활동을 Codex Pet과 같은
 /// 상태 체계로 표현하는 비활성 플로팅 패널을 관리한다.
 @MainActor
 final class PetOverlayController {
@@ -584,7 +584,7 @@ private struct PetOverlayView: View {
             PetAvatarView(
                 status: presentation.status,
                 spritePath: settings.petSpritePath,
-                spriteVersion: settings.petSpriteVersion == 2 ? .v2 : .v1,
+                spriteVersion: CodexPetSpriteVersion(rawValue: settings.petSpriteVersion) ?? .v1,
                 bundled: BundledPet.pet(id: settings.petBundledID),
                 locomotion: overlayModel.locomotion
             )
@@ -826,10 +826,10 @@ private struct PetOverlayView: View {
 
     private var accessibilityDescription: String {
         guard settings.localActivityEnabled else {
-            return "A-mon 펫, 현재 작업 감지 꺼짐"
+            return "amon 펫, 현재 작업 감지 꺼짐"
         }
-        guard presentation.status != .idle else { return "A-mon 펫, 대기 중" }
-        return "A-mon 펫, \(presentation.status.displayName), \(presentation.title)"
+        guard presentation.status != .idle else { return "amon 펫, 대기 중" }
+        return "amon 펫, \(presentation.status.displayName), \(presentation.title)"
     }
 }
 
@@ -892,7 +892,7 @@ private struct PetAvatarView: View {
     }
 }
 
-/// 공식 호환 시트(v1 1536×1872 · v2 1536×2288)를 192×208 프레임 프로필로 재생한다.
+/// 공식 호환 시트(v1 1536×1872 · v2 1536×2288 · v3 1536×2496)를 192×208 프레임 프로필로 재생한다.
 ///
 /// 어느 행을 재생할지는 `PetSpriteDirector` 가 정하고, 여기서는 그 결정을
 /// 프레임으로 바꿔 그리기만 한다.

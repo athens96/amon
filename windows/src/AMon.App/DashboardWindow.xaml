@@ -2,7 +2,7 @@
         x:Name="RootWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="A-mon"
+        Title="amon"
         Width="900"
         Height="820"
         MinWidth="720"
@@ -186,7 +186,7 @@
           <TextBlock FontFamily="{StaticResource DisplayFont}"
                      FontSize="18"
                      FontWeight="SemiBold"
-                     Text="A-mon" />
+                     Text="amon" />
           <TextBlock Foreground="{StaticResource MutedBrush}"
                      FontSize="10"
                      Text="AI usage monitor" />
@@ -791,7 +791,7 @@
                 <StackPanel>
                   <TextBlock FontSize="16" FontWeight="Medium" Text="로그인 시 자동 실행" />
                   <TextBlock Margin="0,4,20,0" Foreground="{StaticResource MutedBrush}"
-                             Text="Windows에 로그인하면 A-mon을 자동으로 시작합니다." />
+                             Text="Windows에 로그인하면 amon을 자동으로 시작합니다." />
                 </StackPanel>
                 <CheckBox Grid.Column="1" VerticalAlignment="Center"
                           IsChecked="{Binding Settings.LaunchAtLoginEnabled, Mode=TwoWay}" />
@@ -837,7 +837,7 @@
                                  Text="Codex 호환 펫" />
                       <TextBlock Margin="0,4,16,0"
                                  Foreground="{StaticResource MutedBrush}"
-                                 Text="Codex Pet V1(1536×1872)과 V2(1536×2288) ZIP·투명 PNG·WebP를 가져옵니다. ZIP은 pet.json의 버전을 자동 적용합니다."
+                                 Text="Codex Pet V1(1536×1872), V2(1536×2288), V3(1536×2496) ZIP·투명 PNG·WebP를 가져옵니다. ZIP은 pet.json의 버전을 자동 적용합니다. V3는 완료 시 점프 뒤 뒷모습으로 앞으로 달립니다."
                                  TextWrapping="Wrap" />
                     </StackPanel>
                     <ComboBox Grid.Column="1"
@@ -849,7 +849,7 @@
                   <TextBox Margin="0,14,0,0"
                            IsReadOnly="True"
                            Text="{Binding Settings.PetSpritePath}"
-                           ToolTip="A-mon에 설치된 로컬 스프라이트시트 경로" />
+                           ToolTip="amon에 설치된 로컬 스프라이트시트 경로" />
                   <WrapPanel Margin="0,12,0,0">
                     <Button Margin="0,0,8,8"
                             Click="OnImportCodexPetClick"
@@ -933,7 +933,7 @@
             <StackPanel>
               <TextBlock FontSize="20" FontWeight="Medium" Text="트레이 할당량" />
               <TextBlock Margin="0,5,0,18" Foreground="{StaticResource MutedBrush}"
-                         Text="작업 표시줄 A-mon 아이콘에 선택한 프로바이더의 할당량을 표시합니다." />
+                         Text="작업 표시줄 amon 아이콘에 선택한 프로바이더의 할당량을 표시합니다." />
               <Grid>
                 <Grid.ColumnDefinitions>
                   <ColumnDefinition Width="*" />

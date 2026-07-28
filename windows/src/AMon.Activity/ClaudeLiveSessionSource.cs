@@ -11,6 +11,7 @@ public sealed class ClaudeLiveSessionSource : ILiveSessionSource
 
     public ClaudeLiveSessionSource(string? liveDirectory = null)
     {
+        // The legacy directory is shared with hooks installed by earlier releases.
         _liveDirectory = Path.GetFullPath(liveDirectory ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "A-mon",

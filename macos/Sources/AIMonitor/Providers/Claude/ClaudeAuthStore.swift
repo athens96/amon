@@ -102,7 +102,7 @@ enum ClaudeAuthError: Error, LocalizedError, Equatable {
 
 struct ClaudeOAuthConfig: Hashable, Sendable {
     var usageURL: URL
-    /// 실시간 계정/조직 프로필 (`/api/oauth/profile`) — 플랜 표기 보정용 (A-mon 추가).
+    /// 실시간 계정/조직 프로필 (`/api/oauth/profile`) — 플랜 표기 보정용 (amon 추가).
     /// 저장 blob 의 rateLimitTier 는 로그인 시점 값이라 요금제 변경(예: 5x→20x)이 반영되지 않는다.
     var profileURL: URL
     var refreshURL: URL

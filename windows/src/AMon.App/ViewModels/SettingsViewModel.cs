@@ -35,7 +35,7 @@ public sealed class SettingsViewModel : ObservableObject
     public IReadOnlyList<string> TrayQuotaProviders { get; } =
         ["자동 선택", "Claude Code", "Codex", "Cursor"];
 
-    public IReadOnlyList<int> PetSpriteVersions { get; } = [1, 2];
+    public IReadOnlyList<int> PetSpriteVersions { get; } = [1, 2, 3];
 
     public bool AutoUpdateEnabled
     {
@@ -122,7 +122,10 @@ public sealed class SettingsViewModel : ObservableObject
     {
         get => _settings.PetSpriteVersion;
         set => Update(
-            _settings with { PetSpriteVersion = value == 2 ? 2 : 1 },
+            _settings with
+            {
+                PetSpriteVersion = CodexPetSpriteLayout.NormalizeVersion(value),
+            },
             nameof(PetSpriteVersion));
     }
 
@@ -156,7 +159,7 @@ public sealed class SettingsViewModel : ObservableObject
     {
         PetSpritePath = string.Empty;
         PetImportFailed = false;
-        PetImportStatus = "A-mon 기본 펫을 사용합니다.";
+        PetImportStatus = "amon 기본 펫을 사용합니다.";
     }
 
     public void SetPetImportError(string message)

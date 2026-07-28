@@ -27,6 +27,7 @@ public sealed class ClaudeHookInstallException(string message, Exception? innerE
 
 public sealed class ClaudeHookInstaller
 {
+    // Existing Claude settings use this marker; changing it would duplicate hooks.
     public const string ManagedMarker = "A-mon local live activity";
     public const string ManagedExecutableName = "AMon.ClaudeHook.exe";
 

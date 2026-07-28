@@ -69,7 +69,8 @@ struct LiveSession: Equatable {
     }
 }
 
-/// `~/Library/Application Support/A-mon/live/*.json` 를 주기적으로 폴링해 살아있는
+/// 기존 설치와 공유하는 레거시 `~/Library/Application Support/A-mon/live/*.json` 를
+/// 주기적으로 폴링해 살아있는
 /// Claude Code 세션 스냅샷을 유지하는 관찰가능 상태.
 ///
 /// `LiveProvidersManager` 와 같은 형태의 자체 타이머로 훅 스크립트가 써 둔 로컬

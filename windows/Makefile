@@ -1,4 +1,4 @@
-APP := A-mon
+APP := amon
 VERSION := 0.4.0
 CONFIGURATION := Release
 

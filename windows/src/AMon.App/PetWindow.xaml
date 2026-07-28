@@ -301,7 +301,7 @@
             PreviewMouseMove="OnAvatarMouseMove"
             PreviewMouseLeftButtonUp="OnAvatarMouseLeftButtonUp"
             PreviewMouseRightButtonUp="OnAvatarRightClick"
-            ToolTip="A-mon 대시보드 열기">
+            ToolTip="amon 대시보드 열기">
       <Grid x:Name="AvatarVisual" RenderTransformOrigin="0.5,0.5">
         <Grid.RenderTransform>
           <TransformGroup>
@@ -361,7 +361,7 @@
                  Fill="{DynamicResource PetBubbleSubtleBrush}"
                  Stroke="{DynamicResource PetBubbleAccentBrush}"
                  StrokeThickness="2"
-                 Visibility="{Binding HasCustomSprite, Converter={StaticResource InverseBooleanToVisibility}}" />
+                 Visibility="{Binding HasSprite, Converter={StaticResource InverseBooleanToVisibility}}" />
         <TextBlock Margin="0,0,0,27"
                    HorizontalAlignment="Center"
                    VerticalAlignment="Bottom"
@@ -369,14 +369,15 @@
                    FontSize="58"
                    Foreground="{DynamicResource PetBubbleTextBrush}"
                    Text="✦"
-                   Visibility="{Binding HasCustomSprite, Converter={StaticResource InverseBooleanToVisibility}}" />
+                   Visibility="{Binding HasSprite, Converter={StaticResource InverseBooleanToVisibility}}" />
         <Grid Width="158"
               Height="180"
               HorizontalAlignment="Center"
               VerticalAlignment="Bottom"
-              Visibility="{Binding HasCustomSprite, Converter={StaticResource BooleanToVisibility}}">
+              Visibility="{Binding HasSprite, Converter={StaticResource BooleanToVisibility}}">
           <local:CodexPetSpriteControl SourcePath="{Binding SpritePath}"
                                        SpriteVersion="{Binding SpriteVersion}"
+                                       DragDirection="{Binding DragDirection}"
                                        Status="{Binding Current.Status}" />
         </Grid>
       </Grid>

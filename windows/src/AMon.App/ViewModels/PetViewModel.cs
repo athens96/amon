@@ -1,6 +1,5 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
-using System.IO;
 using System.Windows.Input;
 using AMon.Activity;
 
@@ -15,6 +14,9 @@ public sealed class PetViewModel : ObservableObject
     private bool _showsCurrentTask;
     private string _spritePath = string.Empty;
     private int _spriteVersion = 1;
+    private bool _hasCustomSprite;
+    private bool _hasSprite;
+    private int _dragDirection;
 
     public PetViewModel(
         IEnumerable<PetPresentation>? presentations = null,
@@ -39,19 +41,44 @@ public sealed class PetViewModel : ObservableObject
     public string SpritePath
     {
         get => _spritePath;
+        private set => SetProperty(ref _spritePath, value);
+    }
+
+    /// <summary>True only for a user-imported sprite, never for bundled amon.</summary>
+    public bool HasCustomSprite
+    {
+        get => _hasCustomSprite;
         private set
         {
-            if (SetProperty(ref _spritePath, value))
-                OnPropertyChanged(nameof(HasCustomSprite));
+            if (SetProperty(ref _hasCustomSprite, value))
+                OnPropertyChanged(nameof(UsesBundledSprite));
         }
     }
 
-    public bool HasCustomSprite => !string.IsNullOrWhiteSpace(SpritePath);
+    /// <summary>True when either a valid custom or bundled sprite can render.</summary>
+    public bool HasSprite
+    {
+        get => _hasSprite;
+        private set
+        {
+            if (SetProperty(ref _hasSprite, value))
+                OnPropertyChanged(nameof(UsesBundledSprite));
+        }
+    }
+
+    public bool UsesBundledSprite => HasSprite && !HasCustomSprite;
 
     public int SpriteVersion
     {
         get => _spriteVersion;
         private set => SetProperty(ref _spriteVersion, value);
+    }
+
+    /// <summary>-1 while dragging left, 1 while dragging right, otherwise 0.</summary>
+    public int DragDirection
+    {
+        get => _dragDirection;
+        private set => SetProperty(ref _dragDirection, value);
     }
 
     public ICommand PreviousCommand { get; }
@@ -75,7 +102,8 @@ public sealed class PetViewModel : ObservableObject
 
     public bool HasRunningCarousel =>
         _presentations.Count > 1
-        && _presentations.All(static item => item.Status == PetActivityStatus.Running);
+        && _presentations.All(static item =>
+            item.Status is PetActivityStatus.Running or PetActivityStatus.Reviewing);
 
     public string CounterText =>
         HasRunningCarousel ? $"{CurrentIndex + 1}/{_presentations.Count}" : string.Empty;
@@ -86,7 +114,7 @@ public sealed class PetViewModel : ObservableObject
         : $"{Current.StatusText}, {Current.Title}";
 
     public string AccessibilityDescription =>
-        $"A-mon 펫, {Current.StatusText}, {Current.Title}";
+        $"amon 펫, {Current.StatusText}, {Current.Title}";
 
     public string InputTokenText => Current.InputTokens is { } value
         ? $"INPUT {FormatTokens(value)}"
@@ -159,16 +187,29 @@ public sealed class PetViewModel : ObservableObject
     public void ConfigureAppearance(
         bool showsCurrentTask,
         string? spritePath,
-        int spriteVersion = 1)
+        int spriteVersion = 1,
+        string? bundledSpritePath = null,
+        Func<string?, int, bool>? isValidSprite = null)
     {
         ShowsCurrentTask = showsCurrentTask;
-        SpriteVersion = CodexPetSpriteLayout.NormalizeVersion(spriteVersion);
-        SpritePath = CodexPetAssetService.IsValidSprite(
+        var selection = BundledPetSprite.Resolve(
             spritePath,
-            SpriteVersion)
-            ? Path.GetFullPath(spritePath!)
-            : string.Empty;
+            spriteVersion,
+            bundledSpritePath,
+            isValidSprite);
+        SpriteVersion = selection?.Version ?? BundledPetSprite.Version;
+        SpritePath = selection?.Path ?? string.Empty;
+        HasCustomSprite = selection?.IsCustom == true;
+        HasSprite = selection is not null;
     }
+
+    public void SetDragDirection(double horizontalDelta) =>
+        DragDirection = horizontalDelta switch
+        {
+            > 0 => 1,
+            < 0 => -1,
+            _ => 0,
+        };
 
     private void Previous() => CurrentIndex--;
 

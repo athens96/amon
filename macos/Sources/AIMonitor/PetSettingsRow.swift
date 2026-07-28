@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Codex custom pet 파일 또는 codex-pets.net ZIP을 검증하고 A-mon 로컬 사본으로 설치한다.
+/// Codex custom pet 파일 또는 codex-pets.net ZIP을 검증하고 amon 로컬 사본으로 설치한다.
 /// 파일은 로컬에만 복사되며 서버 업로드 경로와 연결되지 않는다.
 struct PetSettingsRow: View {
     @EnvironmentObject private var state: AppState
@@ -14,7 +14,7 @@ struct PetSettingsRow: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Label("Codex 스프라이트 호환 A-mon 펫", systemImage: "pawprint.fill")
+                    Label("Codex 스프라이트 호환 amon 펫", systemImage: "pawprint.fill")
                         .font(.amonSection)
                         .foregroundStyle(MenuBarContentView.accent)
                     Text("작업 상태를 플로팅 펫과 말풍선으로 표시합니다. 표시에 쓰는 현재 작업은 이 Mac 안에서만 읽으며, 펫 때문에 서버로 나가는 데이터는 없습니다.")
@@ -107,7 +107,7 @@ struct PetSettingsRow: View {
                 Spacer()
             }
 
-            Text("호환 파일: codex-pets.net ZIP 또는 투명 PNG/WebP · 스프라이트시트는 1536×1872(v1) 또는 1536×2288(v2) px, 최대 20 MiB. ZIP은 pet.json의 spritesheetPath와 spriteVersionNumber를 읽습니다. v2 펫은 대기 중 마우스가 움직이면 그쪽을 둘러봅니다.")
+            Text("호환 파일: codex-pets.net ZIP 또는 투명 PNG/WebP · 스프라이트시트는 1536×1872(v1), 1536×2288(v2) 또는 1536×2496(v3) px, 최대 20 MiB. ZIP은 pet.json의 spritesheetPath와 spriteVersionNumber를 읽습니다. v2 이상은 대기 중 마우스가 움직이면 그쪽을 둘러보고, v3는 완료 시 점프 뒤 뒷모습으로 앞으로 달립니다.")
                 .font(.amonCaption)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -152,7 +152,7 @@ struct PetSettingsRow: View {
         panel.allowedContentTypes = allowedTypes
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-        panel.message = "Codex 펫 ZIP 또는 호환 스프라이트 시트(v1 1536×1872, v2 1536×2288)를 선택하세요."
+        panel.message = "Codex 펫 ZIP 또는 호환 스프라이트 시트(v1 1536×1872, v2 1536×2288, v3 1536×2496)를 선택하세요."
 
         NSApp.activate(ignoringOtherApps: true)
         guard panel.runModal() == .OK, let sourceURL = panel.url else { return }
@@ -210,6 +210,7 @@ struct PetSettingsRow: View {
             appropriateFor: nil,
             create: true
         )
+        // 기존 커스텀 펫을 그대로 찾기 위한 레거시 지원 경로다.
         let directory = support
             .appendingPathComponent("A-mon", isDirectory: true)
             .appendingPathComponent("pets", isDirectory: true)

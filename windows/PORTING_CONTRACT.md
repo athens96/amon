@@ -1,4 +1,4 @@
-# A-mon Windows native rewrite contract
+# amon Windows native rewrite contract
 
 The Windows client is a clean WPF rewrite of the current macOS product behavior.
 The legacy Go client and the first WPF prototype are reference implementations
@@ -6,7 +6,8 @@ only and are removed by this rewrite.
 
 ## Product contract
 
-- One user-facing Windows application: `A-mon.exe`.
+- One user-facing Windows application branded `amon`. Its executable keeps the
+  legacy `A-mon.exe` filename until installed updaters can migrate safely.
 - The application lives in the notification area and opens or closes the
   dashboard on a left click.
 - The tray icon and pet expose the same right-click menu.
@@ -33,7 +34,7 @@ the local database.
 
 ## Compatibility
 
-- Existing data under `%APPDATA%\A-mon` is preserved.
+- Existing data under the legacy `%APPDATA%\A-mon` path is preserved.
 - Existing `config.json` fields and unknown extension fields survive a
   load/save round trip.
 - A missing `auto_update` field means automatic updates are enabled.

@@ -6,6 +6,7 @@ namespace AMon.WindowsPlatform;
 public sealed class LaunchAtLoginService
 {
     private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    // Preserve the existing Run value so upgrades do not leave duplicate entries.
     private const string ValueName = "A-mon";
 
     public void SetEnabled(bool enabled, string executablePath)

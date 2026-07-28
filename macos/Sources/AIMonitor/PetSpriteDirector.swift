@@ -18,13 +18,14 @@ struct PetPlayback: Equatable {
     }
 }
 
-/// 스프라이트 11행을 실제 상황에 배정하는 순수 판정.
+/// 스프라이트 최대 12행을 실제 상황에 배정하는 순수 판정.
 ///
 /// 활동 상태(idle/running/reviewing/needsInput/ready/blocked)만으로는 6행밖에
 /// 쓰지 못한다. 남은 행은 상태가 아니라 사건에 붙는다.
 /// - 주행(Run right/left): 사용자가 펫을 끌고 가는 방향
 /// - 점프(Jumping): 작업이 막 끝난 순간 한 번
-/// - 둘러보기(Look around): 할 일이 없을 때 마우스가 움직인 쪽 — v2 시트 전용
+/// - 둘러보기(Look around): 할 일이 없을 때 마우스가 움직인 쪽 — v2 이상
+/// - 뒷모습 앞으로 달리기(Running away): 완료 점프 뒤 한 번 — v3 시트 전용
 ///
 /// 시각과 좌표를 인자로만 받아 테스트할 수 있게 두고, 화면·이벤트 접근은
 /// 호출하는 뷰가 맡는다.
@@ -73,7 +74,8 @@ struct PetSpriteDirector: Equatable {
             readyEnteredAt = nil
             if status == .ready {
                 readyEnteredAt = now
-                // 완료로 막 넘어온 순간엔 한 번 뛴다. 뛰고 나면 waving 으로 이어진다.
+                // 완료로 막 넘어온 순간엔 한 번 뛴다. v3에서는 뒷모습으로 한 번 더
+                // 달린 뒤 waving으로 이어진다.
                 if !reduceMotion {
                     oneShot = OneShot(animation: .jumping, startedAt: now)
                 }
@@ -93,6 +95,22 @@ struct PetSpriteDirector: Equatable {
             if elapsed >= 0,
                elapsed < CodexPetSpriteLayout.cycleDuration(for: oneShot.animation) {
                 return PetPlayback(animation: oneShot.animation, oneShotElapsed: elapsed)
+            }
+            if status == .ready,
+               version == .v3,
+               oneShot.animation == .jumping {
+                let next = OneShot(
+                    animation: .runningAway,
+                    startedAt: oneShot.startedAt.addingTimeInterval(
+                        CodexPetSpriteLayout.cycleDuration(for: .jumping)
+                    )
+                )
+                self.oneShot = next
+                let nextElapsed = now.timeIntervalSince(next.startedAt)
+                if nextElapsed >= 0,
+                   nextElapsed < CodexPetSpriteLayout.cycleDuration(for: next.animation) {
+                    return PetPlayback(animation: next.animation, oneShotElapsed: nextElapsed)
+                }
             }
             self.oneShot = nil
         }

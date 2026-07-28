@@ -22,7 +22,7 @@ final class AppSettings: ObservableObject {
     /// 메뉴바 아이콘 선택 (0 ~ AppIcons.count-1).
     @Published var iconIndex: Int { didSet { defaults.set(iconIndex, forKey: "icon.index") } }
 
-    /// 커스텀 메뉴바 아이콘 사용 여부 — 켜면 내장 5종 대신 customIconPath 이미지를 쓴다.
+    /// 커스텀 메뉴바 아이콘 사용 여부 — 켜면 amon 기본 아이콘 대신 customIconPath 이미지를 쓴다.
     @Published var useCustomIcon: Bool {
         didSet { defaults.set(useCustomIcon, forKey: "icon.useCustom") }
     }
@@ -99,7 +99,7 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(localActivityEnabled, forKey: "localActivity.enabled") }
     }
 
-    /// 데스크톱 위에 A-mon 펫을 표시한다. 펫은 로컬 활동 상태만 읽으며
+    /// 데스크톱 위에 amon 펫을 표시한다. 펫은 로컬 활동 상태만 읽으며
     /// 현재 작업 문구를 서버로 전송하지 않는다.
     @Published var petEnabled: Bool {
         didSet { defaults.set(petEnabled, forKey: "pet.enabled") }
@@ -111,15 +111,15 @@ final class AppSettings: ObservableObject {
     }
 
     /// 커스텀 펫을 넣지 않았을 때 그릴 번들 펫 식별자.
-    /// 현재 번들 카탈로그에는 Dozy Boo 한 종만 있다.
+    /// 저장된 선택이 없으면 카탈로그 첫 항목인 amon을 쓴다.
     @Published var petBundledID: String {
         didSet { defaults.set(petBundledID, forKey: "pet.bundledID") }
     }
 
-    /// Codex 설치 링크와 함께 보존할 스프라이트 포맷 버전(1 또는 2).
+    /// Codex 설치 링크와 함께 보존할 스프라이트 포맷 버전(1, 2 또는 3).
     /// 실제 프레임 레이아웃은 파일 검증 결과와 호환 프로필을 따른다.
     @Published var petSpriteVersion: Int {
-        didSet { defaults.set(petSpriteVersion == 2 ? 2 : 1, forKey: "pet.spriteVersion") }
+        didSet { defaults.set(CodexPetSpriteVersion(rawValue: petSpriteVersion)?.rawValue ?? 1, forKey: "pet.spriteVersion") }
     }
 
     /// 작업 중일 때 펫 옆에 프로젝트와 현재 작업의 첫 줄을 표시한다.
@@ -204,12 +204,12 @@ final class AppSettings: ObservableObject {
         petEnabled = UserDefaults.standard.object(forKey: "pet.enabled") as? Bool ?? true
         let loadedPetSpriteVersion =
             UserDefaults.standard.object(forKey: "pet.spriteVersion") as? Int ?? 1
-        // Dozy Boo 단일 기본값으로 옮기되 사용자가 가져온 커스텀 펫은 유지한다.
+        // amon 기본값을 따르되 명시적으로 고른 번들/커스텀 펫은 유지한다.
         let petMigration = BundledPetMigration.resolve(
             storedVersion: UserDefaults.standard.object(forKey: "pet.migration") as? Int,
             storedBundledID: UserDefaults.standard.string(forKey: "pet.bundledID"),
             storedSpritePath: UserDefaults.standard.string(forKey: "pet.spritePath") ?? "",
-            storedSpriteVersion: loadedPetSpriteVersion == 2 ? 2 : 1
+            storedSpriteVersion: CodexPetSpriteVersion(rawValue: loadedPetSpriteVersion)?.rawValue ?? 1
         )
         petBundledID = petMigration.resolvedPet.id
         petSpritePath = petMigration.spritePath

@@ -1,7 +1,7 @@
 import Foundation
 
 // openusage 의 MetricLine 을 이식하되, 스팬드 트렌드 차트(.chart)는 제외한다 —
-// A-mon 은 토큰/비용 집계를 이미 UsageScanner 로 하므로 라이브 쿼터 라인만 필요하다.
+// amon 은 토큰/비용 집계를 이미 UsageScanner 로 하므로 라이브 쿼터 라인만 필요하다.
 
 /// Provider output normalized into a small app-owned vocabulary.
 enum ProgressFormat: Hashable, Sendable, Codable {

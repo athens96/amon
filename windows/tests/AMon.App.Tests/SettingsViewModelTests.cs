@@ -79,6 +79,42 @@ public sealed class SettingsViewModelTests
         Assert.Contains("Svinushka", viewModel.PetImportStatus);
     }
 
+    [Fact]
+    public void V3IsAnAvailableSpriteVersionAndIsPreserved()
+    {
+        var store = new RecordingSettingsStore(
+            new AppSettingsState(AutoUpdateEnabled: true));
+        var viewModel = new SettingsViewModel(store);
+
+        viewModel.PetSpriteVersion = 3;
+
+        Assert.Contains(3, viewModel.PetSpriteVersions);
+        Assert.Equal(3, viewModel.PetSpriteVersion);
+        Assert.Equal(3, Assert.Single(store.Saved).PetSpriteVersion);
+    }
+
+    [Fact]
+    public void ResetPetClearsOnlyCustomPathSoRuntimeCanUseBundledAmon()
+    {
+        var store = new RecordingSettingsStore(
+            new AppSettingsState(
+                AutoUpdateEnabled: true,
+                PetSpritePath: "C:\\pets\\custom.webp",
+                PetSpriteVersion: 2));
+        var viewModel = new SettingsViewModel(store);
+
+        viewModel.ResetPet();
+
+        Assert.Empty(viewModel.PetSpritePath);
+        Assert.Equal(2, viewModel.PetSpriteVersion);
+        Assert.DoesNotContain(
+            store.Saved,
+            static saved => saved.PetSpritePath.Contains(
+                "Assets",
+                StringComparison.OrdinalIgnoreCase));
+        Assert.Contains("amon 기본 펫", viewModel.PetImportStatus);
+    }
+
     [Theory]
     [InlineData("127.0.0.1:3000")]
     [InlineData("localhost:3000")]

@@ -6,6 +6,8 @@ public static class ArchiveInstaller
 {
     private const int MaximumEntries = 50_000;
     private const long MaximumExpandedBytes = 4L * 1024 * 1024 * 1024;
+    // Already-installed updaters require this legacy primary executable filename.
+    private const string LegacyApplicationExecutable = "A-mon.exe";
 
     public static void InstallAndLaunch(
         string archivePath,
@@ -66,7 +68,8 @@ public static class ArchiveInstaller
             var installedApplication = Path.Combine(
                 installDirectory, Path.GetFileName(application));
             if (!File.Exists(installedApplication))
-                throw new InvalidDataException("The installed payload is missing A-mon.exe.");
+                throw new InvalidDataException(
+                    $"The installed payload is missing {LegacyApplicationExecutable}.");
 
             launchApplication(installedApplication);
             movedExistingPayload = false;
@@ -105,7 +108,7 @@ public static class ArchiveInstaller
         var applicationEntry = files.Single(file =>
             string.Equals(
                 Path.GetFileName(file.Path),
-                "A-mon.exe",
+                LegacyApplicationExecutable,
                 StringComparison.OrdinalIgnoreCase));
         var payloadPrefix = Path.GetDirectoryName(applicationEntry.Path)
             ?.Replace(Path.DirectorySeparatorChar, '/')
@@ -116,7 +119,7 @@ public static class ArchiveInstaller
             !file.Path.StartsWith(payloadPrefix, StringComparison.OrdinalIgnoreCase)))
         {
             throw new InvalidDataException(
-                "Every update payload file must share the A-mon.exe directory.");
+                $"Every update payload file must share the {LegacyApplicationExecutable} directory.");
         }
 
         Directory.CreateDirectory(stagedDirectory);
@@ -176,11 +179,11 @@ public static class ArchiveInstaller
 
         if (files.Count(file => string.Equals(
                 Path.GetFileName(file.Path),
-                "A-mon.exe",
+                LegacyApplicationExecutable,
                 StringComparison.OrdinalIgnoreCase)) != 1)
         {
             throw new InvalidDataException(
-                "The update archive must contain exactly one A-mon.exe.");
+                $"The update archive must contain exactly one {LegacyApplicationExecutable}.");
         }
 
         return files;

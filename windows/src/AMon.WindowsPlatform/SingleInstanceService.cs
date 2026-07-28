@@ -11,6 +11,7 @@ public interface ISingleInstanceService : IDisposable
 
 public sealed class SingleInstanceService : ISingleInstanceService
 {
+    // These legacy names prevent old and new releases from running side by side.
     private const string MutexName = @"Local\A-mon.Wpf.Singleton";
     private const string ActivationEventName = @"Local\A-mon.Wpf.Activate";
 

@@ -3,7 +3,7 @@ import XCTest
 
 @testable import AIMonitor
 
-/// 명세 11행이 실제 상황에 어떻게 배정되는지 — 상태 6행 + 사건 5행.
+/// 명세 12행이 실제 상황에 어떻게 배정되는지 — 상태 6행 + 사건 6행.
 final class PetSpriteDirectorTests: XCTestCase {
     private let center = CGPoint(x: 500, y: 500)
     private let start = Date(timeIntervalSinceReferenceDate: 1_000)
@@ -19,8 +19,8 @@ final class PetSpriteDirectorTests: XCTestCase {
         XCTAssertEqual(CodexPetSpriteLayout.animation(for: .blocked), .failed)
     }
 
-    /// 명세의 11행이 모두 실제로 재생될 수 있어야 한다 — 죽은 행이 없어야 한다.
-    func testAllElevenRowsAreReachable() {
+    /// 명세의 12행이 모두 실제로 재생될 수 있어야 한다 — 죽은 행이 없어야 한다.
+    func testAllTwelveRowsAreReachable() {
         var reached = Set<CodexPetSpriteLayout.Animation>()
 
         for status in PetActivityStatus.allCases {
@@ -35,6 +35,16 @@ final class PetSpriteDirectorTests: XCTestCase {
         _ = playback(&director, status: .running, at: start)
         reached.insert(
             playback(&director, status: .ready, at: start.addingTimeInterval(1)).animation
+        )
+        reached.insert(
+            playback(
+                &director,
+                status: .ready,
+                version: .v3,
+                at: start.addingTimeInterval(
+                    1 + CodexPetSpriteLayout.cycleDuration(for: .jumping) + 0.01
+                )
+            ).animation
         )
 
         XCTAssertEqual(reached, Set(CodexPetSpriteLayout.Animation.allCases))
@@ -98,6 +108,36 @@ final class PetSpriteDirectorTests: XCTestCase {
         )
         XCTAssertEqual(after.animation, .waving)
         XCTAssertNil(after.oneShotElapsed)
+    }
+
+    func testV3ReadyEntryJumpsThenRunsAwayOnceThenWaves() {
+        var director = PetSpriteDirector()
+        _ = playback(&director, status: .running, version: .v3, at: start)
+        let done = start.addingTimeInterval(1)
+        XCTAssertEqual(
+            playback(&director, status: .ready, version: .v3, at: done).animation,
+            .jumping
+        )
+
+        let afterJump = done.addingTimeInterval(
+            CodexPetSpriteLayout.cycleDuration(for: .jumping) + 0.01
+        )
+        XCTAssertEqual(
+            playback(&director, status: .ready, version: .v3, at: afterJump).animation,
+            .runningAway
+        )
+
+        let afterRunningAway = afterJump.addingTimeInterval(
+            CodexPetSpriteLayout.cycleDuration(for: .runningAway)
+        )
+        let waving = playback(
+            &director,
+            status: .ready,
+            version: .v3,
+            at: afterRunningAway
+        )
+        XCTAssertEqual(waving.animation, .waving)
+        XCTAssertNil(waving.oneShotElapsed)
     }
 
     /// 완료 몸짓은 유한하다 — 말풍선을 접은 뒤에도 계속 손을 흔들면 새 알림처럼 보인다.

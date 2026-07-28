@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDisplayName</key>
-	<string>A-mon</string>
+	<string>amon</string>
 	<key>CFBundleExecutable</key>
 	<string>AIMonitor</string>
 	<key>CFBundleIconFile</key>
@@ -11,7 +11,7 @@
 	<key>CFBundleIdentifier</key>
 	<string>com.athens96.amon</string>
 	<key>CFBundleName</key>
-	<string>A-mon</string>
+	<string>amon</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -23,6 +23,6 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
-	<string>© 2026 A-mon</string>
+	<string>© 2026 amon</string>
 </dict>
 </plist>
