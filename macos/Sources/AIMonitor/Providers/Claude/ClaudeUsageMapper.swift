@@ -77,7 +77,7 @@ enum ClaudeUsageMapper {
         return nil
     }
 
-    /// `/api/oauth/profile` 응답에서 실시간 플랜을 파싱한다 (A-mon 추가).
+    /// `/api/oauth/profile` 응답에서 실시간 플랜을 파싱한다 (amon 추가).
     /// `organization.rate_limit_tier`(예: "default_claude_max_20x")가 권위 있는 현재 티어 —
     /// 저장 blob 의 rateLimitTier 는 로그인 시점 스냅샷이라 요금제 변경(5x→20x)을 놓친다.
     /// 실패/비정상 응답이면 nil (호출부는 저장 blob 기반 표기를 유지).

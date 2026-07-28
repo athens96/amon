@@ -27,6 +27,15 @@ final class CodexPetAssetValidatorTests: XCTestCase {
         XCTAssertEqual(metadata.spriteVersion, .v2)
     }
 
+    func testAcceptsV3SheetWithRunningAwayRow() throws {
+        let data = try makePNG(width: 1536, height: 2496)
+
+        let metadata = try CodexPetAssetValidator.validate(data: data, spriteVersion: .v3)
+
+        XCTAssertEqual(metadata.pixelHeight, 2496)
+        XCTAssertEqual(metadata.spriteVersion, .v3)
+    }
+
     /// 매니페스트가 선언한 버전과 실제 시트 크기가 어긋나면 조용히 넘기지 않는다.
     func testRejectsDeclaredVersionThatContradictsSheetHeight() throws {
         let data = try makePNG(width: 1536, height: 1872)

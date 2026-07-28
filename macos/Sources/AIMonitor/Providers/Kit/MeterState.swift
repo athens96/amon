@@ -55,7 +55,7 @@ enum MeterState: Hashable {
 }
 
 /// MetricLine.progress 필드에서 미터 상태·pace 틱·트레일링 문구를 파생한다.
-/// (openusage 는 WidgetData 를 경유하지만, A-mon 은 MetricLine 을 직접 렌더하므로 여기서 계산.)
+/// (openusage 는 WidgetData 를 경유하지만, amon 은 MetricLine 을 직접 렌더하므로 여기서 계산.)
 enum MeterEngine {
     /// 세션(롤링 서브데일리) 창으로 볼 최대 주기 — 5h 세션 + 여유. 주간/월간 창은 해당 없음.
     private static let sessionWindowMaxMs = 6 * 60 * 60 * 1000

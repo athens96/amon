@@ -62,6 +62,7 @@ public static class CodexPetAssetService
         var metadata = Validate(data, manifestVersion ?? spriteVersion);
         var root = applicationDataRoot
             ?? Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        // Keep custom pets in the legacy directory so upgrades do not lose them.
         var directory = Path.Combine(root, "A-mon", "pets");
         Directory.CreateDirectory(directory);
         var extension = metadata.Format == CodexPetAssetFormat.Png ? "png" : "webp";
@@ -202,7 +203,7 @@ public static class CodexPetAssetService
             displayName = SanitizeDisplayName(manifest.DisplayName);
             if (manifest.SpriteVersionNumber is not null)
             {
-                if (manifest.SpriteVersionNumber is not (1 or 2))
+                if (manifest.SpriteVersionNumber is not (1 or 2 or 3))
                 {
                     throw new InvalidDataException(
                         $"지원하지 않는 Codex Pet 버전입니다: "

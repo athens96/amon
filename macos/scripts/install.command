@@ -1,5 +1,5 @@
 #!/bin/bash
-# A-mon 설치 — /Applications(또는 ~/Applications)로 복사 + Gatekeeper
+# amon 설치 — /Applications(또는 ~/Applications)로 복사 + Gatekeeper
 # quarantine 해제 + 실행. Finder 에서 더블클릭하거나 `bash install.command` 로 실행.
 set -euo pipefail
 

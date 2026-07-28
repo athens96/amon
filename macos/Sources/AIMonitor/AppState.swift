@@ -46,7 +46,7 @@ final class AppState: ObservableObject {
     @Published var isInstallingUpdate = false
     @Published var updateError: String? = nil
 
-    /// 현재 아이콘 상태(stage, 0~AppIcons.stageCount-1). 지금은 항상 0(=stage1).
+    /// 현재 아이콘 상태. 단일 amon 템플릿을 쓰므로 지금은 항상 0이다.
     /// 나중에 상태 로직이 이 값을 바꾸면 메뉴바 아이콘이 해당 스테이지로 교체된다.
     @Published var iconStage: Int = 0
 

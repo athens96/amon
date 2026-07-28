@@ -246,7 +246,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ?? AppIcons.menuBarImage(icon: state.settings.iconIndex, stage: state.iconStage)
             ?? NSImage(
                 systemSymbolName: "gauge.with.dots.needle.67percent",
-                accessibilityDescription: "A-mon"
+                accessibilityDescription: "amon"
             )
 
         // 짧은 쿼터(세션 5h) % — 소스(자동=가장 많이 사용 / 고정 도구)와
@@ -406,7 +406,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func makeStatusContextMenu() -> NSMenu {
         let menu = NSMenu()
         let title = NSMenuItem(
-            title: "A-mon \(AppInfo.version)", action: nil, keyEquivalent: ""
+            title: "amon \(AppInfo.version)", action: nil, keyEquivalent: ""
         )
         title.isEnabled = false
         menu.addItem(title)
@@ -498,7 +498,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } else {
                 self.showUpdateAlert(
                     title: "최신 버전",
-                    message: "현재 A-mon \(AppInfo.version)이 최신 버전입니다."
+                    message: "현재 amon \(AppInfo.version)이 최신 버전입니다."
                 )
             }
         }

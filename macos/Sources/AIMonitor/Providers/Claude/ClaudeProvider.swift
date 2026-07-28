@@ -3,7 +3,7 @@ import Foundation
 /// Claude 런타임 — 원본 openusage `ClaudeProvider` 의 라이브 사용량 refresh 로직(자격증명 후보
 /// 폴백, 토큰 리프레시+재시도, profile scope 누락 경고, 429 레이트리밋 처리)을 그대로 이식하되,
 /// UI 위젯 서술자(WidgetDescriptor)·아이콘 시스템·로컬 로그 스캔 기반 스팬드 타일
-/// (ClaudeLogUsageScanner/SpendTileMapper)은 제외하고 A-mon 슬림 `Provider` 를 쓴다.
+/// (ClaudeLogUsageScanner/SpendTileMapper)은 제외하고 amon 슬림 `Provider` 를 쓴다.
 @MainActor
 final class ClaudeProvider: ProviderRuntime {
     let provider = Provider(

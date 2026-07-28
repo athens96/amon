@@ -23,7 +23,7 @@ public sealed class NotifyIconTrayService : IDisposable
         _petVisibilityItem = new Forms.ToolStripMenuItem("펫 숨기기");
         _petVisibilityItem.Click += (_, _) => PetVisibilityToggleRequested?.Invoke(this, EventArgs.Empty);
 
-        var exitItem = new Forms.ToolStripMenuItem("A-mon 종료");
+        var exitItem = new Forms.ToolStripMenuItem("amon 종료");
         exitItem.Click += (_, _) => ExitRequested?.Invoke(this, EventArgs.Empty);
 
         _contextMenu.Items.AddRange([
@@ -36,7 +36,7 @@ public sealed class NotifyIconTrayService : IDisposable
         _notifyIcon = new Forms.NotifyIcon
         {
             Icon = _icon,
-            Text = "A-mon",
+            Text = "amon",
             Visible = true,
             ContextMenuStrip = _contextMenu,
         };
@@ -56,7 +56,7 @@ public sealed class NotifyIconTrayService : IDisposable
 
     public void SetToolTip(string value)
     {
-        var text = string.IsNullOrWhiteSpace(value) ? "A-mon" : value.Trim();
+        var text = string.IsNullOrWhiteSpace(value) ? "amon" : value.Trim();
         _notifyIcon.Text = text.Length <= 63 ? text : text[..63];
     }
 

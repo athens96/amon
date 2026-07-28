@@ -21,7 +21,7 @@ struct SettingsView: View {
 
                 PetSettingsRow()
 
-                // IconPickerRow() — 내장 아이콘 5종·커스텀 파일 픽커는 숨김.
+                // IconPickerRow() — amon 기본 아이콘·커스텀 파일 픽커는 숨김.
                 // 메뉴바 아이콘이 프로바이더 공식 로고(ProviderIcons)를 따라가면서
                 // 수동 선택이 무의미해졌다. 프로바이더 미감지 시 폴백으로만 쓰인다.
 
@@ -71,7 +71,7 @@ struct SettingsView: View {
 
                 HStack {
                     Spacer()
-                    Text("A-mon \(AppInfo.version)")
+                    Text("amon \(AppInfo.version)")
                         .font(.amonCaption)
                         .foregroundStyle(.tertiary)
                     Spacer()
@@ -98,7 +98,7 @@ private struct SettingsCategoryHeader: View {
     }
 }
 
-/// 메뉴바 아이콘 선택 — 내장 5종 썸네일 또는 커스텀 이미지 파일.
+/// 메뉴바 아이콘 선택 — amon 기본 아이콘 또는 커스텀 이미지 파일.
 private struct IconPickerRow: View {
     @EnvironmentObject private var settings: AppSettings
 
@@ -206,6 +206,7 @@ private struct CustomIconTile: View {
             let dir = try fm.url(
                 for: .applicationSupportDirectory, in: .userDomainMask,
                 appropriateFor: nil, create: true
+            // 기존 설치의 아이콘 선택을 잃지 않도록 레거시 지원 경로를 유지한다.
             ).appendingPathComponent("A-mon", isDirectory: true)
             try fm.createDirectory(at: dir, withIntermediateDirectories: true)
             let dest = dir.appendingPathComponent("menubar-icon." + url.pathExtension)

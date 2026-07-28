@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// A-mon 색상 토큰 단일 저장소 (Typography.swift 패턴).
+/// amon 색상 토큰 단일 저장소 (Typography.swift 패턴).
 ///
 /// 모든 색상 상수는 이 파일에만 정의한다.
 /// 다른 파일에서 Color(red:) / NSColor(...) / 하드코딩 hex 리터럴을 쓰지 않는다.
@@ -17,7 +17,7 @@ enum Palette {
 
     /// 다크 모드 브랜드 액센트 — 같은 violet 색상(hue)을 흰색 쪽으로 들어올린 #7d7dff.
     /// 어두운 서피스 위에서 #6161ff 는 가라앉아 보이므로 명도만 보정한다.
-    /// 라이트 모드 액센트와 같은 hue를 유지한 A-mon 다크 모드 파생값이다.
+    /// 라이트 모드 액센트와 같은 hue를 유지한 amon 다크 모드 파생값이다.
     static let accentDarkBase = NSColor(
         srgbRed: 0x7d / 255.0, green: 0x7d / 255.0, blue: 0xff / 255.0, alpha: 1
     )
@@ -35,7 +35,7 @@ enum Palette {
         accentBase(for: appearance)
     }
 
-    /// A-mon Interactive Violet — 앱 전역 1차 액센트. 라이트/다크 적응.
+    /// amon Interactive Violet — 앱 전역 1차 액센트. 라이트/다크 적응.
     static let accent = Color(nsColor: accentNS)
 
     /// 동일 색상 hex 문자열 — Provider 액센트 기본값 · 메뉴바 아이콘 fallback

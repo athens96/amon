@@ -12,6 +12,7 @@ public sealed class ConfigStore
 
     public ConfigStore(string? path = null)
     {
+        // Preserve the legacy directory so existing config and usage data remain visible.
         Path = path ?? System.IO.Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "A-mon",

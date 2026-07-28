@@ -29,7 +29,9 @@ public static class PetStateAdapter
             return [CreatePresentation(attention, 1, showsCurrentTask)];
 
         var running = candidates
-            .Where(static candidate => candidate.Status == PetActivityStatus.Running)
+            .Where(static candidate =>
+                candidate.Status is PetActivityStatus.Running
+                    or PetActivityStatus.Reviewing)
             .OrderByDescending(static candidate => candidate.Session.StartedAt)
             .ThenBy(static candidate => candidate.Session.Identity, StringComparer.Ordinal)
             .ToArray();
@@ -77,6 +79,8 @@ public static class PetStateAdapter
             "ready" or "complete" or "completed" or "done"
                 or "success" or "succeeded" =>
                 PetActivityStatus.Ready,
+            "review" or "reviewing" or "in_review" or "inreview" =>
+                PetActivityStatus.Reviewing,
             "active" or "running" or "working" or "in_progress"
                 or "inprogress" or "busy" =>
                 PetActivityStatus.Running,
@@ -112,6 +116,7 @@ public static class PetStateAdapter
         PetActivityStatus.NeedsInput => 4,
         PetActivityStatus.Blocked => 3,
         PetActivityStatus.Ready => 2,
+        PetActivityStatus.Reviewing => 1,
         PetActivityStatus.Running => 1,
         _ => 0
     };
@@ -120,7 +125,7 @@ public static class PetStateAdapter
     {
         var normalized = provider.Trim();
         return normalized.Length == 0
-            ? "A-mon"
+            ? "amon"
             : char.ToUpperInvariant(normalized[0]) + normalized[1..];
     }
 

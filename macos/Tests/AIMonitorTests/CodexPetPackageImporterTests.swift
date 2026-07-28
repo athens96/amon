@@ -71,6 +71,28 @@ final class CodexPetPackageImporterTests: XCTestCase {
         XCTAssertEqual(payload.metadata.spriteVersion, .v2)
     }
 
+    func testImportsV3PackageDeclaredByManifestSpriteVersionNumber() throws {
+        let directory = try makeTemporaryDirectory()
+        let package = directory.appendingPathComponent("amon-v3", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: package,
+            withIntermediateDirectories: true
+        )
+        let sprite = try makePNG(width: 1536, height: 2496)
+        try sprite.write(to: package.appendingPathComponent("spritesheet.png"))
+        try manifestData(
+            displayName: "amon",
+            spritesheetPath: "spritesheet.png",
+            spriteVersionNumber: 3
+        ).write(to: package.appendingPathComponent("pet.json"))
+
+        let archive = try createArchive(in: directory, inputs: ["amon-v3"], extension: "zip")
+        let payload = try CodexPetPackageImporter.load(fileURL: archive)
+
+        XCTAssertEqual(payload.metadata.pixelHeight, 2496)
+        XCTAssertEqual(payload.metadata.spriteVersion, .v3)
+    }
+
     /// 매니페스트 선언과 실제 시트 크기가 어긋나면 설치를 막는다.
     func testRejectsManifestVersionThatDoesNotMatchSheet() throws {
         let directory = try makeTemporaryDirectory()

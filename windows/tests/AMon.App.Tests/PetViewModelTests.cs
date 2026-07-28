@@ -156,6 +156,53 @@ public sealed class PetViewModelTests
         Assert.Null(viewModel.Current.OutputPreview);
     }
 
+    [Fact]
+    public void AppearancePrefersCustomThenBundledAndKeepsTheirMeaningSeparate()
+    {
+        var custom = Path.GetFullPath("custom.webp");
+        var bundled = Path.GetFullPath("Assets/Pets/Amon.webp");
+        var viewModel = new PetViewModel();
+
+        viewModel.ConfigureAppearance(
+            showsCurrentTask: true,
+            spritePath: custom,
+            spriteVersion: 2,
+            bundledSpritePath: bundled,
+            isValidSprite: (path, _) => path == custom || path == bundled);
+
+        Assert.Equal(custom, viewModel.SpritePath);
+        Assert.Equal(2, viewModel.SpriteVersion);
+        Assert.True(viewModel.HasSprite);
+        Assert.True(viewModel.HasCustomSprite);
+        Assert.False(viewModel.UsesBundledSprite);
+
+        viewModel.ConfigureAppearance(
+            showsCurrentTask: true,
+            spritePath: custom,
+            spriteVersion: 2,
+            bundledSpritePath: bundled,
+            isValidSprite: (path, _) => path == bundled);
+
+        Assert.Equal(bundled, viewModel.SpritePath);
+        Assert.Equal(BundledPetSprite.Version, viewModel.SpriteVersion);
+        Assert.True(viewModel.HasSprite);
+        Assert.False(viewModel.HasCustomSprite);
+        Assert.True(viewModel.UsesBundledSprite);
+    }
+
+    [Fact]
+    public void DragDirectionIsNormalizedForSpritePlayback()
+    {
+        var viewModel = new PetViewModel();
+
+        viewModel.SetDragDirection(-12);
+        Assert.Equal(-1, viewModel.DragDirection);
+        viewModel.SetDragDirection(7);
+        Assert.Equal(1, viewModel.DragDirection);
+        viewModel.SetDragDirection(0);
+        Assert.Equal(0, viewModel.DragDirection);
+    }
+
     private static PetPresentation Presentation(
         string identity,
         string provider,

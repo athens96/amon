@@ -30,7 +30,7 @@ struct AntigravityUsageClient: Sendable {
     static let quotaSummaryPath = "/v1internal:retrieveUserQuotaSummary"
     static let googleOAuthURL = "https://oauth2.googleapis.com/token"
     // OAuth credentials must be supplied by the runtime environment. Keeping them out of source avoids
-    // coupling A-mon to credentials extracted from another installed application.
+    // coupling amon to credentials extracted from another installed application.
     static var googleClientID: String? {
         ProcessInfo.processInfo.environment["AMON_GOOGLE_OAUTH_CLIENT_ID"]
     }

@@ -18,9 +18,10 @@ enum HookInstallError: LocalizedError {
     }
 }
 
-/// Claude Code 훅 시스템에 A-mon 라이브 세션 훅을 설치/제거한다.
+/// Claude Code 훅 시스템에 amon 라이브 세션 훅을 설치/제거한다.
 ///
-/// - 파이썬 훅 스크립트(순수 stdlib)를 `~/Library/Application Support/A-mon/hooks/live_hook.py`
+/// - 호환성을 위해 파이썬 훅 스크립트(순수 stdlib)를 기존
+///   `~/Library/Application Support/A-mon/hooks/live_hook.py`에 둔다.
 ///   에 써 두고, `~/.claude/settings.json` 의 `hooks` 서브트리에 6개 이벤트 엔트리를 넣는다.
 /// - settings.json 은 다른 도구가 쓴 임의 키가 있을 수 있어 `Codable` 대신
 ///   `JSONSerialization` 으로 `[String: Any]` 로 다뤄, `hooks` 서브트리만 건드리고
@@ -223,10 +224,10 @@ enum HookInstaller {
     /// (Swift raw string `#"""..."""#` 로 감싸 파이썬의 따옴표/역슬래시를 그대로 보존한다.)
     static let hookScriptSource: String = #"""
 #!/usr/bin/env python3
-# A-mon 라이브 세션 훅 — Claude Code 훅 시스템이 stdin JSON 페이로드로 호출한다.
+# amon 라이브 세션 훅 — Claude Code 훅 시스템이 stdin JSON 페이로드로 호출한다.
 #
 # payload["hook_event_name"] 로 디스패치한다(argv 가 아니라 JSON 필드 기준 — 항상 존재).
-# 세션별 상태를 ~/Library/Application Support/A-mon/live/<session_id>.json 에 원자적으로
+# 세션별 상태를 레거시 ~/Library/Application Support/A-mon/live/<session_id>.json 에 원자적으로
 # 유지하고, macOS 앱이 이 디렉토리를 폴링해 로컬 현재 활동 화면에 표시한다.
 #
 # 개인정보 규칙: tool_input["prompt"] 는 절대 읽거나 저장하지 않는다.

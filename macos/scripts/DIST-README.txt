@@ -1,4 +1,4 @@
-A-mon (macOS 메뉴바 앱)
+amon (macOS 메뉴바 앱)
 ================================
 
 로컬 AI 코딩 도구(Claude Code · Codex · OpenCode · Cursor)의 토큰 사용량을

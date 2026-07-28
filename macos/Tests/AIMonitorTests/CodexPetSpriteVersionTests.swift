@@ -3,14 +3,16 @@ import XCTest
 
 @testable import AIMonitor
 
-/// v1(8×9)과 v2(8×11) 시트 배치, 그리고 v2 전용 둘러보기 두 행의 계약.
+/// v1(8×9), v2(8×11), v3(8×12) 시트 배치와 확장 행의 계약.
 final class CodexPetSpriteVersionTests: XCTestCase {
     func testSheetHeightsMatchPublishedVersions() {
         XCTAssertEqual(CodexPetSpriteLayout.sheetPixelWidth, 1536)
         XCTAssertEqual(CodexPetSpriteLayout.sheetPixelHeight(for: .v1), 1872)
         XCTAssertEqual(CodexPetSpriteLayout.sheetPixelHeight(for: .v2), 2288)
+        XCTAssertEqual(CodexPetSpriteLayout.sheetPixelHeight(for: .v3), 2496)
         XCTAssertEqual(CodexPetSpriteLayout.rowCount(for: .v1), 9)
         XCTAssertEqual(CodexPetSpriteLayout.rowCount(for: .v2), 11)
+        XCTAssertEqual(CodexPetSpriteLayout.rowCount(for: .v3), 12)
     }
 
     func testVersionIsDetectedFromSheetSize() {
@@ -21,6 +23,10 @@ final class CodexPetSpriteVersionTests: XCTestCase {
         XCTAssertEqual(
             CodexPetSpriteLayout.version(forPixelWidth: 1536, pixelHeight: 2288),
             .v2
+        )
+        XCTAssertEqual(
+            CodexPetSpriteLayout.version(forPixelWidth: 1536, pixelHeight: 2496),
+            .v3
         )
         XCTAssertNil(CodexPetSpriteLayout.version(forPixelWidth: 1536, pixelHeight: 2080))
         XCTAssertNil(CodexPetSpriteLayout.version(forPixelWidth: 1024, pixelHeight: 1872))
@@ -50,7 +56,7 @@ final class CodexPetSpriteVersionTests: XCTestCase {
         }
     }
 
-    /// 명세의 11행이 순서대로 행 0~10 에 놓인다.
+    /// 명세의 12행이 순서대로 행 0~11 에 놓인다.
     func testRowOrderMatchesPublishedSpec() throws {
         let expected: [(CodexPetSpriteLayout.Animation, Int)] = [
             (.idle, 0),
@@ -64,6 +70,7 @@ final class CodexPetSpriteVersionTests: XCTestCase {
             (.review, 8),
             (.lookAroundRight, 9),
             (.lookAroundLeft, 10),
+            (.runningAway, 11),
         ]
         XCTAssertEqual(expected.count, CodexPetSpriteLayout.Animation.allCases.count)
         for (animation, row) in expected {
@@ -86,6 +93,7 @@ final class CodexPetSpriteVersionTests: XCTestCase {
 
         XCTAssertEqual(CodexPetSpriteLayout.animations(in: .v1).count, 9)
         XCTAssertEqual(CodexPetSpriteLayout.animations(in: .v2).count, 11)
+        XCTAssertEqual(CodexPetSpriteLayout.animations(in: .v3).count, 12)
     }
 
     /// 둘러보기 행은 시트에 놓인 좌표가 행 9·10 이어야 한다.
@@ -103,6 +111,16 @@ final class CodexPetSpriteVersionTests: XCTestCase {
         XCTAssertNil(
             CodexPetSpriteLayout.frameRect(column: 8, animation: .lookAroundRight)
         )
+    }
+
+    func testRunningAwayExistsOnlyInV3AtRowEleven() throws {
+        XCTAssertFalse(CodexPetSpriteLayout.isAvailable(.runningAway, in: .v2))
+        XCTAssertTrue(CodexPetSpriteLayout.isAvailable(.runningAway, in: .v3))
+        let frame = try XCTUnwrap(
+            CodexPetSpriteLayout.frameRect(column: 7, animation: .runningAway)
+        )
+        XCTAssertEqual(frame, CGRect(x: 7 * 192, y: 11 * 208, width: 192, height: 208))
+        XCTAssertEqual(CodexPetSpriteLayout.frameDurations(for: .runningAway).count, 8)
     }
 
     func testLocomotionRowsFollowDragDirection() {

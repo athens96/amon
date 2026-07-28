@@ -15,6 +15,7 @@ public enum CodexPetAnimation
     Review,
     LookingRight,
     LookingLeft,
+    RunningAway,
 }
 
 public sealed record CodexPetStrip(int Row, int FrameCount);
@@ -24,21 +25,36 @@ public static class CodexPetSpriteLayout
     public const int SheetPixelWidth = 1536;
     public const int V1SheetPixelHeight = 1872;
     public const int V2SheetPixelHeight = 2288;
+    public const int V3SheetPixelHeight = 2496;
     public const int FramePixelWidth = 192;
     public const int FramePixelHeight = 208;
     public const int ColumnCount = 8;
     public const int V1RowCount = 9;
     public const int V2RowCount = 11;
+    public const int V3RowCount = 12;
 
-    public static int NormalizeVersion(int version) => version == 2 ? 2 : 1;
+    public static int NormalizeVersion(int version) => version switch
+    {
+        2 => 2,
+        3 => 3,
+        _ => 1,
+    };
 
     public static int SheetPixelHeightFor(int version) =>
-        NormalizeVersion(version) == 2
-            ? V2SheetPixelHeight
-            : V1SheetPixelHeight;
+        NormalizeVersion(version) switch
+        {
+            2 => V2SheetPixelHeight,
+            3 => V3SheetPixelHeight,
+            _ => V1SheetPixelHeight,
+        };
 
     public static int RowCountFor(int version) =>
-        NormalizeVersion(version) == 2 ? V2RowCount : V1RowCount;
+        NormalizeVersion(version) switch
+        {
+            2 => V2RowCount,
+            3 => V3RowCount,
+            _ => V1RowCount,
+        };
 
     public static int? VersionForDimensions(int width, int height)
     {
@@ -48,6 +64,7 @@ public static class CodexPetSpriteLayout
         {
             V1SheetPixelHeight => 1,
             V2SheetPixelHeight => 2,
+            V3SheetPixelHeight => 3,
             _ => null,
         };
     }
@@ -66,14 +83,37 @@ public static class CodexPetSpriteLayout
             [CodexPetAnimation.Review] = new(8, 6),
             [CodexPetAnimation.LookingRight] = new(9, 6),
             [CodexPetAnimation.LookingLeft] = new(10, 6),
+            [CodexPetAnimation.RunningAway] = new(11, 8),
         };
 
     public static CodexPetAnimation AnimationFor(
         PetActivityStatus status,
         int spriteVersion = 1,
-        int gazeDirection = 0)
+        int gazeDirection = 0,
+        int dragDirection = 0,
+        TimeSpan? readyTransitionElapsed = null,
+        bool reduceMotion = false)
     {
-        if (status == PetActivityStatus.Idle && NormalizeVersion(spriteVersion) == 2)
+        if (dragDirection > 0)
+            return CodexPetAnimation.RunningRight;
+        if (dragDirection < 0)
+            return CodexPetAnimation.RunningLeft;
+
+        if (status == PetActivityStatus.Ready
+            && !reduceMotion
+            && readyTransitionElapsed is { } elapsed)
+        {
+            var jumpDuration = CycleDuration(CodexPetAnimation.Jumping);
+            if (elapsed < jumpDuration)
+                return CodexPetAnimation.Jumping;
+            if (NormalizeVersion(spriteVersion) == 3
+                && elapsed < jumpDuration + CycleDuration(CodexPetAnimation.RunningAway))
+            {
+                return CodexPetAnimation.RunningAway;
+            }
+        }
+
+        if (status == PetActivityStatus.Idle && NormalizeVersion(spriteVersion) >= 2)
         {
             if (gazeDirection > 0)
                 return CodexPetAnimation.LookingRight;
@@ -88,6 +128,7 @@ public static class CodexPetSpriteLayout
             PetActivityStatus.NeedsInput => CodexPetAnimation.Waiting,
             PetActivityStatus.Ready => CodexPetAnimation.Waving,
             PetActivityStatus.Blocked => CodexPetAnimation.Failed,
+            PetActivityStatus.Reviewing => CodexPetAnimation.Review,
             _ => CodexPetAnimation.Idle,
         };
     }
@@ -113,7 +154,8 @@ public static class CodexPetSpriteLayout
         {
             CodexPetAnimation.RunningRight
                 or CodexPetAnimation.RunningLeft
-                or CodexPetAnimation.Running => (0.12, 0.22),
+                or CodexPetAnimation.Running
+                or CodexPetAnimation.RunningAway => (0.12, 0.22),
             CodexPetAnimation.Waving
                 or CodexPetAnimation.Jumping => (0.14, 0.28),
             CodexPetAnimation.Failed => (0.14, 0.24),
@@ -146,5 +188,29 @@ public static class CodexPetSpriteLayout
             cursor -= durations[index].TotalMilliseconds;
         }
         return durations.Count - 1;
+    }
+
+    public static TimeSpan CycleDuration(CodexPetAnimation animation) =>
+        TimeSpan.FromTicks(
+            FrameDurations(animation).Sum(static duration => duration.Ticks));
+
+    /// 완료 연출은 점프 뒤 v3 전용 뒷모습 달리기를 한 번 재생한다. 두 번째
+    /// 원샷은 자기 시작점부터 프레임을 세야 첫 프레임부터 자연스럽게 보인다.
+    public static TimeSpan PlaybackElapsedFor(
+        PetActivityStatus status,
+        int spriteVersion,
+        TimeSpan elapsed,
+        bool reduceMotion)
+    {
+        if (status == PetActivityStatus.Ready
+            && !reduceMotion
+            && NormalizeVersion(spriteVersion) == 3)
+        {
+            var jumpDuration = CycleDuration(CodexPetAnimation.Jumping);
+            var runningAwayDuration = CycleDuration(CodexPetAnimation.RunningAway);
+            if (elapsed >= jumpDuration && elapsed < jumpDuration + runningAwayDuration)
+                return elapsed - jumpDuration;
+        }
+        return elapsed;
     }
 }

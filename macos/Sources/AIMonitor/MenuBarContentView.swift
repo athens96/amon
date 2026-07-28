@@ -258,7 +258,7 @@ private extension MenuBarContentView.Screen {
         switch self {
         case .dashboard: return "AI 사용량과 프로바이더 쿼터 보기"
         case .history: return "종료된 AI 세션 정보 보기"
-        case .settings: return "A-mon 설정 열기"
+        case .settings: return "amon 설정 열기"
         }
     }
 }

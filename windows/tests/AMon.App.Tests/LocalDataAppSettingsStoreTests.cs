@@ -71,7 +71,7 @@ public sealed class LocalDataAppSettingsStoreTests : IDisposable
             LocalActivityEnabled: true,
             ShowsCurrentTask: false,
             PetSpritePath: @"C:\pets\amon.png",
-            PetSpriteVersion: 2,
+            PetSpriteVersion: 3,
             ClaudePath: @"C:\logs\claude",
             CodexPath: @"C:\logs\codex");
 

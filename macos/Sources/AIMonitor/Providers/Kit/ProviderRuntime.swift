@@ -1,6 +1,6 @@
 import Foundation
 
-/// A-mon 이 추적할 수 있는 한 AI 프로바이더. 기기의 기존 자격증명을 읽고 → API 를 호출하고 →
+/// amon 이 추적할 수 있는 한 AI 프로바이더. 기기의 기존 자격증명을 읽고 → API 를 호출하고 →
 /// `ProviderSnapshot`(라이브 쿼터 MetricLine) 으로 정규화한다. (원본 openusage 계약의 슬림 버전.)
 @MainActor
 protocol ProviderRuntime: AnyObject {

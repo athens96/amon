@@ -2,7 +2,7 @@ import Foundation
 import os
 
 // openusage(robinebers/openusage, MIT © 2026 Robin Ebers)의 프로바이더 파이프라인을
-// A-mon 에 이식하면서, 원본의 횡단 관심사(로깅·리댁션·프록시)를 얇은 shim 으로 대체한다.
+// amon 에 이식하면서, 원본의 횡단 관심사(로깅·리댁션·프록시)를 얇은 shim 으로 대체한다.
 // 프로바이더/서비스 코드는 원본을 최대한 그대로 두고, 여기서 요구하는 심볼만 채운다.
 
 /// 로그 태그 — 원본 `LogTag` 대체. 민감정보(토큰/헤더/바디)는 절대 로깅하지 않는 원본 규칙을

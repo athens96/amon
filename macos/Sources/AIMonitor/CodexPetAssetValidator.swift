@@ -7,6 +7,7 @@ import ImageIO
 enum CodexPetSpriteVersion: Int, Codable, CaseIterable {
     case v1 = 1
     case v2 = 2
+    case v3 = 3
 
     var requiredPixelHeight: Int {
         CodexPetSpriteLayout.sheetPixelHeight(for: self)
@@ -52,7 +53,7 @@ enum CodexPetAssetValidationError: Error, Equatable, LocalizedError {
         case .unreadableImage:
             return "펫 이미지의 픽셀 정보를 읽을 수 없습니다."
         case let .invalidDimensions(width, height):
-            return "펫 이미지는 1536×1872(v1) 또는 1536×2288(v2) px 이어야 합니다 (현재 \(width)×\(height) px)."
+            return "펫 이미지는 1536×1872(v1), 1536×2288(v2) 또는 1536×2496(v3) px 이어야 합니다 (현재 \(width)×\(height) px)."
         case let .versionDimensionMismatch(declaredVersion, width, height, expectedHeight):
             return "pet.json 이 선언한 spriteVersionNumber \(declaredVersion) 는 1536×\(expectedHeight) px 이어야 합니다 (현재 \(width)×\(height) px)."
         case .missingTransparency:
@@ -63,12 +64,13 @@ enum CodexPetAssetValidationError: Error, Equatable, LocalizedError {
 
 /// 공식 custom pet 파일 계약만 검증한다.
 ///
-/// v1(1536×1872)과 v2(1536×2288)를 모두 받는다. 애니메이션 프레임의 시각적 의미는
+/// v1(1536×1872), v2(1536×2288), v3(1536×2496)를 모두 받는다. 애니메이션 프레임의 시각적 의미는
 /// 추측하지 않으며, 파일을 네트워크로 전송하지 않는다.
 enum CodexPetAssetValidator {
     static let requiredPixelWidth = CodexPetSpriteLayout.sheetPixelWidth
     static let requiredPixelHeightV1 = CodexPetSpriteLayout.v1SheetPixelHeight
     static let requiredPixelHeightV2 = CodexPetSpriteLayout.v2SheetPixelHeight
+    static let requiredPixelHeightV3 = CodexPetSpriteLayout.v3SheetPixelHeight
     static let maximumByteCount = 20 * 1024 * 1024
 
     static func validate(

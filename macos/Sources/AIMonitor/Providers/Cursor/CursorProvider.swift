@@ -2,7 +2,7 @@ import Foundation
 
 /// Cursor 런타임 — 원본 openusage `CursorProvider` 의 refresh 로직을 그대로 이식하되, 스팬드 타일
 /// (usage-events CSV export → Today/Yesterday/Last 30 Days/트렌드)과 UI 위젯 서술자(WidgetDescriptor)·
-/// 아이콘 시스템은 제외하고 A-mon 슬림 `Provider` 를 쓴다. 라이브 쿼터(Credits/Total·Auto·API usage/
+/// 아이콘 시스템은 제외하고 amon 슬림 `Provider` 를 쓴다. 라이브 쿼터(Credits/Total·Auto·API usage/
 /// Requests/Extra Usage)만 남긴다.
 @MainActor
 final class CursorProvider: ProviderRuntime {

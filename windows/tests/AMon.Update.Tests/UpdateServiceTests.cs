@@ -30,7 +30,7 @@ public sealed class UpdateServiceTests
             {
                 Content = JsonContent.Create(new
                 {
-                    version = "2.0.0", filename = "A-mon-windows-2.0.0.zip",
+                    version = "2.0.0", filename = "amon-windows-2.0.0.zip",
                     sha256 = sha, size_bytes = bytes.Length, notes = "rewrite",
                     architecture = "x64"
                 })
@@ -82,7 +82,7 @@ public sealed class UpdateServiceTests
                     Content = JsonContent.Create(new
                     {
                         version = "2.0.0",
-                        filename = "A-mon-windows-2.0.0.zip",
+                        filename = "amon-windows-2.0.0.zip",
                         sha256 = sha,
                         size_bytes = 12
                     })
@@ -110,7 +110,7 @@ public sealed class UpdateServiceTests
             Content = JsonContent.Create(new
             {
                 version = "2.0.0",
-                filename = "A-mon-windows-arm64-2.0.0.zip",
+                filename = "amon-windows-arm64-2.0.0.zip",
                 sha256 = new string('a', 64),
                 size_bytes = 12,
                 architecture = "arm64"
@@ -133,7 +133,7 @@ public sealed class UpdateServiceTests
             Content = JsonContent.Create(new
             {
                 version = "2.0.0-beta",
-                filename = "A-mon-windows-x64-2.0.0-beta.zip",
+                filename = "amon-windows-x64-2.0.0-beta.zip",
                 sha256 = new string('a', 64),
                 size_bytes = 12,
                 architecture = "x64"
@@ -155,7 +155,7 @@ public sealed class UpdateServiceTests
             Content = JsonContent.Create(new
             {
                 version = "2.4.1",
-                filename = "A-mon-windows-x64-2.4.1.zip",
+                filename = "amon-windows-x64-2.4.1.zip",
                 sha256 = new string('a', 64),
                 size_bytes = 12,
                 architecture = "x64"
@@ -180,7 +180,7 @@ public sealed class UpdateServiceTests
             Content = JsonContent.Create(new
             {
                 version = "2.0.0",
-                filename = "A-mon-windows-2.0.0.zip",
+                filename = "amon-windows-2.0.0.zip",
                 sha256 = new string('a', 64),
                 size_bytes = 12
             })
@@ -199,7 +199,7 @@ public sealed class UpdateServiceTests
         var handler = new StubHandler(_ => throw new InvalidOperationException("network called"));
         var update = new UpdateInfo(
             "2.0.0",
-            "A-mon-windows-arm64-2.0.0.zip",
+            "amon-windows-arm64-2.0.0.zip",
             new string('a', 64),
             12,
             null,

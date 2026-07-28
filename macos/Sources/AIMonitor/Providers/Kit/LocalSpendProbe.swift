@@ -6,7 +6,7 @@ import Foundation
 /// Today / Yesterday / Last 30 Days 타일로 프로바이더 카드에 함께 표시한다
 /// (Claude: ~/.claude/projects, Codex: ~/.codex/sessions, Grok: ~/.grok/logs/unified.jsonl).
 ///
-/// A-mon 은 이 수집을 이미 `UsageScanner`(토큰 소비 보고 경로)가 하고 있으므로,
+/// amon 은 이 수집을 이미 `UsageScanner`(토큰 소비 보고 경로)가 하고 있으므로,
 /// 여기서는 **얻어오는 루틴(진입점)만** 둔다 — 지금은 빈 결과를 반환해 화면에는
 /// 프로바이더 API 로 얻은 라이브 데이터만 표시된다. 나중에 스팬드 타일을 켤 때
 /// `UsageScanner.scanAll` 의 일자 버킷을 (토큰 → MetricLine.values) 로 변환해

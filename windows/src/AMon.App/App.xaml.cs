@@ -98,7 +98,7 @@ public partial class App : System.Windows.Application
             _tray.DashboardRequested += (_, _) => ToggleDashboard();
             _tray.PetVisibilityToggleRequested += (_, _) => TogglePet();
             _tray.ExitRequested += (_, _) => Shutdown();
-            _tray.SetToolTip("A-mon · AI 작업 모니터");
+            _tray.SetToolTip("amon · AI 작업 모니터");
             _tray.SetPetVisible(petConfig.IsEnabled);
         }
 
@@ -377,14 +377,14 @@ public partial class App : System.Windows.Application
 
         if (!settings.TrayQuotaEnabled || quotas.Count == 0)
         {
-            _tray.SetToolTip("A-mon · AI 작업 모니터");
+            _tray.SetToolTip("amon · AI 작업 모니터");
         }
         else
         {
             var provider = SelectTrayProvider(quotas, settings.TrayQuotaProvider);
             if (provider is null || provider.Metrics.Count == 0)
             {
-                _tray.SetToolTip("A-mon · 할당량 정보 없음");
+                _tray.SetToolTip("amon · 할당량 정보 없음");
             }
             else
             {

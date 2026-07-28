@@ -8,6 +8,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>AMon.App</RootNamespace>
+    <!-- Legacy output filename required by already-installed update clients. -->
     <AssemblyName>A-mon</AssemblyName>
     <ApplicationIcon>..\..\assets\amon.ico</ApplicationIcon>
   </PropertyGroup>
@@ -32,6 +33,11 @@
 
   <ItemGroup>
     <Resource Include="..\..\assets\amon.ico" Link="Assets\amon.ico" />
+    <Content Include="..\..\assets\pets\Amon.webp"
+             Link="Assets\Pets\Amon.webp"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest"
+             Condition="Exists('..\..\assets\pets\Amon.webp')" />
   </ItemGroup>
 
   <Target Name="PublishClaudeHook"

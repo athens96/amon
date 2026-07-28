@@ -34,9 +34,19 @@ public sealed class CodexPetSpriteControl : FrameworkElement
             typeof(CodexPetSpriteControl),
             new FrameworkPropertyMetadata(1, OnSpriteVersionChanged));
 
+    public static readonly DependencyProperty DragDirectionProperty =
+        DependencyProperty.Register(
+            nameof(DragDirection),
+            typeof(int),
+            typeof(CodexPetSpriteControl),
+            new FrameworkPropertyMetadata(
+                0,
+                FrameworkPropertyMetadataOptions.AffectsRender));
+
     private readonly DispatcherTimer _timer;
     private readonly Stopwatch _elapsed = new();
     private readonly Dictionary<CodexPetAnimation, IReadOnlyList<BitmapSource>> _frames = [];
+    private bool _playsReadyTransition;
 
     public CodexPetSpriteControl()
     {
@@ -67,6 +77,12 @@ public sealed class CodexPetSpriteControl : FrameworkElement
         set => SetValue(SpriteVersionProperty, value);
     }
 
+    public int DragDirection
+    {
+        get => (int)GetValue(DragDirectionProperty);
+        set => SetValue(DragDirectionProperty, value);
+    }
+
     protected override System.Windows.Size MeasureOverride(
         System.Windows.Size availableSize) =>
         new(
@@ -88,7 +104,8 @@ public sealed class CodexPetSpriteControl : FrameworkElement
     protected override void OnMouseMove(System.Windows.Input.MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        if (Status == PetActivityStatus.Idle && SpriteVersion == 2)
+        if (Status == PetActivityStatus.Idle
+            && CodexPetSpriteLayout.NormalizeVersion(SpriteVersion) >= 2)
             InvalidateVisual();
     }
 
@@ -96,7 +113,7 @@ public sealed class CodexPetSpriteControl : FrameworkElement
     {
         var gazeDirection = 0;
         if (Status == PetActivityStatus.Idle
-            && CodexPetSpriteLayout.NormalizeVersion(SpriteVersion) == 2
+            && CodexPetSpriteLayout.NormalizeVersion(SpriteVersion) >= 2
             && IsMouseOver)
         {
             gazeDirection =
@@ -104,16 +121,24 @@ public sealed class CodexPetSpriteControl : FrameworkElement
                     ? 1
                     : -1;
         }
+        var reduceMotion = !SystemParameters.ClientAreaAnimation;
         var animation = CodexPetSpriteLayout.AnimationFor(
             Status,
             SpriteVersion,
-            gazeDirection);
+            gazeDirection,
+            DragDirection,
+            _playsReadyTransition ? _elapsed.Elapsed : null,
+            reduceMotion);
         if (!_frames.TryGetValue(animation, out var frames) || frames.Count == 0)
             return;
         var index = CodexPetSpriteLayout.FrameIndex(
-            _elapsed.Elapsed,
+            CodexPetSpriteLayout.PlaybackElapsedFor(
+                Status,
+                SpriteVersion,
+                _elapsed.Elapsed,
+                reduceMotion),
             animation,
-            !SystemParameters.ClientAreaAnimation);
+            reduceMotion);
         var frame = frames[Math.Clamp(index, 0, frames.Count - 1)];
         var scale = Math.Min(
             ActualWidth / frame.PixelWidth,
@@ -210,6 +235,9 @@ public sealed class CodexPetSpriteControl : FrameworkElement
         DependencyPropertyChangedEventArgs e)
     {
         var control = (CodexPetSpriteControl)dependencyObject;
+        control._playsReadyTransition =
+            e.NewValue is PetActivityStatus.Ready
+            && e.OldValue is not PetActivityStatus.Ready;
         control._elapsed.Restart();
         control.InvalidateVisual();
     }

@@ -75,7 +75,7 @@ struct ClaudeUsageClient: Sendable {
     }
 
     /// 실시간 계정/조직 프로필 — `organization.rate_limit_tier` 로 플랜 표기를 보정한다
-    /// (A-mon 추가). 저장 blob 의 rateLimitTier 는 로그인 시점 값이라 요금제 변경이 반영되지
+    /// (amon 추가). 저장 blob 의 rateLimitTier 는 로그인 시점 값이라 요금제 변경이 반영되지
     /// 않는다. best-effort: 실패해도 미터에는 영향 없다.
     func fetchProfile(accessToken: String, config: ClaudeOAuthConfig) async throws -> HTTPResponse {
         try await httpClient.send(

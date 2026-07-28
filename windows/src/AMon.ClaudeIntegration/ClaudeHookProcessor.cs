@@ -120,7 +120,7 @@ public sealed class ClaudeHookProcessor
             }
             else
             {
-            // Older A-mon versions registered async hooks. A queued event can therefore
+            // Older amon versions registered async hooks. A queued event can therefore
             // arrive after SessionEnd; never let it resurrect the completed session.
                 return;
             }
@@ -628,6 +628,7 @@ public sealed class ClaudeHookProcessor
             throw new InvalidOperationException("APPDATA is unavailable.");
         }
 
+        // Keep reading the legacy path written by existing hook installations.
         return Path.Combine(appData, "A-mon", "live");
     }
 

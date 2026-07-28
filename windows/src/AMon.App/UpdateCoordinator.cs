@@ -38,6 +38,7 @@ internal sealed class UpdateCoordinator : IDisposable
                 {
                     var current = Assembly.GetExecutingAssembly().GetName().Version
                         ?? new Version(0, 0, 0);
+                    // Preserve the legacy support path used by staged updates.
                     var staging = Path.Combine(
                         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                         "A-mon", "updates");

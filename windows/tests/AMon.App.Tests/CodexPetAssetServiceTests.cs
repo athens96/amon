@@ -63,6 +63,35 @@ public sealed class CodexPetAssetServiceTests
     }
 
     [Fact]
+    public void ImportsV3ManifestPackageAndKeepsRunningAwayRowContract()
+    {
+        using var sandbox = new TestDirectory();
+        var package = Path.Combine(sandbox.Path, "pet-v3.zip");
+        using (var archive = ZipFile.Open(package, ZipArchiveMode.Create))
+        {
+            WriteEntry(
+                archive,
+                "pet.json",
+                Encoding.UTF8.GetBytes(
+                    """{"displayName":"amon","spritesheetPath":"spritesheet.png","spriteVersionNumber":3}"""));
+            WriteEntry(
+                archive,
+                "spritesheet.png",
+                CreatePng(
+                    CodexPetSpriteLayout.SheetPixelWidth,
+                    CodexPetSpriteLayout.V3SheetPixelHeight));
+        }
+
+        var result = CodexPetAssetService.Import(
+            package,
+            spriteVersion: 1,
+            applicationDataRoot: sandbox.Path);
+
+        Assert.Equal(3, result.Metadata.SpriteVersion);
+        Assert.Equal(2496, result.Metadata.PixelHeight);
+    }
+
+    [Fact]
     public void RejectsSpriteWithWrongDimensions()
     {
         var data = CreatePng(192, 208);

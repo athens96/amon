@@ -18,7 +18,7 @@ struct AmonPetMotionSample: Equatable {
     )
 }
 
-/// 기본 A-mon 펫의 상태별 모션을 시간 기반으로 계산한다.
+/// 기본 amon 펫의 상태별 모션을 시간 기반으로 계산한다.
 /// TimelineView가 이 값을 읽으므로 상태 전환 직후에도 새 모션이 확실히 적용된다.
 enum AmonPetMotion {
     static func sample(

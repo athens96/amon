@@ -6,7 +6,7 @@ import XCTest
 /// Palette.swift — 색상 토큰 단일 저장소 계약 테스트.
 ///
 /// 검증 대상:
-///  1. A-mon 브랜드 액센트 #6161ff 가 라이트 모드에서 정확히 보존되는가
+///  1. amon 브랜드 액센트 #6161ff 가 라이트 모드에서 정확히 보존되는가
 ///  2. NSColor dynamicProvider 가 라이트/다크를 실제로 갈라내는가 (다크 전용 잠금 아님)
 ///  3. hex 문자열 토큰이 전부 파싱 가능한 6자리 형식인가
 final class PaletteTests: XCTestCase {

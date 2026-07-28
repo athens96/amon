@@ -33,7 +33,7 @@ public sealed class LocalDataAppSettingsStore : IAppSettingsStore
                 pet.IsLocalActivityEnabled,
                 pet.IsShowingCurrentTask,
                 pet.SpritePath,
-                pet.SpriteVersion == 2 ? 2 : 1,
+                CodexPetSpriteLayout.NormalizeVersion(pet.SpriteVersion),
                 paths.Claude,
                 paths.Codex,
                 paths.Cursor,
@@ -63,7 +63,8 @@ public sealed class LocalDataAppSettingsStore : IAppSettingsStore
             _loadedConfig.Pet.LocalActivityEnabled = settings.LocalActivityEnabled;
             _loadedConfig.Pet.ShowsCurrentTask = settings.ShowsCurrentTask;
             _loadedConfig.Pet.SpritePath = settings.PetSpritePath.Trim();
-            _loadedConfig.Pet.SpriteVersion = settings.PetSpriteVersion == 2 ? 2 : 1;
+            _loadedConfig.Pet.SpriteVersion =
+                CodexPetSpriteLayout.NormalizeVersion(settings.PetSpriteVersion);
             _loadedConfig.Paths.Claude = settings.ClaudePath.Trim();
             _loadedConfig.Paths.Codex = settings.CodexPath.Trim();
             _loadedConfig.Paths.Cursor = settings.CursorPath.Trim();

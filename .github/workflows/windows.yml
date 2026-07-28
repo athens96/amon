@@ -70,6 +70,7 @@ jobs:
         shell: pwsh
         run: |
           $root = (Resolve-Path "artifacts/${{ matrix.rid }}").Path
+          # Keep the legacy executable filename until installed updaters can migrate it.
           $required = @(
             "A-mon.exe",
             "AMon.Updater.exe",
@@ -103,7 +104,7 @@ jobs:
           ).Path
           $assemblyVersion = [Reflection.AssemblyName]::GetAssemblyName($managedApp).Version
           if ($assemblyVersion -ne $expectedVersion) {
-            throw "A-mon assembly version mismatch: expected $expectedVersion, got $assemblyVersion."
+            throw "amon assembly version mismatch: expected $expectedVersion, got $assemblyVersion."
           }
 
           function Get-PeMachine([string] $path) {
@@ -173,11 +174,11 @@ jobs:
           $version = "${{ steps.release_version.outputs.value }}"
           $release = "release/${{ matrix.platform }}"
           New-Item -ItemType Directory -Path $release -Force | Out-Null
-          $archive = Join-Path $release "A-mon-${{ matrix.platform }}-$version.zip"
+          $archive = Join-Path $release "amon-${{ matrix.platform }}-$version.zip"
           Compress-Archive -Path "artifacts/${{ matrix.rid }}/*" -DestinationPath $archive
           node windows/scripts/write-release-manifest.mjs `
             $archive "${{ matrix.architecture }}" $version (Join-Path $release "latest.json")
       - uses: actions/upload-artifact@v4
         with:
-          name: A-mon-${{ matrix.platform }}
+          name: amon-${{ matrix.platform }}
           path: release/${{ matrix.platform }}

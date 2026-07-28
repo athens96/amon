@@ -1,7 +1,7 @@
 import Foundation
 
 /// Antigravity 런타임 — 원본 openusage `AntigravityProvider` 의 refresh 로직을 그대로 이식하되,
-/// UI 위젯 서술자(WidgetDescriptor)·아이콘 시스템은 제외하고 A-mon 슬림 `Provider` 를 쓴다.
+/// UI 위젯 서술자(WidgetDescriptor)·아이콘 시스템은 제외하고 amon 슬림 `Provider` 를 쓴다.
 ///
 /// Tracks pool quota for Antigravity (Google's Codeium/Windsurf-derived AI IDE). Quotas are
 /// fraction-based and shown as up to four percent meters: the shared Gemini pool and the shared

@@ -191,6 +191,7 @@ public sealed class ClaudeLiveDataStore
             appData = Environment.GetEnvironmentVariable("APPDATA");
         if (string.IsNullOrEmpty(appData))
             throw new InvalidOperationException("APPDATA is unavailable.");
+        // Keep writing the legacy path consumed by existing native clients.
         return Path.Combine(appData, "A-mon", "live");
     }
 

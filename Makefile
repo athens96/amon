@@ -1,4 +1,4 @@
-# A-mon 루트 Makefile — 맥(macos/)·윈도우(windows/) 공통 진입점.
+# amon 루트 Makefile — 맥(macos/)·윈도우(windows/) 공통 진입점.
 #
 #   make build              # macOS + Windows .NET 빌드
 #   make dist               # 두 플랫폼 배포 아티팩트 (mac universal zip + windows zip)
@@ -14,7 +14,7 @@
 
 version:
 	@printf "macOS   : "; $(MAKE) -s -C macos version
-	@printf "Windows : A-mon %s\n" "$$(sed -n 's/^VERSION := //p' windows/Makefile)"
+	@printf "Windows : amon %s\n" "$$(sed -n 's/^VERSION := //p' windows/Makefile)"
 
 ## 두 플랫폼 버전 동시 변경 — mac 은 Info.plist, Windows 는 Makefile VERSION.
 set-version:

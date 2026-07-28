@@ -14,6 +14,8 @@ public sealed class PetStateAdapterTests
     [InlineData("requiresAction", PetActivityStatus.NeedsInput)]
     [InlineData("waitingForInput", PetActivityStatus.NeedsInput)]
     [InlineData("inProgress", PetActivityStatus.Running)]
+    [InlineData("reviewing", PetActivityStatus.Reviewing)]
+    [InlineData("in-review", PetActivityStatus.Reviewing)]
     [InlineData("failed", PetActivityStatus.Blocked)]
     [InlineData("completed", PetActivityStatus.Ready)]
     [InlineData("future-state", PetActivityStatus.Idle)]
@@ -22,6 +24,18 @@ public sealed class PetStateAdapterTests
         PetActivityStatus expected)
     {
         Assert.Equal(expected, PetStateAdapter.StatusFrom(raw));
+    }
+
+    [Fact]
+    public void ReviewingSessionRemainsVisibleAsActiveWork()
+    {
+        var selected = Assert.Single(PetStateAdapter.CreatePresentations(
+        [
+            Session("review", "reviewing", DateTimeOffset.UtcNow)
+        ]));
+
+        Assert.Equal(PetActivityStatus.Reviewing, selected.Status);
+        Assert.Equal("검토 중", selected.StatusText);
     }
 
     [Fact]

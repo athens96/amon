@@ -57,7 +57,10 @@ struct SessionRecord: Codable, Equatable, Identifiable {
     }
 }
 
-/// A-mon 지원 디렉토리 경로 모음 — 훅 스크립트가 쓰는 경로와 반드시 일치해야 한다.
+/// amon 지원 디렉토리 경로 모음.
+///
+/// 기존 데이터와 훅을 잃지 않도록 디스크상의 `A-mon` 경로는 의도적으로 유지한다.
+/// 훅 스크립트가 쓰는 경로와 반드시 일치해야 한다.
 enum AmonPaths {
     static var support: URL {
         FileManager.default.homeDirectoryForCurrentUser

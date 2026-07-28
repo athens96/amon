@@ -1,7 +1,7 @@
 import Foundation
 
 /// Z.ai 런타임 — 원본 openusage `ZAIProvider` 의 refresh 로직을 그대로 이식하되,
-/// UI 위젯 서술자(WidgetDescriptor)·아이콘 시스템·APIKeyManaging 은 제외하고 A-mon 슬림 `Provider` 를 쓴다.
+/// UI 위젯 서술자(WidgetDescriptor)·아이콘 시스템·APIKeyManaging 은 제외하고 amon 슬림 `Provider` 를 쓴다.
 @MainActor
 final class ZAIProvider: ProviderRuntime {
     let provider = Provider(

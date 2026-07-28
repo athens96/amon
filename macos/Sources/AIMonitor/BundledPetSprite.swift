@@ -8,10 +8,17 @@ struct BundledPet: Identifiable, Equatable {
     let id: String
     let displayName: String
     let resourceName: String
-    /// 표준 애니메이션 9행짜리 v1 시트(1536×1872).
+    /// 현재 번들 시트의 Codex 호환 버전.
     let spriteVersion: CodexPetSpriteVersion
 
     static let resourceExtension = "webp"
+
+    static let amon = BundledPet(
+        id: "amon",
+        displayName: "amon",
+        resourceName: "Amon",
+        spriteVersion: .v3
+    )
 
     static let dozyBoo = BundledPet(
         id: "dozy-boo",
@@ -20,10 +27,10 @@ struct BundledPet: Identifiable, Equatable {
         spriteVersion: .v1
     )
 
-    /// A-mon에는 Dozy Boo 한 종만 번들하며, 이 펫이 기본값이다.
-    static let all: [BundledPet] = [.dozyBoo]
+    /// 첫 항목은 아직 펫을 고르지 않은 사용자에게 보이는 기본값이다.
+    static let all: [BundledPet] = [.amon, .dozyBoo]
 
-    /// 저장값이 없거나 구버전에서 삭제된 펫 ID가 남아 있어도 Dozy Boo로 돌아간다.
+    /// 저장값이 없거나 구버전에서 삭제된 펫 ID가 남아 있어도 amon으로 돌아간다.
     ///
     /// 사용자가 카드를 눌러 고르기 전까지는 `pet.bundledID` 를 저장하지 않으므로,
     /// 여기(=`all` 의 첫 항목)를 바꾸면 아직 고르지 않은 사용자에게 그대로 반영된다.
@@ -39,19 +46,19 @@ struct BundledPet: Identifiable, Equatable {
 
     /// 번들에 들어 있는 파일 경로. 어디서도 찾지 못하면 nil 이다.
     var path: String? {
-        BundledPetResources.url(
+        AIMonitorResources.url(
             forResource: resourceName,
             withExtension: Self.resourceExtension
         )?.path
     }
 }
 
-/// 번들 펫 파일을 찾는다.
+/// SwiftPM이 묶은 amon 리소스를 실행 형태와 관계없이 찾는다.
 ///
 /// `Bundle.module` 은 번들을 못 찾으면 앱을 죽이므로 쓰지 않는다. 실행 형태마다
-/// 리소스가 놓이는 자리가 달라서 후보를 순서대로 훑고, 없으면 조용히 nil 을
-/// 돌려 호출부가 직접 그리는 폴백 펫으로 떨어지게 한다.
-enum BundledPetResources {
+/// 리소스가 놓이는 자리가 달라서 후보를 순서대로 훑고, 없으면 조용히 nil을
+/// 돌려 호출부가 각자의 폴백을 선택하게 한다.
+enum AIMonitorResources {
     /// SwiftPM 이 만드는 리소스 번들 이름 — `<패키지>_<타깃>.bundle`.
     static let bundleName = "AIMonitor_AIMonitor"
 
@@ -90,7 +97,7 @@ enum BundledPetResources {
 /// 저장된 펫 설정을 번들 펫 체계로 맞춘다.
 ///
 /// 번들 펫이 없던 시절 설정에서 올라와도 사용자가 가져온 커스텀 펫 선택은
-/// 그대로 보존한다. 커스텀 펫이 없거나 파일이 사라진 경우에만 Dozy Boo로 폴백한다.
+/// 그대로 보존한다. 커스텀 펫이 없거나 파일이 사라진 경우에만 amon으로 폴백한다.
 ///
 /// 정리를 마쳤다는 표시는 `pet.bundledID` 가 아니라 별도의 마이그레이션 번호에
 /// 남긴다. `pet.bundledID` 는 **사용자가 직접 고른 펫만** 담아야, 저장값이 없는
@@ -118,12 +125,12 @@ enum BundledPetMigration {
         storedSpriteVersion: Int
     ) -> Result {
         guard (storedVersion ?? 0) >= currentVersion else {
-            // 삭제된 구형 번들 ID는 저장하지 않고 Dozy Boo 기본값으로 수렴한다.
+            // 삭제된 구형 번들 ID는 저장하지 않고 amon 기본값으로 수렴한다.
             // 사용자가 가져온 커스텀 시트는 절대 해제하지 않는다.
             return Result(
                 bundledID: nil,
                 spritePath: storedSpritePath,
-                spriteVersion: storedSpriteVersion == 2 ? 2 : 1,
+                spriteVersion: CodexPetSpriteVersion(rawValue: storedSpriteVersion)?.rawValue ?? 1,
                 persists: true
             )
         }
