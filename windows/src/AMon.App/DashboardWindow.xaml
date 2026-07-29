@@ -11,6 +11,45 @@
         Background="{StaticResource WindowBrush}"
         Foreground="{StaticResource TextBrush}">
   <Window.Resources>
+    <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+
+    <!--
+      섹션 머리 — 라벨 + 헤어라인 + (선택) 후행 컨트롤.
+      이전엔 섹션마다 크기·굵기가 제각각인 TextBlock 을 따로 놓았다.
+    -->
+    <Style x:Key="SectionLabelStyle" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style x:Key="SectionRuleStyle" TargetType="Border">
+      <Setter Property="Height" Value="1" />
+      <Setter Property="Margin" Value="8,0" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Background" Value="{StaticResource LineBrush}" />
+    </Style>
+
+    <!-- 표 숫자 — 자릿수가 흔들리지 않게 열 폭을 고정한다. -->
+    <Style x:Key="GridNumberStyle" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="HorizontalAlignment" Value="Right" />
+      <Setter Property="Foreground" Value="{StaticResource BodyBrush}" />
+    </Style>
+    <Style x:Key="GridTotalStyle" TargetType="TextBlock" BasedOn="{StaticResource GridNumberStyle}">
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    </Style>
+    <Style x:Key="GridHeaderStyle" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="HorizontalAlignment" Value="Right" />
+      <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+    </Style>
+    <Style x:Key="GridRowLabelStyle" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+    </Style>
+
     <Style x:Key="TopNavigationButtonStyle"
            TargetType="Button">
       <Setter Property="Height" Value="36" />
@@ -266,57 +305,103 @@
       </Grid>
       <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
         <StackPanel>
+          <!--
+            히어로 — 오늘 사용량이 주인공이고 전체 누적은 아래 스트립·푸터로 내려간다.
+            액센트 틴트를 쓰지 않는다. 크기와 위치로 이미 구분되므로 색까지 주면
+            나머지 요소가 전부 따라 올라가야 한다.
+          -->
           <Border Style="{StaticResource DashboardCardStyle}">
-            <Grid>
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-              </Grid.ColumnDefinitions>
-              <StackPanel>
-                <TextBlock Foreground="{StaticResource MutedBrush}"
-                           FontSize="12"
-                           Text="전체 사용량" />
-                <TextBlock Margin="0,4,0,0"
-                           FontSize="30"
-                           FontWeight="SemiBold"
-                           Text="{Binding Dashboard.TotalTokens}" />
-                <TextBlock Margin="0,2,0,0"
-                           Foreground="{StaticResource MutedBrush}"
-                           FontSize="11"
-                           Text="수집된 전체 토큰" />
-              </StackPanel>
-              <Border Grid.Column="1"
-                      MinWidth="145"
-                      Padding="14,10"
-                      VerticalAlignment="Center"
-                      Background="{StaticResource SurfaceStrongBrush}"
-                      CornerRadius="8">
-                <StackPanel>
-                  <TextBlock Foreground="{StaticResource MutedBrush}"
-                             FontSize="11"
-                             Text="오늘" />
-                  <TextBlock Margin="0,3,0,0"
-                             FontSize="20"
-                             FontWeight="SemiBold"
-                             Text="{Binding Dashboard.TodayTokens}" />
-                </StackPanel>
+            <StackPanel>
+              <TextBlock HorizontalAlignment="Center"
+                         Foreground="{StaticResource MutedBrush}"
+                         FontSize="12"
+                         Text="오늘 사용량" />
+              <TextBlock Margin="0,4,0,0"
+                         HorizontalAlignment="Center"
+                         FontSize="34"
+                         FontWeight="Bold"
+                         Text="{Binding Dashboard.TodayTokens}" />
+              <TextBlock Margin="0,2,0,0"
+                         HorizontalAlignment="Center"
+                         Foreground="{StaticResource MutedBrush}"
+                         FontSize="11"
+                         Text="토큰" />
+              <Border Margin="0,12,0,0"
+                      BorderBrush="{StaticResource LineBrush}"
+                      BorderThickness="1"
+                      CornerRadius="6">
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <StackPanel Margin="0,7">
+                    <TextBlock HorizontalAlignment="Center"
+                               Foreground="{StaticResource MutedBrush}"
+                               FontSize="11"
+                               Text="전체" />
+                    <TextBlock Margin="0,1,0,0"
+                               HorizontalAlignment="Center"
+                               FontSize="12"
+                               FontWeight="SemiBold"
+                               Text="{Binding Dashboard.TodayTokens}" />
+                  </StackPanel>
+                  <Border Grid.Column="1" Width="1" Background="{StaticResource LineBrush}" />
+                  <StackPanel Grid.Column="2" Margin="0,7">
+                    <TextBlock HorizontalAlignment="Center"
+                               Foreground="{StaticResource MutedBrush}"
+                               FontSize="11"
+                               Text="입력" />
+                    <TextBlock Margin="0,1,0,0"
+                               HorizontalAlignment="Center"
+                               FontSize="12"
+                               Text="{Binding Dashboard.TodayInput}" />
+                  </StackPanel>
+                  <Border Grid.Column="3" Width="1" Background="{StaticResource LineBrush}" />
+                  <StackPanel Grid.Column="4" Margin="0,7">
+                    <TextBlock HorizontalAlignment="Center"
+                               Foreground="{StaticResource MutedBrush}"
+                               FontSize="11"
+                               Text="출력" />
+                    <TextBlock Margin="0,1,0,0"
+                               HorizontalAlignment="Center"
+                               FontSize="12"
+                               Text="{Binding Dashboard.TodayOutput}" />
+                  </StackPanel>
+                  <Border Grid.Column="5" Width="1" Background="{StaticResource LineBrush}" />
+                  <StackPanel Grid.Column="6" Margin="0,7">
+                    <TextBlock HorizontalAlignment="Center"
+                               Foreground="{StaticResource MutedBrush}"
+                               FontSize="11"
+                               Text="캐시" />
+                    <TextBlock Margin="0,1,0,0"
+                               HorizontalAlignment="Center"
+                               FontSize="12"
+                               Text="{Binding Dashboard.TodayCache}" />
+                  </StackPanel>
+                </Grid>
               </Border>
-            </Grid>
+            </StackPanel>
           </Border>
 
           <Grid Margin="2,4,2,10">
             <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto" />
               <ColumnDefinition Width="*" />
               <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <TextBlock FontSize="16"
-                       FontWeight="SemiBold"
-                       Text="플랜 잔여량" />
-            <TextBlock Grid.Column="1"
+            <TextBlock Style="{StaticResource SectionLabelStyle}" Text="프로바이더" />
+            <Border Grid.Column="1" Style="{StaticResource SectionRuleStyle}" />
+            <TextBlock Grid.Column="2"
                        VerticalAlignment="Center"
                        Foreground="{StaticResource MutedBrush}"
                        FontSize="11"
-                       Text="남은 비율 · 리셋까지" />
+                       Text="{Binding Dashboard.StatusText}" />
           </Grid>
           <ItemsControl ItemsSource="{Binding Dashboard.ProviderQuotas}">
             <ItemsControl.ItemTemplate>
@@ -328,14 +413,33 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                       </Grid.ColumnDefinitions>
-                      <StackPanel>
-                        <TextBlock FontSize="16"
-                                   FontWeight="SemiBold"
-                                   Text="{Binding Provider}" />
-                        <TextBlock Margin="0,2,0,0"
-                                   Foreground="{StaticResource MutedBrush}"
-                                   FontSize="11"
-                                   Text="{Binding Plan}" />
+                      <StackPanel Orientation="Horizontal">
+                        <!-- 심각도 점 — 카드를 열어보지 않아도 어디가 위험한지 보인다. -->
+                        <Ellipse Width="7"
+                                 Height="7"
+                                 Margin="0,0,7,0"
+                                 VerticalAlignment="Top"
+                                 Visibility="{Binding HasAlert, Converter={StaticResource BoolToVisibility}}">
+                          <Ellipse.Style>
+                            <Style TargetType="Ellipse">
+                              <Setter Property="Fill" Value="{StaticResource WarningBrush}" />
+                              <Style.Triggers>
+                                <DataTrigger Binding="{Binding Severity}" Value="critical">
+                                  <Setter Property="Fill" Value="{StaticResource ErrorBrush}" />
+                                </DataTrigger>
+                              </Style.Triggers>
+                            </Style>
+                          </Ellipse.Style>
+                        </Ellipse>
+                        <StackPanel>
+                          <TextBlock FontSize="16"
+                                     FontWeight="SemiBold"
+                                     Text="{Binding Provider}" />
+                          <TextBlock Margin="0,2,0,0"
+                                     Foreground="{StaticResource MutedBrush}"
+                                     FontSize="11"
+                                     Text="{Binding Plan}" />
+                        </StackPanel>
                       </StackPanel>
                       <Border Grid.Column="1"
                               Padding="9,4"
@@ -372,10 +476,22 @@
                                          FontWeight="SemiBold"
                                          Text="{Binding RemainingText}" />
                             </Grid>
+                            <!-- 의미색이 정체성을 덮어쓴다 — 경고·위험이면 액센트를 버린다. -->
                             <ProgressBar Maximum="100"
-                                         Style="{StaticResource UsageProgressBarStyle}"
-                                         Value="{Binding RemainingPercent}"
-                                         />
+                                         Value="{Binding RemainingPercent}">
+                              <ProgressBar.Style>
+                                <Style TargetType="ProgressBar" BasedOn="{StaticResource UsageProgressBarStyle}">
+                                  <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Severity}" Value="warning">
+                                      <Setter Property="Foreground" Value="{StaticResource WarningBrush}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Severity}" Value="critical">
+                                      <Setter Property="Foreground" Value="{StaticResource ErrorBrush}" />
+                                    </DataTrigger>
+                                  </Style.Triggers>
+                                </Style>
+                              </ProgressBar.Style>
+                            </ProgressBar>
                             <TextBlock Margin="0,4,0,0"
                                        HorizontalAlignment="Right"
                                        Foreground="{StaticResource MutedBrush}"
@@ -393,13 +509,14 @@
 
           <Grid Margin="2,8,2,10">
             <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto" />
               <ColumnDefinition Width="*" />
               <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <TextBlock FontSize="16"
-                       FontWeight="SemiBold"
-                       Text="현재 세션" />
-            <TextBlock Grid.Column="1"
+            <TextBlock Style="{StaticResource SectionLabelStyle}" Text="현재 활동" />
+            <Border Grid.Column="1" Style="{StaticResource SectionRuleStyle}" />
+            <TextBlock Grid.Column="2"
+                       VerticalAlignment="Center"
                        Foreground="{StaticResource MutedBrush}"
                        FontSize="11"
                        Text="{Binding Sessions.StatusText}" />
@@ -407,10 +524,14 @@
           <ItemsControl ItemsSource="{Binding Sessions.ActiveSessions}"
                         ItemTemplate="{StaticResource SessionCardTemplate}" />
 
-          <TextBlock Margin="2,10,0,10"
-                     FontSize="16"
-                     FontWeight="SemiBold"
-                     Text="로컬 사용량" />
+          <Grid Margin="2,10,2,10">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto" />
+              <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Style="{StaticResource SectionLabelStyle}" Text="도구별 사용량" />
+            <Border Grid.Column="1" Style="{StaticResource SectionRuleStyle}" />
+          </Grid>
           <ItemsControl ItemsSource="{Binding Dashboard.Tools}">
             <ItemsControl.ItemTemplate>
               <DataTemplate>
@@ -428,47 +549,98 @@
                                    FontSize="11"
                                    Text="{Binding LastActivity}" />
                       </StackPanel>
+                      <!-- 오늘이 주인공 — 누적은 아래 표의 '누적' 행에 있으므로 반복하지 않는다. -->
                       <StackPanel Grid.Column="1">
                         <TextBlock HorizontalAlignment="Right"
                                    FontSize="20"
                                    FontWeight="SemiBold"
-                                   Text="{Binding Total}" />
+                                   Text="{Binding Today}" />
                         <TextBlock HorizontalAlignment="Right"
                                    Foreground="{StaticResource MutedBrush}"
                                    FontSize="10"
-                                   Text="{Binding Today, StringFormat=오늘 {0}}" />
+                                   Text="오늘" />
                       </StackPanel>
                     </Grid>
+                    <!--
+                      토큰 표 — 오늘·누적이 같은 4열(입력/출력/캐시/합계)을 쓴다.
+                      펼침은 형태를 바꾸지 않고 행만 늘린다.
+                    -->
                     <Grid Margin="0,14,0,0">
                       <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="44" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="*" />
                       </Grid.ColumnDefinitions>
-                      <StackPanel>
-                        <TextBlock Foreground="{StaticResource MutedBrush}" Text="입력" />
-                        <TextBlock Margin="0,3,0,0" Text="{Binding Input}" />
-                      </StackPanel>
-                      <StackPanel Grid.Column="1">
-                        <TextBlock Foreground="{StaticResource MutedBrush}" Text="출력" />
-                        <TextBlock Margin="0,3,0,0" Text="{Binding Output}" />
-                      </StackPanel>
-                      <StackPanel Grid.Column="2">
-                        <TextBlock Foreground="{StaticResource MutedBrush}" Text="캐시" />
-                        <TextBlock Margin="0,3,0,0" Text="{Binding Cache}" />
-                      </StackPanel>
-                      <StackPanel Grid.Column="3">
-                        <TextBlock Foreground="{StaticResource MutedBrush}" Text="세션" />
-                        <TextBlock Margin="0,3,0,0" Text="{Binding Sessions}" />
-                      </StackPanel>
+                      <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                      </Grid.RowDefinitions>
+
+                      <TextBlock Grid.Row="0" Grid.Column="1" Style="{StaticResource GridHeaderStyle}" Text="입력" />
+                      <TextBlock Grid.Row="0" Grid.Column="2" Style="{StaticResource GridHeaderStyle}" Text="출력" />
+                      <TextBlock Grid.Row="0" Grid.Column="3" Style="{StaticResource GridHeaderStyle}" Text="캐시" />
+                      <TextBlock Grid.Row="0" Grid.Column="4" Style="{StaticResource GridHeaderStyle}" Text="합계" />
+
+                      <TextBlock Grid.Row="1" Grid.Column="0" Style="{StaticResource GridRowLabelStyle}" Text="오늘" />
+                      <TextBlock Grid.Row="1" Grid.Column="1" Style="{StaticResource GridNumberStyle}" Text="{Binding TodayInput}" />
+                      <TextBlock Grid.Row="1" Grid.Column="2" Style="{StaticResource GridNumberStyle}" Text="{Binding TodayOutput}" />
+                      <TextBlock Grid.Row="1" Grid.Column="3" Style="{StaticResource GridNumberStyle}" Text="{Binding TodayCache}" />
+                      <TextBlock Grid.Row="1" Grid.Column="4" Style="{StaticResource GridTotalStyle}" Text="{Binding Today}" />
+
+                      <TextBlock Grid.Row="2" Grid.Column="0" Style="{StaticResource GridRowLabelStyle}" Text="누적" />
+                      <TextBlock Grid.Row="2" Grid.Column="1" Style="{StaticResource GridNumberStyle}" Text="{Binding Input}" />
+                      <TextBlock Grid.Row="2" Grid.Column="2" Style="{StaticResource GridNumberStyle}" Text="{Binding Output}" />
+                      <TextBlock Grid.Row="2" Grid.Column="3" Style="{StaticResource GridNumberStyle}" Text="{Binding Cache}" />
+                      <TextBlock Grid.Row="2" Grid.Column="4" Style="{StaticResource GridTotalStyle}" Text="{Binding Total}" />
                     </Grid>
-                    <TextBlock Margin="0,14,0,0"
+
+                    <TextBlock Margin="0,8,0,0"
+                               Foreground="{StaticResource MutedBrush}"
+                               FontSize="11"
+                               Text="{Binding Sessions, StringFormat={}{0}세션}" />
+
+                    <!-- 제자리 펼침 — 모드 전환 없이 카드마다 독립적으로 연다. -->
+                    <ToggleButton Margin="0,10,0,0"
+                                  HorizontalAlignment="Left"
+                                  Background="Transparent"
+                                  BorderThickness="0"
+                                  Cursor="Hand"
+                                  Foreground="{StaticResource MutedBrush}"
+                                  FontSize="11"
+                                  IsChecked="{Binding IsExpanded, Mode=TwoWay}">
+                      <ToggleButton.Style>
+                        <Style TargetType="ToggleButton">
+                          <Setter Property="Content" Value="자세히 ▾" />
+                          <Setter Property="Template">
+                            <Setter.Value>
+                              <ControlTemplate TargetType="ToggleButton">
+                                <Border Background="Transparent" Padding="0,2">
+                                  <ContentPresenter />
+                                </Border>
+                              </ControlTemplate>
+                            </Setter.Value>
+                          </Setter>
+                          <Style.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                              <Setter Property="Content" Value="접기 ▴" />
+                            </Trigger>
+                          </Style.Triggers>
+                        </Style>
+                      </ToggleButton.Style>
+                    </ToggleButton>
+
+                    <TextBlock Margin="0,10,0,0"
                                Foreground="{StaticResource MutedBrush}"
                                FontSize="11"
                                Text="{Binding Models}"
-                               TextWrapping="Wrap" />
-                    <ItemsControl Margin="0,12,0,0" ItemsSource="{Binding RecentDays}">
+                               TextWrapping="Wrap"
+                               Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVisibility}}" />
+                    <ItemsControl Margin="0,12,0,0"
+                                  ItemsSource="{Binding RecentDays}"
+                                  Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVisibility}}">
                       <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
                           <WrapPanel />

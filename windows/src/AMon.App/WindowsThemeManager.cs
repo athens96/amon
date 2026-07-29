@@ -127,7 +127,7 @@ public sealed class WindowsThemeManager : IDisposable
                 ColorFrom("#1A1A1A"),
                 ColorFrom("#3B3B3B"),
                 ColorFrom("#616161"),
-                ColorFrom("#0067C0"),
+                ColorFrom("#C9308A"),
                 Colors.White,
                 ColorFrom("#0F7B0F"),
                 ColorFrom("#C42B1C"),
@@ -136,8 +136,8 @@ public sealed class WindowsThemeManager : IDisposable
                 ColorFrom("#19000000"),
                 ColorFrom("#1A1A1A"),
                 ColorFrom("#616161"),
-                ColorFrom("#0067C0"),
-                ColorFrom("#0067C0"),
+                ColorFrom("#C9308A"),
+                ColorFrom("#C9308A"),
                 Colors.White)
             : new WindowsThemePalette(
                 ColorFrom("#202020"),
@@ -148,8 +148,8 @@ public sealed class WindowsThemeManager : IDisposable
                 Colors.White,
                 ColorFrom("#E0E0E0"),
                 ColorFrom("#ADADAD"),
-                ColorFrom("#60CDFF"),
-                ColorFrom("#003E5C"),
+                ColorFrom("#F062B4"),
+                ColorFrom("#3D0A28"),
                 ColorFrom("#6CCB5F"),
                 ColorFrom("#FF99A4"),
                 ColorFrom("#FA2B2B2B"),
@@ -157,9 +157,9 @@ public sealed class WindowsThemeManager : IDisposable
                 ColorFrom("#33FFFFFF"),
                 Colors.White,
                 ColorFrom("#C8C8C8"),
-                ColorFrom("#60CDFF"),
-                ColorFrom("#60CDFF"),
-                ColorFrom("#003E5C"));
+                ColorFrom("#F062B4"),
+                ColorFrom("#F062B4"),
+                ColorFrom("#3D0A28"));
     }
 
     public void Dispose()

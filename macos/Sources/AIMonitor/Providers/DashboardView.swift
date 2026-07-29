@@ -156,34 +156,36 @@ struct DashboardView: View {
 
     private var allView: some View {
         ScrollView {
-            VStack(spacing: 12) {
+            VStack(spacing: Metrics.Space.section) {
                 todayHeroCard
                 CurrentActivitySection(onOpenSession: { liveSessionDetail = $0 })
-                summaryRow
 
-                ForEach(visibleRuntimes, id: \.provider.id) { runtime in
-                    UnifiedProviderCard(
-                        provider: runtime.provider,
-                        snapshot: providers.snapshots[runtime.provider.id],
-                        localSummary: localSummary(for: runtime.provider.id),
-                        calibrator: state.quotaCalibrator
-                    )
+                VStack(spacing: Metrics.Space.row) {
+                    // 숨김 알림은 섹션 머리의 후행에 둔다 — 카드를 다 지나친 뒤에야
+                    // "2개가 숨겨져 있었다"를 알게 되던 순서를 뒤집는다.
+                    SectionHeader("프로바이더") { hiddenNotice }
+
+                    ForEach(visibleRuntimes, id: \.provider.id) { runtime in
+                        UnifiedProviderCard(
+                            provider: runtime.provider,
+                            snapshot: providers.snapshots[runtime.provider.id],
+                            localSummary: localSummary(for: runtime.provider.id),
+                            calibrator: state.quotaCalibrator
+                        )
+                    }
+
+                    ForEach(visibleLocalOnlySummaries) { summary in
+                        LocalToolCard(summary: summary)
+                    }
+
+                    if !providers.didDetect && enabledRuntimes.isEmpty {
+                        Text("로컬 AI 도구 자격증명 감지 중…")
+                            .font(.amonBody).foregroundStyle(.tertiary)
+                            .padding(.vertical, 8)
+                    }
                 }
-
-                ForEach(visibleLocalOnlySummaries) { summary in
-                    LocalToolCard(summary: summary)
-                }
-
-                if !providers.didDetect && enabledRuntimes.isEmpty {
-                    Text("로컬 AI 도구 자격증명 감지 중…")
-                        .font(.amonBody).foregroundStyle(.tertiary)
-                        .padding(.vertical, 8)
-                }
-
-                hiddenNotice
-                grandTotalFooter
             }
-            .padding(12)
+            .padding(Metrics.Space.card)
         }
     }
 
@@ -248,50 +250,112 @@ struct DashboardView: View {
         }
     }
 
+    /// 이 프로바이더에서 가장 빡빡한 미터의 심각도 — 정상이거나 판단 불가면 nil.
+    /// 탭 위 점으로 표시해, 탭을 눌러보지 않아도 어디가 위험한지 알 수 있게 한다.
+    private func severity(for providerID: String) -> MeterState.Severity? {
+        guard let snapshot = providers.snapshots[providerID] else { return nil }
+        var worst: MeterState.Severity = .normal
+        for line in snapshot.lines {
+            guard case .progress(_, let used, let limit, let format, let resetsAt, let periodMs, _) = line
+            else { continue }
+            let state = MeterEngine.state(
+                used: used, limit: limit, format: format,
+                resetsAt: resetsAt, periodDurationMs: periodMs
+            )
+            if state.severity == .critical { return .critical }
+            if state.severity == .warning { worst = .warning }
+        }
+        return worst == .normal ? nil : worst
+    }
+
+    /// 로고만 남긴 아이콘 스트립. 선택된 탭만 가로로 늘어나 이름을 드러낸다.
+    /// 이름은 바로 아래 카드 헤더에 이미 있으므로 상시 표시는 중복이었다.
     private var tabStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
                 ForEach(tabs) { tab in
-                    let isSelected = tab.id == selectedTabID
-                    Button {
-                        settings.selectedProviderTab = tab.id
-                    } label: {
-                        VStack(spacing: 3) {
-                            // 공식 로고가 있으면 로고(템플릿+tint), 없으면 SF Symbol 폴백.
-                            if let logo = ProviderIcons.swiftUIImage(id: tab.id) {
-                                logo
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 16, height: 16)
-                            } else {
-                                Image(systemName: tab.symbol)
-                                    .font(.system(size: 16, weight: .semibold))
-                            }
-                            Text(tab.title)
-                                .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.7)
-                        }
-                        .frame(width: 66, height: 48)
-                        .foregroundStyle(isSelected ? tab.tint : Color.secondary)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(isSelected ? tab.tint.opacity(0.12) : Color.clear)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .strokeBorder(
-                                    isSelected ? tab.tint.opacity(0.55) : Color(nsColor: .separatorColor),
-                                    lineWidth: isSelected ? 1 : 0.5
-                                )
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .help(tab.title)
+                    tabButton(tab)
                 }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+        }
+    }
+
+    @ViewBuilder
+    private func tabButton(_ tab: TabEntry) -> some View {
+        let isSelected = tab.id == selectedTabID
+        // 로컬 전용 도구는 공식 로고가 없어 SF Symbol 폴백이다. 심볼은 로고보다 구분이
+        // 약해서, 이들만 작은 라벨을 함께 남긴다.
+        let isLocalOnly = tab.tool != nil
+
+        Button {
+            settings.selectedProviderTab = tab.id
+        } label: {
+            HStack(spacing: 6) {
+                tabGlyph(tab, isLocalOnly: isLocalOnly, isSelected: isSelected)
+                if isSelected {
+                    Text(tab.title)
+                        .font(.amonCaption.weight(.semibold))
+                        .lineLimit(1)
+                        .fixedSize()
+                }
+            }
+            .padding(.horizontal, isSelected ? 8 : 0)
+            .frame(minWidth: Metrics.providerTab, maxHeight: .infinity)
+            .frame(height: Metrics.providerTab)
+            .foregroundStyle(isSelected ? tab.tint : Color.secondary)
+            .background(
+                RoundedRectangle(cornerRadius: Metrics.Radius.inset, style: .continuous)
+                    .fill(isSelected ? tab.tint.opacity(0.12) : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: Metrics.Radius.inset, style: .continuous)
+                    .strokeBorder(
+                        isSelected ? tab.tint.opacity(0.55) : Color(nsColor: .separatorColor),
+                        lineWidth: isSelected ? 1 : 0.5
+                    )
+            )
+            // 정체성(프로바이더 색)과 선택(액센트)이 서로 다른 채널을 쓴다.
+            .overlay(alignment: .bottom) {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 1, style: .continuous)
+                        .fill(MenuBarContentView.accent)
+                        .frame(height: 2)
+                        .padding(.horizontal, 6)
+                        .offset(y: 1)
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if let severity = severity(for: tab.id) {
+                    Circle()
+                        .fill(severity == .critical ? Palette.statusRed : Palette.statusAmber)
+                        .frame(width: 6, height: 6)
+                        .offset(x: -3, y: 3)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .help(tab.title)
+        .accessibilityLabel(tab.title)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    @ViewBuilder
+    private func tabGlyph(_ tab: TabEntry, isLocalOnly: Bool, isSelected: Bool) -> some View {
+        if let logo = ProviderIcons.swiftUIImage(id: tab.id) {
+            logo.resizable().scaledToFit().frame(width: 16, height: 16)
+        } else if isLocalOnly, !isSelected {
+            VStack(spacing: 1) {
+                Image(systemName: tab.symbol).font(.system(size: 13, weight: .semibold))
+                Text(tab.title)
+                    .font(.system(size: 9))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .frame(maxWidth: Metrics.providerTab - 4)
+            }
+        } else {
+            Image(systemName: tab.symbol).font(.system(size: 16, weight: .semibold))
         }
     }
 
@@ -379,8 +443,8 @@ struct DashboardView: View {
                 .contentTransition(.opacity)
             HStack(alignment: .firstTextBaseline, spacing: 5) {
                 Text(TokenFormat.grouped(heroValue(heroMetric)))
-                    .font(.system(size: 38, weight: .bold, design: .rounded))
-                    .foregroundStyle(MenuBarContentView.accent)
+                    .font(.amonHero)
+                    .foregroundStyle(.primary)
                     .contentTransition(.numericText())
                     .minimumScaleFactor(0.5)
                     .lineLimit(1)
@@ -391,17 +455,20 @@ struct DashboardView: View {
                 .font(.amonCaption)
                 .foregroundStyle(.tertiary)
 
-            HStack(spacing: 12) {
-                ForEach(HeroMetric.allCases, id: \.rawValue) { metric in
-                    heroStat(metric)
-                }
-            }
-            .padding(.top, 4)
+            heroStrip
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 16)
-        .background(MenuBarContentView.accent.opacity(0.10))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(
+            RoundedRectangle(cornerRadius: Metrics.Radius.card, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Metrics.Radius.card, style: .continuous)
+                        .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
+                )
+        )
         .contentShape(Rectangle())
         .onTapGesture {
             withAnimation(.snappy) { heroMetric = heroMetric.next }
@@ -409,57 +476,59 @@ struct DashboardView: View {
         .help("클릭하면 전체 → 입력 → 출력 → 캐시 순환")
     }
 
-    /// 히어로 카드 하단 구성 항목 — 라벨 + 콤팩트 값. 현재 큰 숫자로 표시 중인
-    /// 축은 바이올렛으로 강조되고, 클릭하면 그 축으로 바로 전환된다.
+    /// 히어로 하단 4칸 스트립 — 토큰 표와 같은 열 감각을 준다.
+    private var heroStrip: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(HeroMetric.allCases.enumerated()), id: \.element.rawValue) { index, metric in
+                if index > 0 {
+                    Rectangle()
+                        .fill(Color(nsColor: .separatorColor))
+                        .frame(width: 0.5)
+                }
+                heroStat(metric)
+            }
+        }
+        .frame(height: 40)
+        .background(
+            RoundedRectangle(cornerRadius: Metrics.Radius.inset, style: .continuous)
+                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
+        )
+    }
+
+    /// 스트립 한 칸 — 라벨 위, 값 아래. 활성 칸은 글자색이 아니라 밑줄로 표시해
+    /// 네 숫자를 나란히 비교할 수 있게 둔다.
     private func heroStat(_ metric: HeroMetric) -> some View {
         let isActive = metric == heroMetric
         return Button {
             withAnimation(.snappy) { heroMetric = metric }
         } label: {
-            HStack(spacing: 4) {
+            VStack(spacing: 1) {
                 Text(metric.label)
-                    .foregroundStyle(isActive ? MenuBarContentView.accent : Color.secondary.opacity(0.7))
+                    .font(.amonMicro)
+                    .foregroundStyle(.tertiary)
                 Text(TokenFormat.compact(heroValue(metric)))
-                    .fontWeight(isActive ? .semibold : .medium)
+                    .font(.amonCaption.weight(isActive ? .semibold : .regular))
                     .monospacedDigit()
-                    .foregroundStyle(isActive ? MenuBarContentView.accent : Color.secondary)
+                    .foregroundStyle(isActive ? Color.primary : Color.secondary)
+                    .contentTransition(.numericText())
             }
-            .font(.amonCaption)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .bottom) {
+                if isActive {
+                    RoundedRectangle(cornerRadius: 1, style: .continuous)
+                        .fill(MenuBarContentView.accent)
+                        .frame(height: 2)
+                        .padding(.horizontal, 14)
+                }
+            }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help("\(metric.label) \(TokenFormat.grouped(heroValue(metric))) 토큰")
+        .accessibilityLabel(metric.label)
+        .accessibilityAddTraits(isActive ? .isSelected : [])
     }
 
-    /// 감지 수 + 마지막 쿼터 갱신 시각.
-    private var summaryRow: some View {
-        HStack(spacing: 6) {
-            Text("쿼터 감지 \(enabledRuntimes.count)/\(providers.orderedRuntimes.count)")
-                .font(.amonCaption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            if let last = providers.lastRefresh {
-                Text("· 갱신 \(last.formatted(date: .omitted, time: .shortened))")
-                    .font(.amonCaption)
-                    .foregroundStyle(.tertiary)
-            }
-            Spacer()
-        }
-        .padding(.horizontal, 2)
-    }
-
-    private var grandTotalFooter: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "sum").font(.amonCaption)
-            Text("전체 누적 (로컬)")
-            Spacer()
-            Text(TokenFormat.grouped(state.grandTotal))
-                .font(.system(size: 13, design: .rounded).weight(.medium))
-                .foregroundStyle(.secondary)
-        }
-        .font(.amonBody)
-        .foregroundStyle(.tertiary)
-        .padding(.horizontal, 4)
-        .padding(.top, 2)
-    }
 }
 
 // MARK: - 전일 대비 증감 배지
@@ -733,183 +802,11 @@ private struct LocalSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 5) {
-                Image(systemName: "internaldrive")
-                    .font(.system(size: 10))
-                Text("로컬 로그")
-                Rectangle()
-                    .fill(Color(nsColor: .separatorColor).opacity(0.6))
-                    .frame(height: 0.5)
-            }
-            .font(.amonCaption)
-            .foregroundStyle(.tertiary)
-
-            if expanded {
-                // 4컬럼 토큰 테이블 — 오늘·누적, 이어서 메타(세션·비용·마지막 활동).
-                columnHeaderRow
-                tokenRow(label: "오늘", usage: summary.today, dim: summary.today.total == 0)
-                tokenRow(label: "누적", usage: summary.usage)
-                metaRow
-
-                modelListRows
-                recentDailyRows
-            } else {
-                HStack {
-                    Text("오늘").font(.amonBody).foregroundStyle(.secondary)
-                    Spacer()
-                    Text(summary.today.total > 0
-                         ? "\(TokenFormat.compact(summary.today.total)) tokens"
-                         : "사용 없음")
-                        .font(.amonBody.weight(.medium))
-                        .monospacedDigit()
-                        .foregroundStyle(summary.today.total > 0 ? .primary : .tertiary)
-                        .help(breakdownText(summary.today))
-                }
-                HStack(spacing: 4) {
-                    Text("누적 \(TokenFormat.compact(summary.usage.total))")
-                    if summary.sessionCount > 0 {
-                        Text("· \(summary.sessionCount)세션")
-                    }
-                    if summary.costUSD > 0 {
-                        Text("· $\(String(format: "%.2f", summary.costUSD))")
-                    }
-                    Spacer()
-                    if let last = summary.lastActivity {
-                        Text(last.formatted(date: .numeric, time: .omitted))
-                    }
-                }
-                .font(.amonCaption)
-                .foregroundStyle(.tertiary)
-
-                if let modelLine = ModelBreakdown.summaryText(summary) {
-                    Text(modelLine)
-                        .font(.amonCaption)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .help(ModelBreakdown.helpText(summary))
-                }
-            }
+            SectionHeader("로컬 로그", systemImage: "internaldrive")
+            // 접힘·펼침이 같은 4열 표를 쓴다 — 펼침은 행만 늘어난다.
+            TokenGrid(summary: summary, expanded: expanded)
         }
         .padding(.top, 2)
-    }
-
-    // MARK: 확장 모드 — 입력/출력/캐시/합계 4컬럼 테이블
-
-    private static let labelColumnWidth: CGFloat = 40
-
-    private var columnHeaderRow: some View {
-        HStack(spacing: 4) {
-            Text("").frame(width: Self.labelColumnWidth, alignment: .leading)
-            ForEach(["입력", "출력", "캐시", "합계"], id: \.self) { title in
-                Text(title)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-            }
-        }
-    }
-
-    /// 한 줄 토큰 행 — 라벨 + 입력/출력/캐시/합계. hover 시 캐시 읽기·쓰기 분해.
-    private func tokenRow(label: String, usage u: TokenUsage, dim: Bool = false) -> some View {
-        HStack(spacing: 4) {
-            Text(label)
-                .font(.amonCaption)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-                .frame(width: Self.labelColumnWidth, alignment: .leading)
-            numberCell(u.input, dim: dim)
-            numberCell(u.output, dim: dim)
-            numberCell(u.cacheRead + u.cacheWrite, dim: dim)
-                .help("캐시 읽기 \(TokenFormat.compact(u.cacheRead)) · 쓰기 \(TokenFormat.compact(u.cacheWrite))")
-            numberCell(u.total, dim: dim, emphasized: true)
-        }
-    }
-
-    private func numberCell(_ n: Int, dim: Bool, emphasized: Bool = false) -> some View {
-        Text(n > 0 ? TokenFormat.compact(n) : "—")
-            .font(.system(size: 12, weight: emphasized ? .semibold : .regular))
-            .monospacedDigit()
-            .foregroundStyle(dim || n == 0 ? Color.secondary.opacity(0.5) : (emphasized ? Color.primary : Color.secondary))
-            .lineLimit(1)
-            .minimumScaleFactor(0.7)
-            .frame(maxWidth: .infinity, alignment: .trailing)
-            .help(n > 0 ? TokenFormat.grouped(n) : "")
-    }
-
-    /// 세션 수 · API 비용 · 마지막 활동 메타 라인.
-    private var metaRow: some View {
-        HStack(spacing: 4) {
-            if summary.sessionCount > 0 { Text("\(summary.sessionCount)세션") }
-            if summary.costUSD > 0 { Text("· API 비용 $\(String(format: "%.2f", summary.costUSD))") }
-            Spacer()
-            if let last = summary.lastActivity {
-                Text("마지막 " + last.formatted(date: .numeric, time: .omitted))
-            }
-        }
-        .font(.amonCaption)
-        .foregroundStyle(.tertiary)
-    }
-
-    /// 모델별 누적 전체 목록 (토큰 내림차순, 점유율 병기).
-    @ViewBuilder
-    private var modelListRows: some View {
-        let total = summary.usage.total
-        let sorted = summary.models.sorted { $0.value > $1.value }
-        if total > 0, !sorted.isEmpty {
-            sectionDivider("모델별 누적")
-            ForEach(sorted, id: \.key) { model, tokens in
-                HStack(spacing: 6) {
-                    Text(ModelBreakdown.shortName(model))
-                        .font(.amonCaption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer()
-                    Text("\(Int((Double(tokens) / Double(total) * 100).rounded()))%")
-                        .font(.amonCaption)
-                        .foregroundStyle(.tertiary)
-                    Text(TokenFormat.compact(tokens))
-                        .font(.amonCaption.weight(.medium))
-                        .monospacedDigit()
-                }
-            }
-        }
-    }
-
-    /// 최근 7일(보고 창) 일자별 소비 — 내림차순, 0 인 날은 생략.
-    /// 오늘/누적과 같은 입력/출력/캐시/합계 4컬럼으로 정렬된다.
-    /// daily 는 30일치를 담으므로 최근 7일만 표시한다.
-    @ViewBuilder
-    private var recentDailyRows: some View {
-        let key = UsageScanner.reportWindowStartKey()
-        let days = summary.daily
-            .filter { $0.key >= key && $0.value.total > 0 }
-            .sorted { $0.key > $1.key }
-        if !days.isEmpty {
-            sectionDivider("최근 7일")
-            ForEach(days, id: \.key) { day, u in
-                // "yyyy-MM-dd" → "MM-dd"
-                tokenRow(label: String(day.dropFirst(5)), usage: u)
-            }
-        }
-    }
-
-    private func sectionDivider(_ title: String) -> some View {
-        HStack(spacing: 5) {
-            Text(title)
-            Rectangle()
-                .fill(Color(nsColor: .separatorColor).opacity(0.6))
-                .frame(height: 0.5)
-        }
-        .font(.amonCaption)
-        .foregroundStyle(.tertiary)
-        .padding(.top, 3)
-    }
-
-    private func breakdownText(_ u: TokenUsage) -> String {
-        "입력 \(TokenFormat.compact(u.input)) · 출력 \(TokenFormat.compact(u.output)) · "
-            + "캐시 \(TokenFormat.compact(u.cacheRead + u.cacheWrite))"
     }
 }
 
@@ -984,33 +881,8 @@ private struct LocalToolCard: View {
                     .lineLimit(2)
             }
 
-            if expanded {
-                // 개별 보기 — 확장 로컬 섹션이 오늘/누적/모델/일자별을 모두 담당한다.
-                LocalSection(summary: summary, expanded: true)
-            } else {
-                HStack(spacing: 4) {
-                    Text("누적 \(TokenFormat.compact(summary.usage.total))")
-                    if summary.sessionCount > 0 { Text("· \(summary.sessionCount)세션") }
-                    if summary.costUSD > 0 {
-                        Text("· $\(String(format: "%.2f", summary.costUSD))")
-                    }
-                    Spacer()
-                    if let last = summary.lastActivity {
-                        Text(last.formatted(date: .numeric, time: .omitted))
-                    }
-                }
-                .font(.amonCaption)
-                .foregroundStyle(.tertiary)
-
-                if let modelLine = ModelBreakdown.summaryText(summary) {
-                    Text(modelLine)
-                        .font(.amonCaption)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .help(ModelBreakdown.helpText(summary))
-                }
-            }
+            // 프로바이더 카드와 같은 4열 표를 쓴다 — 로컬 전용 도구라고 형태가 달라지지 않는다.
+            TokenGrid(summary: summary, expanded: expanded)
         }
         .padding(12)
         .background(
@@ -1038,6 +910,26 @@ private struct LineRow: View {
 
     /// 리셋 크레딧 만료 경고 창 — 24시간 (openusage `expiryWarningWindow`).
     private static let expiryWarningWindow: TimeInterval = 24 * 60 * 60
+
+    @State private var hovering = false
+
+    /// 메뉴바 표시 토글 — 스위치 대신 핀.
+    ///
+    /// 고정돼 있으면 항상 보이고, 아니면 hover 할 때만 나타난다. 동작(슬롯 최대 2개,
+    /// 자동 선택 반영)은 이전 스위치와 동일하다.
+    private func menuBarPin(action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: menuBarSlot == nil ? "pin" : "pin.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(menuBarSlot == nil ? Color.secondary : accent)
+                .opacity(menuBarSlot == nil ? (hovering ? 0.7 : 0) : 1)
+        }
+        .buttonStyle(.plain)
+        .frame(width: 14)
+        .help(menuBarSlot == nil ? "이 그래프를 메뉴바에 표시" : "메뉴바 표시에서 제거")
+        .accessibilityLabel("메뉴바 표시")
+        .accessibilityAddTraits(menuBarSlot == nil ? [] : .isSelected)
+    }
 
     var body: some View {
         switch line {
@@ -1100,19 +992,26 @@ private struct LineRow: View {
                     .monospacedDigit()
                     .help(remainingHelp(used: used, limit: limit, format: format))
             }
-            Bar(fraction: MetricFormat.progressFraction(used: used, limit: limit, format: format),
-                severity: state.severity, accent: accent, tick: tick)
-                .help(state.tooltip ?? "")
+
+            // 막대와 핀을 한 행에 둔다 — 설정 컨트롤을 읽기 전용 상태 줄에서 걷어낸다.
+            HStack(spacing: 8) {
+                Bar(fraction: MetricFormat.progressFraction(used: used, limit: limit, format: format),
+                    severity: state.severity, accent: accent, tick: tick)
+                    .help(state.tooltip ?? "")
+                if let onToggleMenuBar {
+                    menuBarPin(action: onToggleMenuBar)
+                }
+            }
 
             HStack(spacing: 6) {
                 if let status = state.statusText {
                     HStack(spacing: 3) {
                         Image(systemName: state.severity == .critical ? "flame.fill" : "gauge.medium")
-                            .font(.system(size: 10))
+                            .font(.amonMicro)
                         Text(status)
                     }
                     .font(.amonCaption.weight(.medium))
-                    .foregroundStyle(state.severity == .critical ? .red : .orange)
+                    .foregroundStyle(state.severity == .critical ? Palette.statusRed : Palette.statusAmber)
                     .help(state.tooltip ?? "")
                 }
                 if let trailing {
@@ -1122,23 +1021,6 @@ private struct LineRow: View {
                         .help(isFresh ? MeterEngine.freshSessionTooltip : exactResetHelp(resetsAt))
                 }
                 Spacer()
-                if let onToggleMenuBar {
-                    Toggle(
-                        "상태창",
-                        isOn: Binding(
-                            get: { menuBarSlot != nil },
-                            set: { _ in onToggleMenuBar() }
-                        )
-                    )
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                    .font(.amonCaption)
-                    .foregroundStyle(.tertiary)
-                    .fixedSize()
-                    .scaleEffect(0.82, anchor: .trailing)
-                    .opacity(menuBarSlot == nil ? 0.52 : 0.72)
-                    .help(menuBarSlot == nil ? "이 그래프를 메뉴바에 표시" : "메뉴바 표시에서 제거")
-                }
             }
 
             // %→토큰 추정 라인 (캘리브레이션 환율 확보 시).
@@ -1149,6 +1031,7 @@ private struct LineRow: View {
                     .help(estimate.help)
             }
         }
+        .onHover { hovering = $0 }
         // 제목·막대·상태·토글 전체가 하나의 선택 영역으로 읽히도록 안쪽 여백을 확보한다.
         // 미선택 행에도 같은 여백을 유지해 토글 시 카드 폭과 그래프 위치가 흔들리지 않게 한다.
         .padding(.horizontal, 8)
