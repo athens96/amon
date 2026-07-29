@@ -9,6 +9,9 @@ public sealed class DashboardViewModel : ObservableObject
     private string _statusText = "로컬 AI 도구를 확인하는 중입니다…";
     private string _totalTokens = "0";
     private string _todayTokens = "0";
+    private string _todayInput = "0";
+    private string _todayOutput = "0";
+    private string _todayCache = "0";
     private bool _isScanning = true;
 
     public string Title => "AI 사용량";
@@ -33,6 +36,25 @@ public sealed class DashboardViewModel : ObservableObject
     {
         get => _todayTokens;
         private set => SetProperty(ref _todayTokens, value);
+    }
+
+    // 히어로 하단 4칸 스트립 — 전체/입력/출력/캐시. macOS 히어로와 같은 열 구성.
+    public string TodayInput
+    {
+        get => _todayInput;
+        private set => SetProperty(ref _todayInput, value);
+    }
+
+    public string TodayOutput
+    {
+        get => _todayOutput;
+        private set => SetProperty(ref _todayOutput, value);
+    }
+
+    public string TodayCache
+    {
+        get => _todayCache;
+        private set => SetProperty(ref _todayCache, value);
     }
 
     public bool IsScanning
@@ -71,10 +93,17 @@ public sealed class DashboardViewModel : ObservableObject
             Tools.Add(tool);
 
         TotalTokens = Format(summaries.Sum(static summary => summary.Usage.TotalTokens));
-        TodayTokens = Format(summaries
+
+        var todayRows = summaries
             .SelectMany(static summary => summary.Daily)
             .Where(day => day.Date == today)
-            .Sum(static day => day.Usage.TotalTokens));
+            .ToArray();
+        TodayTokens = Format(todayRows.Sum(static day => day.Usage.TotalTokens));
+        TodayInput = Format(todayRows.Sum(static day => day.Usage.InputTokens));
+        TodayOutput = Format(todayRows.Sum(static day => day.Usage.OutputTokens));
+        TodayCache = Format(todayRows.Sum(static day =>
+            day.Usage.CacheReadTokens + day.Usage.CacheWriteTokens));
+
         IsScanning = false;
         StatusText = visible.Length == 0
             ? "아직 발견된 로컬 AI 도구 로그가 없습니다."
@@ -99,15 +128,23 @@ public sealed class DashboardViewModel : ObservableObject
         value.ToString("N0", CultureInfo.CurrentCulture);
 }
 
-public sealed class ToolUsageCardViewModel
+public sealed class ToolUsageCardViewModel : ObservableObject
 {
+    private bool _isExpanded;
+
     public ToolUsageCardViewModel(ToolSummary summary, DateOnly today)
     {
         Name = summary.DisplayName;
         Total = Format(summary.Usage.TotalTokens);
-        Today = Format(summary.Daily
-            .Where(day => day.Date == today)
-            .Sum(static day => day.Usage.TotalTokens));
+
+        // 오늘 행도 누적 행과 같은 4열(입력/출력/캐시/합계)을 채운다.
+        var todayRows = summary.Daily.Where(day => day.Date == today).ToArray();
+        Today = Format(todayRows.Sum(static day => day.Usage.TotalTokens));
+        TodayInput = Format(todayRows.Sum(static day => day.Usage.InputTokens));
+        TodayOutput = Format(todayRows.Sum(static day => day.Usage.OutputTokens));
+        TodayCache = Format(todayRows.Sum(static day =>
+            day.Usage.CacheReadTokens + day.Usage.CacheWriteTokens));
+
         Input = Format(summary.Usage.InputTokens);
         Output = Format(summary.Usage.OutputTokens);
         Cache = Format(checked(
@@ -143,6 +180,9 @@ public sealed class ToolUsageCardViewModel
     public string Name { get; }
     public string Total { get; }
     public string Today { get; }
+    public string TodayInput { get; }
+    public string TodayOutput { get; }
+    public string TodayCache { get; }
     public string Input { get; }
     public string Output { get; }
     public string Cache { get; }
@@ -151,6 +191,15 @@ public sealed class ToolUsageCardViewModel
     public string LastActivity { get; }
     public string Models { get; }
     public ObservableCollection<DailyUsageRowViewModel> RecentDays { get; }
+
+    /// 카드를 제자리에서 펼친다 — 모델별 누적과 최근 7일이 드러난다.
+    /// Windows 는 두 열 레이아웃이라 전체/개별 모드 전환이 필요 없고,
+    /// 여러 카드를 동시에 펼칠 수 있다.
+    public bool IsExpanded
+    {
+        get => _isExpanded;
+        set => SetProperty(ref _isExpanded, value);
+    }
 
     private static string Format(long value) =>
         value.ToString("N0", CultureInfo.CurrentCulture);

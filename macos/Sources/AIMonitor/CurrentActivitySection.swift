@@ -23,16 +23,7 @@ struct CurrentActivitySection: View {
     }
 
     private var sectionHeader: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "dot.radiowaves.left.and.right")
-                .font(.system(size: 10))
-            Text("현재 활동")
-            Rectangle()
-                .fill(Color(nsColor: .separatorColor).opacity(0.6))
-                .frame(height: 0.5)
-        }
-        .font(.amonCaption)
-        .foregroundStyle(.tertiary)
+        SectionHeader("현재 활동", systemImage: "dot.radiowaves.left.and.right")
     }
 
     @ViewBuilder
@@ -195,18 +186,20 @@ struct SessionRow: View {
         .onHover { hovering = $0 }
     }
 
+    /// 진행 상태는 의미색(초록)으로 표시한다. 액센트는 "선택됨" 전용이라
+    /// 여기에 쓰면 선택 신호와 진행 신호가 같은 색으로 겹친다.
     private var statusBadge: some View {
         HStack(spacing: 4) {
             Circle()
-                .fill(isActive ? MenuBarContentView.accent : Color.secondary)
+                .fill(isActive ? Palette.statusGreen : Color.secondary)
                 .frame(width: 6, height: 6)
             Text(isActive ? "작업 중" : "대기")
                 .font(.amonCaption.weight(.medium))
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 2)
-        .background(isActive ? MenuBarContentView.accent.opacity(0.15) : Color.secondary.opacity(0.12))
-        .foregroundStyle(isActive ? MenuBarContentView.accent : .secondary)
+        .background(isActive ? Palette.statusGreen.opacity(0.15) : Color.secondary.opacity(0.12))
+        .foregroundStyle(isActive ? Palette.statusGreen : .secondary)
         .clipShape(Capsule())
     }
 
@@ -225,9 +218,10 @@ struct AgentRow: View {
 
     var body: some View {
         HStack(spacing: 6) {
+            // 액센트가 아니라 2차 색 — 에이전트 아이콘은 선택 상태가 아니다.
             Image(systemName: "sparkles")
-                .font(.system(size: 10))
-                .foregroundStyle(MenuBarContentView.accent)
+                .font(.amonMicro)
+                .foregroundStyle(.secondary)
             Text(agent.agentType)
                 .font(.amonCaption.weight(.semibold))
                 .fixedSize()
@@ -246,6 +240,12 @@ struct ProviderMark: View {
     let provider: String
     var size: CGFloat = 12
 
+    /// 프로바이더 색은 정체성 전용. 액센트로 칠하면 Claude·Codex 세션이 같은 색이 돼
+    /// 한 목록 안에서 구분이 사라진다.
+    private var tint: Color {
+        Palette.providerTint(forID: provider) ?? .secondary
+    }
+
     var body: some View {
         Group {
             if let logo = ProviderIcons.swiftUIImage(id: provider) {
@@ -255,7 +255,7 @@ struct ProviderMark: View {
             }
         }
         .frame(width: size, height: size)
-        .foregroundStyle(MenuBarContentView.accent)
+        .foregroundStyle(tint)
         .help(provider)
     }
 }

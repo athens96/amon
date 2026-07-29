@@ -15,17 +15,23 @@
     <Color x:Key="TextColor">#1A1A1A</Color>
     <Color x:Key="BodyColor">#3B3B3B</Color>
     <Color x:Key="MutedColor">#616161</Color>
-    <Color x:Key="AccentColor">#0067C0</Color>
+    <!--
+      amon Rose Magenta — macOS Palette.accentLightBase 와 같은 값.
+      이전 #0067C0 은 Windows 만의 파랑이라 두 플랫폼의 브랜드색이 서로 달랐다.
+      뜻은 하나뿐: 선택됨. 프로바이더 정체성·상태 표시에는 쓰지 않는다.
+    -->
+    <Color x:Key="AccentColor">#C9308A</Color>
     <Color x:Key="AccentTextColor">#FFFFFF</Color>
     <Color x:Key="SuccessColor">#16A34A</Color>
+    <Color x:Key="WarningColor">#F59E0B</Color>
     <Color x:Key="ErrorColor">#DC2626</Color>
     <Color x:Key="PetBubbleColor">#F2FFFFFF</Color>
     <Color x:Key="PetBubbleSubtleColor">#FFF4F2EF</Color>
     <Color x:Key="PetBubbleBorderColor">#330C0A09</Color>
     <Color x:Key="PetBubbleTextColor">#1C1917</Color>
     <Color x:Key="PetBubbleMutedColor">#6B6560</Color>
-    <Color x:Key="PetBubbleAccentColor">#0067C0</Color>
-    <Color x:Key="PetBadgeColor">#0067C0</Color>
+    <Color x:Key="PetBubbleAccentColor">#C9308A</Color>
+    <Color x:Key="PetBadgeColor">#C9308A</Color>
     <Color x:Key="PetBadgeTextColor">#FFFFFF</Color>
 
     <SolidColorBrush x:Key="WindowBrush" Color="{DynamicResource WindowColor}" />
@@ -39,6 +45,7 @@
     <SolidColorBrush x:Key="AccentBrush" Color="{DynamicResource AccentColor}" />
     <SolidColorBrush x:Key="AccentTextBrush" Color="{DynamicResource AccentTextColor}" />
     <SolidColorBrush x:Key="SuccessBrush" Color="{DynamicResource SuccessColor}" />
+    <SolidColorBrush x:Key="WarningBrush" Color="{DynamicResource WarningColor}" />
     <SolidColorBrush x:Key="ErrorBrush" Color="{DynamicResource ErrorColor}" />
     <SolidColorBrush x:Key="PetBubbleBrush" Color="{DynamicResource PetBubbleColor}" />
     <SolidColorBrush x:Key="PetBubbleSubtleBrush" Color="{DynamicResource PetBubbleSubtleColor}" />

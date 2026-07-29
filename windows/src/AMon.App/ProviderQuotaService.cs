@@ -480,6 +480,15 @@ public sealed class ProviderQuotaViewModel
     public string Status { get; }
     public ObservableCollection<ProviderQuotaMetricViewModel> Metrics { get; }
 
+    /// 이 프로바이더에서 가장 빡빡한 미터의 심각도 — 카드 머리의 점으로 표시한다.
+    /// 카드를 열어보지 않아도 어디가 위험한지 알 수 있게 하는 신호다.
+    public string Severity =>
+        Metrics.Any(static metric => metric.Severity == "critical") ? "critical"
+        : Metrics.Any(static metric => metric.Severity == "warning") ? "warning"
+        : "normal";
+
+    public bool HasAlert => Severity != "normal";
+
     public static ProviderQuotaViewModel Success(
         string provider,
         string? plan,
@@ -501,6 +510,12 @@ public sealed record ProviderQuotaMetricViewModel(
     string RemainingText,
     string? ResetText)
 {
+    /// 의미색 축 — 경고·위험일 때 막대가 프로바이더 색을 버리고 이 상태를 따른다.
+    public string Severity =>
+        UsedPercent >= 90 ? "critical"
+        : UsedPercent >= 75 ? "warning"
+        : "normal";
+
     public static ProviderQuotaMetricViewModel Percent(
         string label,
         double used,

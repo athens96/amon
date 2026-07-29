@@ -5,10 +5,12 @@ import SwiftUI
 /// 헤더(제목·보기 방식·새로고침) + 본문 + 오른쪽 화면 내비게이션 + 푸터.
 struct MenuBarContentView: View {
     /// SwiftUI 루트와 AppKit `NSPopover`가 함께 쓰는 실제 팝업 크기.
-    /// 오른쪽 내비게이션을 추가할 때 한쪽만 바뀌어 내용이 압축되지 않게 단일 기준으로 둔다.
+    ///
+    /// 오른쪽 내비게이션 레일을 없애면서 본문이 팝오버 전체 폭을 쓴다. 레일은 항목 3개에
+    /// 55pt(전체의 11%)를 상시 점유하면서 제목과 같은 정보("지금 대시보드에 있다")를
+    /// 중복 표시했다. 화면 전환은 헤더로 옮겼다 — 제목이 곧 선택된 화면이다.
     static let preferredSize = CGSize(width: 496, height: 540)
-    private static let mainContentWidth: CGFloat = 440
-    private static let navigationRailWidth: CGFloat = 55
+    private static let mainContentWidth: CGFloat = 496
 
     @EnvironmentObject private var state: AppState
     @EnvironmentObject private var providers: LiveProvidersManager
@@ -23,30 +25,31 @@ struct MenuBarContentView: View {
     static let accent = Palette.accent
 
     var body: some View {
-        HStack(spacing: 0) {
-            VStack(spacing: 0) {
-                header
+        VStack(spacing: 0) {
+            header
+            Divider()
+
+            if state.availableUpdate != nil {
+                updateBanner
                 Divider()
-
-                if state.availableUpdate != nil {
-                    updateBanner
-                    Divider()
-                }
-
-                switch screen {
-                case .dashboard: DashboardView()
-                case .history: SessionHistoryView()
-                case .settings: SettingsView()
-                }
-
-                Divider()
-                footer
             }
-            .frame(width: Self.mainContentWidth)
+
+            // 상태 표시줄은 상태 표시줄 자리에 — 이전엔 현재 활동과 첫 카드 사이에 끼어 있었다.
+            if screen == .dashboard {
+                dashboardMeta
+                Divider()
+            }
+
+            switch screen {
+            case .dashboard: DashboardView()
+            case .history: SessionHistoryView()
+            case .settings: SettingsView()
+            }
 
             Divider()
-            navigationRail
+            footer
         }
+        .frame(width: Self.mainContentWidth)
         .frame(width: Self.preferredSize.width, height: Self.preferredSize.height)
         .task { state.scanOnAppear() }
     }
@@ -91,19 +94,72 @@ struct MenuBarContentView: View {
         state.isScanning || providers.isRefreshing
     }
 
+    /// 제목이 곧 선택된 화면이다 — 누르면 다음 화면으로 넘어가고, 옆의 아이콘 두 개가
+    /// 나머지 화면이다. 아이콘 스트립·모드 토글과 같은 문법(아이콘을 두되 선택된 것만
+    /// 라벨을 펼친다)의 가장 큰 단계.
+    @State private var titleHovering = false
+
+    private var screenSwitcher: some View {
+        HStack(spacing: 8) {
+            Button {
+                withAnimation(.easeOut(duration: 0.15)) { screen = screen.next }
+            } label: {
+                HStack(spacing: 3) {
+                    Text(headerTitle)
+                        .font(.amonTitle)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .opacity(titleHovering ? 1 : 0)
+                }
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(
+                    RoundedRectangle(cornerRadius: Metrics.Radius.control, style: .continuous)
+                        .fill(titleHovering ? Color.secondary.opacity(0.12) : Color.clear)
+                )
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { titleHovering = $0 }
+            .help("다음 화면으로 전환")
+            .accessibilityLabel("현재 화면 \(headerTitle), 누르면 전환")
+
+            HStack(spacing: 3) {
+                ForEach(Screen.allCases.filter { $0 != screen }, id: \.self) { item in
+                    Button {
+                        withAnimation(.easeOut(duration: 0.15)) { screen = item }
+                    } label: {
+                        Image(systemName: item.symbolName)
+                            .font(.amonBody)
+                            .frame(width: 28, height: 26)
+                            .foregroundStyle(.tertiary)
+                            .background(
+                                RoundedRectangle(cornerRadius: Metrics.Radius.control, style: .continuous)
+                                    .fill(Color.clear)
+                            )
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(item.helpText)
+                    .accessibilityLabel(item.title)
+                }
+            }
+        }
+        .layoutPriority(1)
+    }
+
     private var header: some View {
         HStack(spacing: 8) {
-            Text(headerTitle)
-                .font(.amonTitle)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-                .layoutPriority(1)
+            screenSwitcher
+
+            Spacer()
 
             if screen == .dashboard {
                 dashboardModeToggle
             }
-
-            Spacer()
 
             if screen != .settings {
                 // 새로고침 — 로컬 스캔 + 라이브 쿼터 재조회를 함께.
@@ -138,24 +194,26 @@ struct MenuBarContentView: View {
             dashboardModeButton(
                 mode: "all",
                 symbol: "chart.bar.xaxis",
+                short: "전체",
                 label: "전체 종합",
                 help: "모든 프로바이더의 AI 사용량을 종합해 보기"
             )
             dashboardModeButton(
                 mode: "each",
                 symbol: "rectangle.3.group.fill",
+                short: "개별",
                 label: "프로바이더별",
                 help: "프로바이더별 AI 사용량을 개별로 보기"
             )
         }
         .padding(2)
-        .frame(width: 68, height: 26)
+        .frame(height: 26)
         .background(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
+            RoundedRectangle(cornerRadius: Metrics.Radius.control, style: .continuous)
                 .fill(Color.secondary.opacity(0.12))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
+            RoundedRectangle(cornerRadius: Metrics.Radius.control, style: .continuous)
                 .stroke(Color.secondary.opacity(0.18), lineWidth: 0.5)
         )
         .fixedSize(horizontal: true, vertical: false)
@@ -165,20 +223,32 @@ struct MenuBarContentView: View {
         .accessibilityValue(settings.dashboardMode == "all" ? "전체" : "개별")
     }
 
-    private func dashboardModeButton(mode: String, symbol: String, label: String, help: String) -> some View {
+    /// 선택된 쪽만 라벨을 펼친다. 두 심볼(막대 그래프 / 카드 묶음)은 나란히 놓으면
+    /// 구분이 거의 안 돼, 채움색만으로 상태를 판단해야 했다.
+    private func dashboardModeButton(
+        mode: String, symbol: String, short: String, label: String, help: String
+    ) -> some View {
         let selected = settings.dashboardMode == mode
         return Button {
             settings.dashboardMode = mode
         } label: {
-            Image(systemName: symbol)
-                .font(.system(size: 12, weight: .semibold))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .foregroundStyle(selected ? Color.white : Color.secondary)
-                .help(help)
-                .background(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(selected ? Self.accent : Color.clear)
-                )
+            HStack(spacing: 4) {
+                Image(systemName: symbol)
+                    .font(.system(size: 12, weight: .semibold))
+                if selected {
+                    Text(short)
+                        .font(.amonMicro.weight(.semibold))
+                        .fixedSize()
+                }
+            }
+            .padding(.horizontal, selected ? 7 : 0)
+            .frame(minWidth: 26, maxHeight: .infinity)
+            .foregroundStyle(selected ? Color.white : Color.secondary)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(selected ? Self.accent : Color.clear)
+            )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help(help)
@@ -186,44 +256,31 @@ struct MenuBarContentView: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
-    /// 팝오버 오른쪽의 화면 전환 아이콘. 선택된 화면은 브랜드 색 배경으로 표시한다.
-    private var navigationRail: some View {
-        VStack(spacing: 8) {
-            ForEach(Screen.allCases, id: \.self) { item in
-                Button {
-                    withAnimation(.easeOut(duration: 0.15)) {
-                        screen = item
-                    }
-                } label: {
-                    Image(systemName: item.symbolName)
-                        .font(.system(size: 17, weight: .semibold))
-                        .frame(width: 40, height: 40)
-                        .foregroundStyle(screen == item ? Self.accent : Color.secondary)
-                        .help(item.helpText)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(screen == item ? Self.accent.opacity(0.14) : Color.clear)
-                        )
-                }
-                .buttonStyle(.plain)
-                .help(item.helpText)
-                .accessibilityLabel(item.title)
-                .accessibilityAddTraits(screen == item ? .isSelected : [])
+    private var headerTitle: String {
+        screen.title
+    }
+
+    /// 쿼터 감지 수 + 마지막 갱신 시각.
+    private var dashboardMeta: some View {
+        HStack(spacing: 5) {
+            Text("쿼터 감지 \(providers.enabledIDs.count)/\(providers.orderedRuntimes.count)")
+                .font(.amonCaption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            if let last = providers.lastRefresh {
+                Text("· 갱신 \(last.formatted(date: .omitted, time: .shortened))")
+                    .font(.amonCaption)
+                    .foregroundStyle(.tertiary)
             }
             Spacer()
         }
-        .padding(.top, 10)
-        .frame(width: Self.navigationRailWidth)
-    }
-
-    private var headerTitle: String {
-        screen.title
+        .padding(.horizontal, 16)
+        .padding(.vertical, 6)
     }
 
     private var footer: some View {
         HStack {
             if let last = state.lastScan {
-                Text("스캔: \(last.formatted(date: .omitted, time: .shortened))")
+                Text("스캔 \(last.formatted(date: .omitted, time: .shortened))")
                     .font(.amonCaption)
                     .foregroundStyle(.tertiary)
             } else {
@@ -231,6 +288,13 @@ struct MenuBarContentView: View {
                     .font(.amonCaption)
             }
             Spacer()
+            if screen == .dashboard, state.grandTotal > 0 {
+                Text("전체 누적 \(TokenFormat.compact(state.grandTotal))")
+                    .font(.amonCaption)
+                    .foregroundStyle(.tertiary)
+                    .monospacedDigit()
+                    .help("로컬 로그 기준 전체 누적 \(TokenFormat.grouped(state.grandTotal)) 토큰")
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
@@ -238,6 +302,13 @@ struct MenuBarContentView: View {
 }
 
 private extension MenuBarContentView.Screen {
+    /// 제목을 눌렀을 때 넘어갈 다음 화면 — 대시보드 → 세션 → 설정 → 대시보드.
+    var next: MenuBarContentView.Screen {
+        let all = MenuBarContentView.Screen.allCases
+        let index = all.firstIndex(of: self) ?? 0
+        return all[(index + 1) % all.count]
+    }
+
     var title: String {
         switch self {
         case .dashboard: return "AI 사용량"

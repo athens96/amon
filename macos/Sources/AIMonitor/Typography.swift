@@ -16,4 +16,11 @@ extension Font {
     static let amonCaption = Font.system(size: 12)
     /// 경로·URL 입력란 (구 `.caption` monospaced 10pt).
     static let amonMono = Font.system(size: 13, design: .monospaced)
+
+    /// 히어로 숫자 — 화면에서 가장 큰 단일 요소. 크기로 이기므로 색은 쓰지 않는다.
+    static let amonHero = Font.system(size: 38, weight: .bold, design: .rounded)
+    /// 카드 단위 대표 숫자 (로컬 카드 오늘 합계 등).
+    static let amonNumber = Font.system(size: 17, weight: .bold, design: .rounded)
+    /// 표 열 머리글·초소형 라벨. 기존에 여섯 군데서 즉석 지정하던 11pt 를 토큰화한 것.
+    static let amonMicro = Font.system(size: 11)
 }

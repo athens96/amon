@@ -10,16 +10,23 @@ enum Palette {
 
     // MARK: - 브랜드 액센트 (라이트/다크 적응)
 
-    /// 라이트 모드 브랜드 액센트 — docs/DESIGN.html "Interactive Violet #6161ff" 정확값.
+    /// 라이트 모드 브랜드 액센트 — amon Rose Magenta #c9308a (324.7°).
+    ///
+    /// 이전 값 #6161ff(240°)는 OpenRouter #6467f2(239°)와 1도 차이라 사실상 같은 색이었고,
+    /// 216°–269° 구간에 프로바이더 8개가 몰려 있어 그 한복판에 앉아 있었다. 액센트는
+    /// "선택됨" 한 가지만 뜻하므로 화면에서 가장 분리돼 보여야 하는데 그 역할을 못 했다.
+    /// 기존 색 18개 중 비어 있던 유일한 구간(275°–360°)으로 옮긴 값이다.
+    ///
+    /// 흰 글씨를 얹는 채움(모드 토글 선택 세그먼트)에 쓰이므로 대비 4.5:1 을 지켜야 한다.
+    /// #c9308a 는 4.91:1 로, 이전 violet(4.50:1)보다 낫다.
     static let accentLightBase = NSColor(
-        srgbRed: 0x61 / 255.0, green: 0x61 / 255.0, blue: 0xff / 255.0, alpha: 1
+        srgbRed: 0xc9 / 255.0, green: 0x30 / 255.0, blue: 0x8a / 255.0, alpha: 1
     )
 
-    /// 다크 모드 브랜드 액센트 — 같은 violet 색상(hue)을 흰색 쪽으로 들어올린 #7d7dff.
-    /// 어두운 서피스 위에서 #6161ff 는 가라앉아 보이므로 명도만 보정한다.
-    /// 라이트 모드 액센트와 같은 hue를 유지한 amon 다크 모드 파생값이다.
+    /// 다크 모드 브랜드 액센트 — 같은 로즈 색상(hue 325°)을 흰색 쪽으로 들어올린 #f062b4.
+    /// 어두운 서피스 위에서 #c9308a 는 가라앉아 보이므로 명도만 보정한다.
     static let accentDarkBase = NSColor(
-        srgbRed: 0x7d / 255.0, green: 0x7d / 255.0, blue: 0xff / 255.0, alpha: 1
+        srgbRed: 0xf0 / 255.0, green: 0x62 / 255.0, blue: 0xb4 / 255.0, alpha: 1
     )
 
     /// dynamicProvider 본체 — 외관에 따라 브랜드 액센트를 고른다.
@@ -35,16 +42,22 @@ enum Palette {
         accentBase(for: appearance)
     }
 
-    /// amon Interactive Violet — 앱 전역 1차 액센트. 라이트/다크 적응.
+    /// amon Rose Magenta — 앱 전역 1차 액센트. 라이트/다크 적응.
+    ///
+    /// 뜻은 하나뿐이다: **선택됨 / 지금 여기**. 프로바이더 정체성이나 진행 상태에는
+    /// 절대 쓰지 않는다 (정체성은 프로바이더 hex, 상태는 status* 토큰).
     static let accent = Color(nsColor: accentNS)
 
     /// 동일 색상 hex 문자열 — Provider 액센트 기본값 · 메뉴바 아이콘 fallback
-    static let accentHex = "#6161ff"
+    static let accentHex = "#c9308a"
 
     // MARK: - 도구별 틴트 (AITool.tint)
 
-    /// Claude Code — Interactive Violet (브랜드 동일 토큰 재사용, 라이트/다크 적응)
-    static let tintClaudeCode = accent
+    /// Claude Code — Claude 브랜드 주황 (프로바이더 카드의 hexClaude 와 같은 색).
+    ///
+    /// 이전엔 브랜드 액센트를 그대로 재사용해서, 같은 제품이 **도구일 땐 보라,
+    /// 프로바이더일 땐 주황**으로 한 화면에 두 색으로 나왔다. 정체성 색은 하나여야 한다.
+    static let tintClaudeCode = Color(nsColor: nsColor(fromHex: hexClaude) ?? .systemOrange)
     /// Codex CLI — Teal
     static let tintCodex      = Color(red: 0x00 / 255.0, green: 0xa6 / 255.0, blue: 0x8f / 255.0)
     /// OpenCode — Sunset
@@ -114,6 +127,14 @@ enum Palette {
     static let hexStatusGreen   = "#22c55e"
     /// 중립 / 없음 — Neutral Gray
     static let hexStatusNeutral = "#a3a3a3"
+
+    // MARK: - 상태 색 Color 편의값
+
+    /// 의미색(양호/주의/위험)은 브랜드 액센트와 별개 축이다. 액센트는 "선택됨" 한 가지
+    /// 뜻만 가지므로, 진행 중·경고 같은 상태 표시엔 반드시 이 값을 쓴다.
+    static let statusGreen = Color(nsColor: nsColor(fromHex: hexStatusGreen) ?? .systemGreen)
+    static let statusAmber = Color(nsColor: nsColor(fromHex: hexStatusAmber) ?? .systemOrange)
+    static let statusRed   = Color(nsColor: nsColor(fromHex: hexStatusRed) ?? .systemRed)
 
     // MARK: - 시스템 어댑터
 
