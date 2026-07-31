@@ -193,17 +193,28 @@ public sealed class ClaudeHookProcessor
                 // auto-collapses, so it stuck there and the pet claimed to be waiting for
                 // input long after the work was done.
                 //
-                // Tell them apart by state, not by wording — the text changes between
-                // versions, the ordering does not. A blocking notice arrives while the turn
-                // is running; the idle one arrives after Stop has set idle. A session that is
-                // already needs_input is left alone as well: ignoring a permission prompt
-                // long enough produces an idle notice, and overwriting there would turn
-                // "needs your permission to use Bash" into "waiting for your input" — losing
-                // the one thing the reason exists to say. Only the move into waiting records.
-                if (session.Status is not ("idle" or "needs_input"))
+                // Tell them apart by the transcript, not by wording — the text varies with
+                // version and language, the shape of the record does not. A blocking notice
+                // leaves a tool_use with no result behind it; an idle one does not.
+                //
+                // The status flag is only the fallback because Stop does not always arrive:
+                // interrupt a turn and status stays "active", so a later idle notice would
+                // drag a perfectly finished session into "waiting". The transcript still
+                // shows where it stopped, which is why it is asked first.
+                //
+                // A session already in needs_input is left alone. Ignoring a permission
+                // prompt long enough produces an idle notice behind it, and overwriting there
+                // would turn "needs your permission to use Bash" into "waiting for your
+                // input" — losing the one thing the reason exists to say.
+                if (!string.Equals(session.Status, "needs_input", StringComparison.Ordinal))
                 {
-                    session.Notice = FirstLine(payload.Message, 200);
-                    session.Status = "needs_input";
+                    var blocked = TurnIsOpen(session.TranscriptPath ?? payload.TranscriptPath)
+                        ?? !string.Equals(session.Status, "idle", StringComparison.Ordinal);
+                    if (blocked)
+                    {
+                        session.Notice = FirstLine(payload.Message, 200);
+                        session.Status = "needs_input";
+                    }
                 }
 
                 break;
@@ -309,6 +320,90 @@ public sealed class ClaudeHookProcessor
                 session.LastResult = FirstLine(latestAssistant.Text, 200);
             }
         }
+    }
+
+    /// <summary>
+    /// Whether the current turn is still in flight, judged from the transcript itself.
+    ///
+    /// The status flag is written by the Stop hook, and Stop does not arrive when the user
+    /// interrupts or the process dies — so trusting it alone misreads both directions. The
+    /// record does not lie: if a tool_use raised since the last typed prompt has no
+    /// tool_result behind it, the turn is still going. Waiting on a permission prompt looks
+    /// exactly like that — the call is written, only the result is missing.
+    ///
+    /// Two details matter. An assistant message is split across lines by block
+    /// (thinking/text/tool_use), so the last line alone is not enough and the whole turn has
+    /// to be paired up. And a tool_use abandoned by an earlier interrupted turn can still sit
+    /// in the window, so the scan starts at the last typed prompt to leave that behind.
+    /// </summary>
+    /// <returns>null when it cannot be determined; the caller falls back to the status.</returns>
+    private static bool? TurnIsOpen(string? transcriptPath)
+    {
+        if (string.IsNullOrWhiteSpace(transcriptPath))
+            return null;
+
+        var lines = ReadTranscriptTail(transcriptPath);
+        if (lines.Count == 0)
+            return null;
+
+        // -1 keeps every line in range when no typed prompt is present in the window.
+        var turnStart = -1;
+        var uses = new List<(int Line, string Id)>();
+        var results = new List<(int Line, string Id)>();
+
+        for (var index = 0; index < lines.Count; index += 1)
+        {
+            if (string.IsNullOrWhiteSpace(lines[index]))
+                continue;
+
+            JsonDocument document;
+            try
+            {
+                document = JsonDocument.Parse(lines[index]);
+            }
+            catch (JsonException)
+            {
+                continue; // a line clipped by the window edge
+            }
+
+            using (document)
+            {
+                var root = document.RootElement;
+                if (root.ValueKind != JsonValueKind.Object || GetBoolean(root, "isSidechain"))
+                    continue;
+
+                if (GetString(root, "type") == "user" && GetString(root, "promptSource") == "typed")
+                    turnStart = index;
+
+                if (!root.TryGetProperty("message", out var message) ||
+                    message.ValueKind != JsonValueKind.Object ||
+                    !message.TryGetProperty("content", out var content) ||
+                    content.ValueKind != JsonValueKind.Array)
+                    continue;
+
+                foreach (var block in content.EnumerateArray())
+                {
+                    if (block.ValueKind != JsonValueKind.Object)
+                        continue;
+                    switch (GetString(block, "type"))
+                    {
+                        case "tool_use" when GetString(block, "id") is { Length: > 0 } useId:
+                            uses.Add((index, useId));
+                            break;
+                        case "tool_result"
+                            when GetString(block, "tool_use_id") is { Length: > 0 } resultId:
+                            results.Add((index, resultId));
+                            break;
+                    }
+                }
+            }
+        }
+
+        var answered = results
+            .Where(result => result.Line >= turnStart)
+            .Select(result => result.Id)
+            .ToHashSet(StringComparer.Ordinal);
+        return uses.Any(use => use.Line >= turnStart && !answered.Contains(use.Id));
     }
 
     private static List<string> ReadTranscriptTail(string path)
