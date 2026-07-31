@@ -557,6 +557,66 @@ final class PetActivityTests: XCTestCase {
         XCTAssertEqual(PetBubbleVisibility.autoHideLabel(forSeconds: 90), "1분 30초")
     }
 
+    // MARK: - 펫 클릭으로 말풍선 여닫기
+
+    /// 클릭하면 지금 보이는 상태의 반대가 되고, 자동 판정을 덮어쓴다.
+    func testTogglingOverridesAutomaticDecision() {
+        let context = PetBubbleContext(status: .running, sessionIdentity: "codex:s1")
+        var override = PetBubbleOverride()
+        override.sync(context: context)
+
+        XCTAssertTrue(override.resolve(auto: true), "처음엔 자동 판정을 따른다")
+
+        override.toggle(currentlyShowing: true)
+        XCTAssertFalse(override.resolve(auto: true), "작업 중이어도 접은 상태가 유지된다")
+
+        override.toggle(currentlyShowing: false)
+        XCTAssertTrue(override.resolve(auto: false), "자동으로 접힐 상황에도 펼 수 있다")
+    }
+
+    /// 상태가 바뀌거나 다른 세션이 대표가 되면 수동 결정을 버린다.
+    func testOverrideResetsWhenSituationChanges() {
+        var override = PetBubbleOverride()
+        override.sync(context: PetBubbleContext(status: .running, sessionIdentity: "codex:s1"))
+        override.toggle(currentlyShowing: true)
+        XCTAssertFalse(override.resolve(auto: true))
+
+        // 같은 상황이면 그대로 접혀 있다.
+        override.sync(context: PetBubbleContext(status: .running, sessionIdentity: "codex:s1"))
+        XCTAssertFalse(override.resolve(auto: true))
+
+        // 완료로 바뀌면 자동 판정으로 돌아가 결과를 놓치지 않는다.
+        override.sync(context: PetBubbleContext(status: .ready, sessionIdentity: "codex:s1"))
+        XCTAssertTrue(override.resolve(auto: true))
+
+        // 다른 세션이 대표가 되어도 마찬가지다.
+        override.toggle(currentlyShowing: true)
+        override.sync(context: PetBubbleContext(status: .ready, sessionIdentity: "claude:s2"))
+        XCTAssertTrue(override.resolve(auto: true))
+    }
+
+    /// 접어둔 뒤 자동 판정이 접기로 바뀌어도, 다시 클릭하면 펼 수 있다.
+    func testOverrideSurvivesUntilContextChanges() {
+        let context = PetBubbleContext(status: .ready, sessionIdentity: "codex:s1")
+        var override = PetBubbleOverride()
+        override.sync(context: context)
+        override.toggle(currentlyShowing: false)
+
+        // 30초가 지나 자동은 접기(false)로 바뀌었지만 사용자가 편 상태를 유지한다.
+        XCTAssertTrue(override.resolve(auto: false))
+    }
+
+    /// 입력 필요는 손이 필요한 상태라, 접어 두었어도 상태가 바뀌는 순간 다시 뜬다.
+    func testCollapsedBubbleReopensWhenWorkNeedsHands() {
+        var override = PetBubbleOverride()
+        override.sync(context: PetBubbleContext(status: .running, sessionIdentity: "codex:s1"))
+        override.toggle(currentlyShowing: true)
+        XCTAssertFalse(override.resolve(auto: true), "작업 중에는 접어 둔 대로 있다")
+
+        override.sync(context: PetBubbleContext(status: .needsInput, sessionIdentity: "codex:s1"))
+        XCTAssertTrue(override.resolve(auto: true), "승인 요청은 접어둔 탓에 놓치면 안 된다")
+    }
+
     private func showsBubble(
         _ presentation: PetPresentation,
         now: Date,

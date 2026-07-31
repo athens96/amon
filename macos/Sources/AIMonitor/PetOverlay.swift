@@ -20,14 +20,16 @@ final class PetOverlayController {
     private let overlayModel = PetOverlayModel()
     private var cancellables = Set<AnyCancellable>()
     private var showsTaskBubble = false
+    /// 펫을 눌러 말풍선을 강제로 여닫은 상태.
+    private var bubbleOverride = PetBubbleOverride()
+    /// 마지막 자동 판정 — 클릭 즉시 반대로 뒤집을 때 기준으로 쓴다.
+    private var lastAutoShowsBubble = false
     /// 리사이즈 드래그를 시작한 시점의 말풍선 크기 — 이동량을 여기에 더한다.
     private var resizeStartBubbleSize: CGSize?
     private var resizeHandle: PetOverlayGeometry.ResizeHandle = .corner
 
     init(
         state: AppState,
-        isPanelOpen: @escaping () -> Bool,
-        onAvatarClick: @escaping (Bool) -> Void,
         makeContextMenu: @escaping () -> NSMenu
     ) {
         self.state = state
@@ -56,15 +58,18 @@ final class PetOverlayController {
             rootView: PetOverlayView(
                 settings: state.settings,
                 overlayModel: overlayModel,
-                onAvatarAccessibilityClick: { onAvatarClick(isPanelOpen()) }
+                onToggleBubble: { [weak self] in
+                    self?.toggleBubble()
+                }
             )
         )
         contentView.frame = NSRect(origin: .zero, size: Self.compactSize)
-        contentView.isPanelOpen = isPanelOpen
-        contentView.shouldHandleAvatarClick = { [weak overlayModel] point, size in
+        contentView.shouldToggleBubbleClick = { [weak overlayModel] point, size in
             overlayModel?.isAvatarPoint(point, in: size) ?? false
         }
-        contentView.onAvatarClick = onAvatarClick
+        contentView.onToggleBubble = { [weak self] in
+            self?.toggleBubble()
+        }
         contentView.shouldForwardLeftClick = { [weak overlayModel] point, size in
             overlayModel?.isCarouselControlPoint(point, in: size) ?? false
         }
@@ -124,23 +129,30 @@ final class PetOverlayController {
             state.settings.$petReadyAutoHideSeconds
         )
         .combineLatest(ticker)
-        .map { inputs, _ -> Bool in
+        .map { inputs, _ -> (PetPresentation, Bool) in
             let (sessions, showsTask, localActivityEnabled, autoHideSeconds) = inputs
             let presentation = PetStateAdapter.presentation(
                 for: sessions,
                 localActivityEnabled: true
             )
-            return PetBubbleVisibility.showsBubble(
-                presentation: presentation,
-                showsCurrentTask: showsTask,
-                localActivityEnabled: localActivityEnabled,
-                now: Date(),
-                readyAutoHideDelay: autoHideSeconds
+            return (
+                presentation,
+                PetBubbleVisibility.showsBubble(
+                    presentation: presentation,
+                    showsCurrentTask: showsTask,
+                    localActivityEnabled: localActivityEnabled,
+                    now: Date(),
+                    readyAutoHideDelay: autoHideSeconds
+                )
             )
         }
-        .removeDuplicates()
-        .sink { [weak self] autoShows in
-            self?.applyBubbleVisibility(autoShows)
+        // removeDuplicates 를 걸지 않는다 — 표시 여부가 같아도 상황(상태·대표 세션)이
+        // 바뀌면 수동 여닫기를 되돌려야 하는데, 그 변화가 여기서 걸러지면 못 본다.
+        .sink { [weak self] presentation, autoShows in
+            self?.applyBubbleVisibility(
+                context: PetBubbleContext(presentation),
+                autoShows: autoShows
+            )
         }
         .store(in: &cancellables)
 
@@ -228,12 +240,29 @@ final class PetOverlayController {
 
     // MARK: - 말풍선 표시
 
-    /// 완료 시간과 현재 활동 상태에서 계산한 자동 표시 결정을 그대로 적용한다.
-    /// 펫 좌클릭은 대시보드 열기/닫기 전용이라 말풍선을 수동으로 바꾸지 않는다.
-    private func applyBubbleVisibility(_ shows: Bool) {
+    /// 자동 판정에 사용자의 수동 여닫기를 얹어 최종 표시 여부를 정한다.
+    private func applyBubbleVisibility(
+        context: PetBubbleContext,
+        autoShows: Bool
+    ) {
+        bubbleOverride.sync(context: context)
+        lastAutoShowsBubble = autoShows
+        let shows = bubbleOverride.resolve(auto: autoShows)
         guard overlayModel.showsBubble != shows || showsTaskBubble != shows else { return }
         overlayModel.showsBubble = shows
         setExpanded(shows)
+    }
+
+    /// 펫 좌클릭 — 말풍선을 접었다 폈다 한다.
+    ///
+    /// 대시보드는 여기서 열지 않는다. 상태바 아이콘이나 우클릭 메뉴가 그 몫이다.
+    private func toggleBubble() {
+        bubbleOverride.toggle(currentlyShowing: overlayModel.showsBubble)
+        applyBubbleVisibility(
+            context: bubbleOverride.context
+                ?? PetBubbleContext(status: .idle, sessionIdentity: nil),
+            autoShows: lastAutoShowsBubble
+        )
     }
 
     // MARK: - 말풍선 리사이즈
@@ -427,9 +456,8 @@ private final class PetOverlayModel: ObservableObject {
 /// 크기 조절, 캐러셀 버튼만 SwiftUI 로 넘긴다.
 private final class PetInteractiveHostingView<Content: View>: NSHostingView<Content> {
     var makeContextMenu: (() -> NSMenu)?
-    var isPanelOpen: (() -> Bool)?
-    var onAvatarClick: ((Bool) -> Void)?
-    var shouldHandleAvatarClick: ((NSPoint, NSSize) -> Bool)?
+    var shouldToggleBubbleClick: ((NSPoint, NSSize) -> Bool)?
+    var onToggleBubble: (() -> Void)?
     var shouldForwardLeftClick: ((NSPoint, NSSize) -> Bool)?
     var beginResize: ((NSPoint, NSSize) -> Bool)?
     var onResizeChanged: ((CGSize) -> Void)?
@@ -478,17 +506,15 @@ private final class PetInteractiveHostingView<Content: View>: NSHostingView<Cont
             trackResize()
             return
         }
-        // 드래그는 펫 이동, 제자리 클릭은 대시보드 열기/닫기.
-        trackDragOrClick(
-            canClickAvatar: shouldHandleAvatarClick?(point, bounds.size) == true,
-            wasPanelOpen: isPanelOpen?() ?? false
-        )
+        // 드래그는 펫 이동, 제자리 클릭은 말풍선 여닫기.
+        // 대시보드는 상태바 아이콘이나 우클릭 메뉴로 연다.
+        trackDragOrClick(canToggle: shouldToggleBubbleClick?(point, bounds.size) == true)
     }
 
     /// 이동이 먼저다. 임계값을 넘으면 그 순간부터 패널을 끌고, 끝까지 넘지 않은 채
     /// 버튼을 떼면 그때 클릭으로 처리한다. `performDrag` 는 미세한 흔들림에도
     /// 창을 움직여 클릭과 뒤섞이므로 직접 추적한다.
-    private func trackDragOrClick(canClickAvatar: Bool, wasPanelOpen: Bool) {
+    private func trackDragOrClick(canToggle: Bool) {
         guard let window else { return }
         let mouseDown = NSEvent.mouseLocation
         let originAtMouseDown = window.frame.origin
@@ -518,8 +544,8 @@ private final class PetInteractiveHostingView<Content: View>: NSHostingView<Cont
 
         if isDragging {
             onLocomotion?(nil)
-        } else if canClickAvatar {
-            onAvatarClick?(wasPanelOpen)
+        } else if canToggle {
+            onToggleBubble?()
         }
     }
 
@@ -551,7 +577,7 @@ private final class PetInteractiveHostingView<Content: View>: NSHostingView<Cont
 private struct PetOverlayView: View {
     @ObservedObject var settings: AppSettings
     @ObservedObject var overlayModel: PetOverlayModel
-    let onAvatarAccessibilityClick: () -> Void
+    let onToggleBubble: () -> Void
 
     private var presentation: PetPresentation {
         overlayModel.selectedPresentation ?? .idle
@@ -594,8 +620,8 @@ private struct PetOverlayView: View {
             )
             .accessibilityLabel(accessibilityDescription)
             .accessibilityAddTraits(.isButton)
-            .accessibilityHint("대시보드 열기 또는 닫기")
-            .accessibilityAction { onAvatarAccessibilityClick() }
+            .accessibilityHint("말풍선 여닫기")
+            .accessibilityAction { onToggleBubble() }
 
             if showsBubble, overlayModel.bubblePlacement == .right {
                 activityBubble

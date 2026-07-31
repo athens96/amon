@@ -97,10 +97,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         petOverlay = PetOverlayController(
             state: state,
-            isPanelOpen: { [weak self] in self?.popover.isShown ?? false },
-            onAvatarClick: { [weak self] wasPanelOpen in
-                self?.setPopoverShown(!wasPanelOpen)
-            },
             makeContextMenu: { [weak self] in
                 self?.makeStatusContextMenu() ?? NSMenu()
             }
