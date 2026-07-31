@@ -182,12 +182,30 @@ public sealed class ClaudeHookProcessor
                 session.CurrentTask = submittedTask ?? session.CurrentTask;
                 break;
             case "Notification":
-                // The only signal that Claude is waiting on a person — a tool permission
-                // prompt or an idle wait. needs_input makes the pet show this first and stops
-                // the bubble from auto-collapsing. The message is Claude's own wording, never
-                // the user's prompt, so one line of it is kept as-is.
-                session.Notice = FirstLine(payload.Message, 200);
-                session.Status = "needs_input";
+                // This hook fires for two different situations:
+                //   1. A tool permission prompt, mid-turn. Nothing proceeds until a person
+                //      acts on it.
+                //   2. An idle notice ("Claude is waiting for your input"), which arrives
+                //      well after the turn ended. Not blocked, just out of instructions.
+                //
+                // Raising both to needs_input meant case 2 landed after Stop and dragged a
+                // finished session back to "waiting". needs_input deliberately never
+                // auto-collapses, so it stuck there and the pet claimed to be waiting for
+                // input long after the work was done.
+                //
+                // Tell them apart by state, not by wording — the text changes between
+                // versions, the ordering does not. A blocking notice arrives while the turn
+                // is running; the idle one arrives after Stop has set idle. A session that is
+                // already needs_input is left alone as well: ignoring a permission prompt
+                // long enough produces an idle notice, and overwriting there would turn
+                // "needs your permission to use Bash" into "waiting for your input" — losing
+                // the one thing the reason exists to say. Only the move into waiting records.
+                if (session.Status is not ("idle" or "needs_input"))
+                {
+                    session.Notice = FirstLine(payload.Message, 200);
+                    session.Status = "needs_input";
+                }
+
                 break;
             case "Stop":
                 ResumeFromWait(session);
