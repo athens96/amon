@@ -270,6 +270,107 @@ public sealed class ClaudeHookProcessorTests : IDisposable
     }
 
     [Fact]
+    public void InterruptedTurnIsStillRecognisedAsFinished()
+    {
+        // The case the status flag alone gets wrong. Interrupt a turn and Stop never fires,
+        // so status stays "active" — an idle notice would then claim the session needs input.
+        // The transcript shows every tool call was answered, so the turn is over.
+        Directory.CreateDirectory(root);
+        var transcript = Path.Combine(root, "중단된 기록.jsonl");
+        File.WriteAllLines(transcript,
+        [
+            """{"type":"user","promptSource":"typed","message":{"content":[{"type":"text","text":"작업"}]}}""",
+            """{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_1"}]}}""",
+            """{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1"}]}}""",
+            """{"type":"assistant","message":{"content":[{"type":"text","text":"완료"}]}}""",
+        ]);
+        var processor = new ClaudeHookProcessor(Path.Combine(root, "live"));
+        processor.Process(Event("SessionStart", cwd: @"C:\작업 폴더",
+            transcriptPath: transcript, extra: """
+                "source": "startup"
+                """));
+        processor.Process(Event("UserPromptSubmit", transcriptPath: transcript, extra: """
+            "prompt": "작업"
+            """));
+        Assert.Equal("active", Read(processor.GetSessionPath("session/one")).Status);
+
+        processor.Process(Event("Notification", transcriptPath: transcript, extra: """
+            "message": "Claude is waiting for your input"
+            """));
+
+        var session = Read(processor.GetSessionPath("session/one"));
+        Assert.NotEqual("needs_input", session.Status);
+        Assert.Null(session.Notice);
+    }
+
+    [Fact]
+    public void UnansweredToolCallReadsAsBlocked()
+    {
+        // A permission prompt looks exactly like this in the record — the call is written and
+        // the result never arrives. That has to keep raising needs_input.
+        Directory.CreateDirectory(root);
+        var transcript = Path.Combine(root, "대기 기록.jsonl");
+        File.WriteAllLines(transcript,
+        [
+            """{"type":"user","promptSource":"typed","message":{"content":[{"type":"text","text":"작업"}]}}""",
+            """{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_1"}]}}""",
+        ]);
+        var processor = new ClaudeHookProcessor(Path.Combine(root, "live"));
+        processor.Process(Event("SessionStart", cwd: @"C:\작업 폴더",
+            transcriptPath: transcript, extra: """
+                "source": "startup"
+                """));
+        processor.Process(Event("UserPromptSubmit", transcriptPath: transcript, extra: """
+            "prompt": "작업"
+            """));
+
+        processor.Process(Event("Notification", transcriptPath: transcript, extra: """
+            "message": "Claude needs your permission to use Bash"
+            """));
+
+        var session = Read(processor.GetSessionPath("session/one"));
+        Assert.Equal("needs_input", session.Status);
+        Assert.Equal("Claude needs your permission to use Bash", session.Notice);
+    }
+
+    [Fact]
+    public void ToolCallAbandonedByAnEarlierTurnIsIgnored()
+    {
+        // An interrupted turn can leave an unanswered call in the window forever. Scanning
+        // from the last typed prompt leaves that behind instead of reading it as blocked.
+        Directory.CreateDirectory(root);
+        var transcript = Path.Combine(root, "찌꺼기 기록.jsonl");
+        File.WriteAllLines(transcript,
+        [
+            """{"type":"user","promptSource":"typed","message":{"content":[{"type":"text","text":"옛 작업"}]}}""",
+            """{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_old"}]}}""",
+            """{"type":"user","promptSource":"typed","message":{"content":[{"type":"text","text":"새 작업"}]}}""",
+            """{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_1"}]}}""",
+            """{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_1"}]}}""",
+            """{"type":"assistant","message":{"content":[{"type":"text","text":"완료"}]}}""",
+        ]);
+        var processor = new ClaudeHookProcessor(Path.Combine(root, "live"));
+        processor.Process(Event("SessionStart", cwd: @"C:\작업 폴더",
+            transcriptPath: transcript, extra: """
+                "source": "startup"
+                """));
+        processor.Process(Event("UserPromptSubmit", transcriptPath: transcript, extra: """
+            "prompt": "새 작업"
+            """));
+        processor.Process(Event("Stop", transcriptPath: transcript, extra: """
+            "last_assistant_message": "완료"
+            """));
+
+        processor.Process(Event("Notification", transcriptPath: transcript, extra: """
+            "message": "Claude is waiting for your input"
+            """));
+
+        var session = Read(processor.GetSessionPath("session/one"));
+        Assert.Equal("idle", session.Status);
+        Assert.Null(session.Notice);
+    }
+
+    [Fact]
     public void IdleNoticeDoesNotOverwriteWhyItIsAlreadyWaiting()
     {
         // Leaving a permission prompt unanswered produces an idle notice behind it. The

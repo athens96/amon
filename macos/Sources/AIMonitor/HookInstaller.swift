@@ -458,6 +458,75 @@ def read_last_message(transcript_path, kind):
     return None
 
 
+def turn_is_open(transcript_path):
+    """트랜스크립트 내용만으로 "지금 턴이 아직 도는 중인지" 를 판정한다.
+
+    상태 플래그(`status`)는 Stop 훅이 세운다. 그런데 Stop 은 사용자가 중간에 끊거나
+    프로세스가 죽으면 오지 않아서, 플래그만 믿으면 끝난 턴을 도는 중으로, 도는 턴을
+    끝난 것으로 볼 수 있다. 그래서 여기서는 **기록 자체**를 본다.
+
+    판정 규칙: 마지막으로 사람이 친 프롬프트 이후에 나온 tool_use 중 결과
+    (tool_result)가 아직 안 돌아온 게 하나라도 있으면 도는 중이다. 권한 승인을
+    기다리는 상태가 정확히 이 모양이다 — 도구를 부르는 줄은 이미 쓰였고 결과 줄만
+    없다.
+
+    두 가지를 조심한다.
+    - 어시스턴트 메시지는 블록마다 줄이 나뉜다(thinking/text/tool_use). 마지막 한 줄만
+      보면 tool_use 를 놓치므로 턴 구간 전체에서 짝을 맞춘다.
+    - 직전 턴에서 끊긴 tool_use 가 창에 남아 있을 수 있다. 마지막 typed 프롬프트
+      이후로 범위를 잘라 그 찌꺼기를 제외한다.
+
+    판정할 수 없으면(파일 없음·파싱 실패) None. 호출부가 기존 상태 판정으로 물러난다.
+    """
+    if not transcript_path:
+        return None
+    try:
+        with open(transcript_path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - TAIL_WINDOWS[0]))
+            chunk = f.read()
+    except Exception:
+        return None
+
+    entries = []
+    for raw in chunk.split(b"\n"):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            obj = json.loads(raw)
+        except Exception:
+            continue  # 창 경계에서 잘린 첫 줄
+        if isinstance(obj, dict) and not obj.get("isSidechain"):
+            entries.append(obj)
+    if not entries:
+        return None
+
+    # 이번 턴의 시작 — 마지막 typed 프롬프트. 없으면 창 전체를 본다.
+    start = 0
+    for index in range(len(entries) - 1, -1, -1):
+        item = entries[index]
+        if item.get("type") == "user" and item.get("promptSource") == "typed":
+            start = index
+            break
+
+    requested = set()
+    answered = set()
+    for item in entries[start:]:
+        content = (item.get("message") or {}).get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "tool_use" and block.get("id"):
+                requested.add(block["id"])
+            elif block.get("type") == "tool_result" and block.get("tool_use_id"):
+                answered.add(block["tool_use_id"])
+    return bool(requested - answered)
+
+
 def first_line(text, limit):
     """요약용 — 첫 줄만, limit 자로 자른다. 전체 본문은 절대 보관하지 않는다."""
     if not text:
@@ -765,14 +834,18 @@ def handle_notification(payload):
     해 뒀으므로(PetBubbleVisibility) 그대로 눌어붙어, 작업이 끝났는데도 펫이 계속
     입력을 기다린다고 표시했다.
 
-    구분은 **문구가 아니라 상태로** 한다. 안내 문구는 버전에 따라 바뀌지만 순서는
-    바뀌지 않는다 — 막는 알림은 턴 도중(active)에 오고, 유휴 알림은 Stop 뒤(idle)에
-    온다. 이미 idle 이면 완료 표시를 덮지 않는다.
+    구분은 **문구가 아니라 트랜스크립트로** 한다. 안내 문구는 버전과 언어에 따라
+    바뀌지만, 기록의 모양은 바뀌지 않는다 — 막고 있는 알림은 결과가 안 돌아온
+    tool_use 를 남기고(`turn_is_open`), 유휴 알림은 그런 게 없는 상태에서 온다.
 
-    이미 needs_input 인 경우에도 손대지 않는다. 권한 요청을 방치하면 유휴 알림이
-    뒤따라 오는데, 그때 사유를 덮어쓰면 "Bash 권한이 필요하다" 가 "입력을 기다린다"
-    로 바뀐다 — 무엇을 기다리는지 보여주려고 만든 값이 정작 그걸 잃는다.
-    그래서 **대기로 들어가는 순간에만** 기록한다.
+    상태 플래그를 안 쓰는 이유는 Stop 이 항상 오지는 않기 때문이다. 사용자가 중간에
+    끊으면 status 는 active 로 남고, 그러면 뒤따라온 유휴 알림이 멀쩡히 끝난 세션을
+    "입력 필요" 로 만든다. 트랜스크립트에는 끊긴 자리가 그대로 남으므로 그쪽이 더
+    정확하다. 읽지 못할 때만 예전 방식(status)으로 물러난다.
+
+    이미 needs_input 이면 손대지 않는다. 권한 요청을 방치하면 유휴 알림이 뒤따라
+    오는데, 그때 사유를 덮어쓰면 "Bash 권한이 필요하다" 가 "입력을 기다린다" 로
+    바뀐다 — 무엇을 기다리는지 보여주려고 만든 값이 정작 그걸 잃는다.
 
     message 는 Claude 가 만든 안내 문구라 사용자 프롬프트 원문이 아니다 — 그대로
     한 줄만 보관한다.
@@ -783,9 +856,16 @@ def handle_notification(payload):
     cwd = payload.get("cwd") or ""
     data = load_session(session_id, cwd)
     remember_transcript(data, payload)
-    # idle 이면 턴 뒤의 유휴 알림, needs_input 이면 이미 잡아 둔 사유가 있다.
-    # 둘 다 시각만 갱신하고 상태와 사유는 두 손 뗀다.
-    if data.get("status") not in ("idle", "needs_input"):
+
+    if data.get("status") == "needs_input":
+        # 이미 사유를 잡아 뒀다. 뒤따라오는 유휴 알림이 그걸 덮지 않게 시각만 갱신한다.
+        write_session(session_id, data)
+        return
+
+    blocked = turn_is_open(data.get("transcript_path") or payload.get("transcript_path"))
+    if blocked is None:
+        blocked = data.get("status") != "idle"  # 트랜스크립트를 못 읽었을 때의 대비책
+    if blocked:
         message = payload.get("message")
         data["notice"] = first_line(message, 200) if isinstance(message, str) else None
         data["status"] = "needs_input"
