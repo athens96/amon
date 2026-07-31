@@ -39,7 +39,11 @@ public sealed record LiveSession(
     string? Model,
     LiveTokenSnapshot Tokens,
     DateTimeOffset StartedAt,
-    DateTimeOffset UpdatedAt)
+    DateTimeOffset UpdatedAt,
+    // Why the session is waiting (a tool permission prompt, for example). Only set when
+    // Status is "needs_input". Claude writes this text, so it is never the user's prompt.
+    // Local display only — it is not part of any upload payload.
+    string? Notice = null)
 {
     public string Identity => $"{Provider}:{SessionId}";
 }

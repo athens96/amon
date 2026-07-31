@@ -43,6 +43,11 @@ public sealed record ClaudeLiveSession
     [JsonPropertyName("last_result")]
     public string? LastResult { get; set; }
 
+    // Why the session is waiting, from the Notification hook. Cleared as soon as anything
+    // else happens. Claude writes this text, so it is never the user's prompt.
+    [JsonPropertyName("notice")]
+    public string? Notice { get; set; }
+
     [JsonPropertyName("agents")]
     public List<ClaudeLiveAgent> Agents { get; init; } = [];
 

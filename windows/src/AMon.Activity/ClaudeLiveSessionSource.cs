@@ -155,8 +155,11 @@ public sealed class ClaudeLiveSessionSource : ILiveSessionSource
         var id = Text(root, "session_id");
         if (string.IsNullOrWhiteSpace(id) ||
             !Timestamp(root, "started_at", out var startedAt) ||
-            !Timestamp(root, "updated_at", out var updatedAt) ||
-            now - updatedAt > StaleAfter)
+            !Timestamp(root, "updated_at", out var hookUpdatedAt))
+            return false;
+
+        var updatedAt = LastActivity(root, hookUpdatedAt);
+        if (now - updatedAt > StaleAfter)
             return false;
 
         var agents = new List<LiveAgent>();
@@ -211,8 +214,43 @@ public sealed class ClaudeLiveSessionSource : ILiveSessionSource
                     LiveTokenScope.LatestMessage)
                 : LiveTokenSnapshot.Unavailable,
             startedAt,
-            updatedAt);
+            updatedAt,
+            LiveText.FirstLine(Text(root, "notice"), 200));
         return true;
+    }
+
+    /// <summary>
+    /// When the session was last actually alive.
+    ///
+    /// The hook only touches the session file at the start and end of a turn and around
+    /// subagent calls. A long turn that just uses tools never updates it, so a healthy
+    /// session used to trip the 15 minute stale rule and vanish from the pet.
+    ///
+    /// The transcript is appended to throughout the turn, so its write time tracks real
+    /// activity. Take whichever is newer — same result as running the hook on every tool
+    /// call, without paying for a process launch each time.
+    /// </summary>
+    private static DateTimeOffset LastActivity(JsonElement root, DateTimeOffset hookUpdatedAt)
+    {
+        var path = Text(root, "transcript_path");
+        if (string.IsNullOrWhiteSpace(path))
+            return hookUpdatedAt;
+
+        try
+        {
+            var info = new FileInfo(path);
+            if (!info.Exists)
+                return hookUpdatedAt;
+            var written = new DateTimeOffset(
+                DateTime.SpecifyKind(info.LastWriteTimeUtc, DateTimeKind.Utc));
+            return written > hookUpdatedAt ? written : hookUpdatedAt;
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or ArgumentException
+                or NotSupportedException or PathTooLongException)
+        {
+            return hookUpdatedAt;
+        }
     }
 
     private static string? Text(JsonElement root, string property) =>

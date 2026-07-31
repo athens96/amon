@@ -11,12 +11,22 @@ public static class PetStateAdapter
         if (!localActivityEnabled)
             return [];
 
-        var candidates = sessions.Select(static session => new Candidate(
-            session,
-            StatusFrom(session.Status),
-            LiveText.FirstLine(session.ProjectLabel, 80)
-                ?? ProviderTitle(session.Provider),
-            LiveText.FirstLine(session.CurrentTask, 120))).ToArray();
+        var candidates = sessions.Select(static session =>
+        {
+            var status = StatusFrom(session.Status);
+            // While waiting, what it is waiting for (a permission prompt, say) matters more
+            // than what it was doing. Notice is empty in every other state, so nothing else
+            // changes.
+            var waitReason = status == PetActivityStatus.NeedsInput
+                ? LiveText.FirstLine(session.Notice, 120)
+                : null;
+            return new Candidate(
+                session,
+                status,
+                LiveText.FirstLine(session.ProjectLabel, 80)
+                    ?? ProviderTitle(session.Provider),
+                waitReason ?? LiveText.FirstLine(session.CurrentTask, 120));
+        }).ToArray();
 
         var attention = candidates
             .Where(static candidate =>

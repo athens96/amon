@@ -30,7 +30,12 @@ enum HookInstallError: LocalizedError {
 ///   다른 도구(예: 이 저장소의 cmux 훅)의 matcher 그룹은 절대 건드리지 않는다.
 enum HookInstaller {
     /// matcher 없이(모든 호출) 거는 이벤트.
-    private static let noMatcherEvents = ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"]
+    ///
+    /// `Notification` 은 Claude 가 툴 권한을 묻거나 입력을 기다릴 때 온다 — 펫의
+    /// "입력 필요"(needsInput) 상태를 만드는 유일한 신호다.
+    private static let noMatcherEvents = [
+        "SessionStart", "UserPromptSubmit", "Stop", "SessionEnd", "Notification",
+    ]
     /// 서브에이전트(Agent) 툴에만 거는 이벤트.
     private static let agentMatcherEvents = ["PreToolUse", "PostToolUse"]
     private static var allEvents: [String] { noMatcherEvents + agentMatcherEvents }
@@ -316,6 +321,7 @@ def default_session(session_id, cwd):
         "agent_total": 0,  # 세션 동안 실행된 서브에이전트 누적 수(현재 실행 중과 별개)
         "current_task": None,
         "last_result": None,
+        "notice": None,  # 입력 대기 사유(Notification 훅) — 대기가 풀리면 지운다
         "model": None,
         "total_tokens": None,
         "input_tokens": None,
@@ -338,6 +344,32 @@ NON_PROMPT_PREFIXES = (
 def is_real_prompt(text):
     t = (text or "").lstrip()
     return bool(t) and not t.startswith(NON_PROMPT_PREFIXES)
+
+
+# 대화를 조작할 뿐 작업이 아닌 내장 슬래시 명령. 이것들은 어시스턴트 턴을 만들지
+# 않으므로 Stop 도 오지 않는다 — 작업으로 기록하면 완료되지 않은 채 남는다.
+# 사용자 스킬(`/oh-my-claudecode:...` 등)은 실제 작업이므로 건드리지 않는다.
+NON_TASK_COMMANDS = frozenset(
+    [
+        "clear", "compact", "resume", "exit", "quit", "help", "login", "logout",
+        "status", "config", "cost", "doctor", "model", "context", "usage",
+    ]
+)
+
+
+def is_task_prompt(text):
+    """사람이 시킨 '작업' 인지. 주입 텍스트와 내장 명령은 작업이 아니다."""
+    if not is_real_prompt(text):
+        return False
+    t = (text or "").strip()
+    if t.startswith("/"):
+        # `/clear`, `/compact` 같은 내장 명령은 인자가 붙어도 어시스턴트 턴을 만들지
+        # 않으므로 이름만 보고 걸러낸다. 이름에 콜론이 있는 사용자 스킬은 통과한다.
+        name = t[1:].split(None, 1)[0].lower() if len(t) > 1 else ""
+        if not name:
+            return False  # 슬래시만 친 경우 — 작업이 아니다
+        return name not in NON_TASK_COMMANDS
+    return True
 
 
 def extract_prompt_text(content):
@@ -450,6 +482,7 @@ def load_session(session_id, cwd):
             data.setdefault("status", "active")
             data.setdefault("current_task", None)
             data.setdefault("last_result", None)
+            data.setdefault("notice", None)
             data.setdefault("model", None)
             data.setdefault("total_tokens", None)
             data.setdefault("input_tokens", None)
@@ -486,6 +519,17 @@ def remember_transcript(data, payload):
     tp = payload.get("transcript_path")
     if tp:
         data["transcript_path"] = str(tp)
+
+
+def resume_from_wait(data):
+    """대기가 풀렸다 — 무언가 진행됐다는 뜻이므로 입력 대기 표시를 지운다.
+
+    Notification 에는 "이제 안 기다린다" 는 반대 이벤트가 없다. 그래서 이후에 오는
+    어떤 이벤트(툴 실행·응답 종료·새 프롬프트)든 대기 해제 신호로 삼는다. 이게 없으면
+    펫이 needsInput 에 붙박여 자동으로 접히지도 않는다."""
+    data["notice"] = None
+    if data.get("status") == "needs_input":
+        data["status"] = "active"
 
 
 def refresh_current_task(data, payload):
@@ -606,6 +650,7 @@ def handle_pretooluse(payload):
     data["agents"] = agents
     if tool_use_id not in known:  # 재시도로 같은 id 가 다시 와도 두 번 세지 않는다
         data["agent_total"] = int(data.get("agent_total", 0)) + 1
+    resume_from_wait(data)
     data["status"] = "active"
     write_session(session_id, data)
 
@@ -621,6 +666,7 @@ def handle_posttooluse(payload):
     refresh_current_task(data, payload)
     refresh_model_tokens(data, payload)
     data["agents"] = [a for a in data.get("agents", []) if a.get("tool_use_id") != tool_use_id]
+    resume_from_wait(data)
     write_session(session_id, data)
 
 
@@ -629,14 +675,25 @@ def handle_sessionstart(payload):
     if not session_id:
         return
     cwd = payload.get("cwd") or ""
-    # SessionStart 는 진짜 첫 시작뿐 아니라 resume/compact 때도 다시 온다. 이미
+    # SessionStart 는 진짜 첫 시작뿐 아니라 resume/compact/clear 때도 다시 온다. 이미
     # 파일이 있으면(=같은 세션이 이어지는 중) cwd/project_label/git_branch 를
     # 덮어쓰지 않는다 — 재발화 시점에 셸이 서브모듈 등으로 일시 cd 돼 있으면
     # 엉뚱한 프로젝트명으로 고정돼버리는 버그였다. 상태/시각만 갱신.
     if session_path(session_id).exists():
         data = load_session(session_id, cwd)
         remember_transcript(data, payload)
-        data["status"] = "active"
+        resume_from_wait(data)
+        if payload.get("source") == "clear":
+            # /clear 는 대화를 비우지만 세션 id 는 그대로다. 직전 작업 내용을 남겨두면
+            # 펫이 끝난 작업을 계속 "작업 중" 으로 보여준다 — 게다가 /clear 에는
+            # 어시스턴트 턴이 없어 Stop 이 오지 않으므로 완료 표시로 넘어갈 기회조차
+            # 없다. 여기서 비워야 빈 대화 상태와 화면이 맞는다.
+            data["current_task"] = None
+            data["last_result"] = None
+            data["agents"] = []
+            data["status"] = "idle"
+        else:
+            data["status"] = "active"
         write_session(session_id, data)
     else:
         data = default_session(session_id, cwd)
@@ -651,11 +708,17 @@ def handle_userpromptsubmit(payload):
     cwd = payload.get("cwd") or ""
     data = load_session(session_id, cwd)
     remember_transcript(data, payload)
+    resume_from_wait(data)
     data["status"] = "active"
     # 페이로드의 prompt 가 방금 제출된 원문이다. 트랜스크립트는 이 시점에 아직
     # 새 프롬프트가 안 써진 경우가 있어 먼저 읽으면 직전 입력으로 한 턴 밀린다.
     # 로컬 UI에는 첫 줄 120자만 저장하고 서버로는 보내지 않는다.
+    #
+    # is_task_prompt 를 여기서도 건다 — 트랜스크립트 경로에만 걸려 있어서 주입 텍스트나
+    # 내장 슬래시 명령이 페이로드로 들어오면 그대로 작업으로 찍혔다.
     prompt = payload.get("prompt")
+    if isinstance(prompt, str) and not is_task_prompt(prompt):
+        prompt = None
     latest = first_line(prompt, 120) if isinstance(prompt, str) else None
     if latest:
         data["current_task"] = latest
@@ -680,12 +743,33 @@ def handle_stop(payload):
     remember_transcript(data, payload)
     refresh_current_task(data, payload)
     refresh_model_tokens(data, payload)
+    resume_from_wait(data)
     data["status"] = "idle"
     # 턴이 끝났다 — 방금 낸 응답의 첫 줄(200자)만 요약으로 남긴다.
     # Stop 페이로드에 응답 본문이 온다는 보장이 없어 트랜스크립트에서 읽는다.
     transcript_path = data.get("transcript_path") or payload.get("transcript_path")
     if transcript_path:
         data["last_result"] = first_line(read_last_message(transcript_path, "assistant"), 200)
+    write_session(session_id, data)
+
+
+def handle_notification(payload):
+    """Claude 가 사람을 기다린다 — 툴 권한 승인 요청이나 입력 대기.
+
+    이 훅이 "기다리는 중" 을 알 수 있는 유일한 신호다. 상태를 needs_input 으로 올리면
+    펫이 최우선으로 표시하고 자동으로 접지 않는다(PetBubbleVisibility).
+    message 는 Claude 가 만든 안내 문구라 사용자 프롬프트 원문이 아니다 — 그대로
+    한 줄만 보관한다.
+    """
+    session_id = payload.get("session_id")
+    if not session_id:
+        return
+    cwd = payload.get("cwd") or ""
+    data = load_session(session_id, cwd)
+    remember_transcript(data, payload)
+    message = payload.get("message")
+    data["notice"] = first_line(message, 200) if isinstance(message, str) else None
+    data["status"] = "needs_input"
     write_session(session_id, data)
 
 
@@ -731,6 +815,7 @@ HANDLERS = {
     "UserPromptSubmit": handle_userpromptsubmit,
     "Stop": handle_stop,
     "SessionEnd": handle_sessionend,
+    "Notification": handle_notification,
 }
 
 
