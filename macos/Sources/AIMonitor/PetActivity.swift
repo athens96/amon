@@ -325,6 +325,50 @@ enum PetBubbleVisibility {
 }
 
 /// 단일 말풍선에서 여러 라이브 세션을 순환할 때 사용하는 순수 선택 로직.
+/// 말풍선이 놓인 "상황" — 이 값이 바뀌면 사용자의 수동 여닫기를 되돌린다.
+struct PetBubbleContext: Equatable {
+    let status: PetActivityStatus
+    let sessionIdentity: String?
+
+    init(status: PetActivityStatus, sessionIdentity: String?) {
+        self.status = status
+        self.sessionIdentity = sessionIdentity
+    }
+
+    init(_ presentation: PetPresentation) {
+        self.init(
+            status: presentation.status,
+            sessionIdentity: presentation.sessionIdentity
+        )
+    }
+}
+
+/// 펫을 눌러 말풍선을 강제로 여닫은 상태.
+///
+/// 수동 결정은 "지금 이 상황"에만 적용한다. 상태가 바뀌거나 다른 세션이 대표가 되면
+/// 자동 판정으로 돌아가야, 접어둔 말풍선 때문에 다음 작업을 놓치지 않는다.
+struct PetBubbleOverride: Equatable {
+    private(set) var manualShows: Bool?
+    private(set) var context: PetBubbleContext?
+
+    /// 지금 보이는 상태의 반대로 뒤집는다.
+    mutating func toggle(currentlyShowing: Bool) {
+        manualShows = !currentlyShowing
+    }
+
+    /// 상황이 바뀌었으면 수동 결정을 버린다.
+    mutating func sync(context newContext: PetBubbleContext) {
+        guard context != newContext else { return }
+        context = newContext
+        manualShows = nil
+    }
+
+    /// 수동 결정이 있으면 그것을, 없으면 자동 판정을 따른다.
+    func resolve(auto: Bool) -> Bool {
+        manualShows ?? auto
+    }
+}
+
 enum PetCarousel {
     static func index(
         selectedIdentity: String?,
