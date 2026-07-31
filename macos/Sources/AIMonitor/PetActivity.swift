@@ -125,15 +125,22 @@ enum PetStateAdapter {
     ) -> [PetPresentation] {
         guard !sessions.isEmpty else { return [] }
 
-        let candidates = sessions.map { session in
+        let candidates = sessions.map { session -> Candidate in
             let override = overrides[session.identity]
+            let status = override?.status ?? status(from: session.status)
+            // 입력을 기다리는 중이면 "무엇을 기다리는지"(권한 승인 등)가 지금 할 일보다
+            // 중요하다. 그 외 상태에서는 notice 가 비어 있어 평소와 동일하게 동작한다.
+            let waitReason = status == .needsInput
+                ? normalizedLine(session.notice, limit: 120)
+                : nil
             return Candidate(
                 session: session,
-                status: override?.status ?? status(from: session.status),
+                status: status,
                 title: normalizedLine(override?.title, limit: 80)
                     ?? normalizedLine(session.projectLabel, limit: 80)
                     ?? providerTitle(session.provider),
                 detail: normalizedLine(override?.detail, limit: 120)
+                    ?? waitReason
                     ?? normalizedLine(session.currentTask, limit: 120)
             )
         }

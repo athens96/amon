@@ -195,4 +195,114 @@ public sealed class ClaudeLiveSessionSourceTests
 
         Assert.Equal("valid", Assert.Single(sessions).SessionId);
     }
+
+    // The hook only writes the session file at turn boundaries and around subagent calls,
+    // so a long tool-only turn used to trip the 15 minute stale rule and vanish. The
+    // transcript keeps growing throughout, so its write time is the better liveness signal.
+    [Fact]
+    public async Task Long_tool_only_turn_survives_while_transcript_still_grows()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var directory = TestSupport.TempDirectory("claude-liveness");
+        var transcript = Path.Combine(directory, "transcript.jsonl");
+        await File.WriteAllTextAsync(transcript, "{}\n");
+        File.SetLastWriteTimeUtc(transcript, now.AddSeconds(-30).UtcDateTime);
+
+        await File.WriteAllTextAsync(
+            Path.Combine(directory, "long-turn.json"),
+            TestSupport.Json(new
+            {
+                session_id = "long-turn",
+                agents = Array.Empty<object>(),
+                started_at = now.AddHours(-1),
+                updated_at = now.AddMinutes(-40),
+                transcript_path = transcript
+            }));
+
+        var session = Assert.Single(await new ClaudeLiveSessionSource(directory)
+            .PollAsync(new LivePollContext(new MutableTimeProvider(now))));
+
+        Assert.Equal("long-turn", session.SessionId);
+        // "몇 분째 작업 중" 이 맞으려면 훅 기록이 아니라 실제 활동 시각이어야 한다.
+        Assert.True((now - session.UpdatedAt) < TimeSpan.FromMinutes(1));
+    }
+
+    [Fact]
+    public async Task Dead_session_is_still_dropped_when_transcript_is_also_stale()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var directory = TestSupport.TempDirectory("claude-zombie");
+        var transcript = Path.Combine(directory, "transcript.jsonl");
+        await File.WriteAllTextAsync(transcript, "{}\n");
+        File.SetLastWriteTimeUtc(transcript, now.AddMinutes(-40).UtcDateTime);
+
+        await File.WriteAllTextAsync(
+            Path.Combine(directory, "zombie.json"),
+            TestSupport.Json(new
+            {
+                session_id = "zombie",
+                agents = Array.Empty<object>(),
+                started_at = now.AddHours(-1),
+                updated_at = now.AddMinutes(-40),
+                transcript_path = transcript
+            }));
+
+        Assert.Empty(await new ClaudeLiveSessionSource(directory)
+            .PollAsync(new LivePollContext(new MutableTimeProvider(now))));
+    }
+
+    [Fact]
+    public async Task Missing_transcript_falls_back_to_the_hook_timestamp()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var directory = TestSupport.TempDirectory("claude-no-transcript");
+        await File.WriteAllTextAsync(
+            Path.Combine(directory, "gone.json"),
+            TestSupport.Json(new
+            {
+                session_id = "gone",
+                agents = Array.Empty<object>(),
+                started_at = now.AddHours(-1),
+                updated_at = now.AddMinutes(-40),
+                transcript_path = Path.Combine(directory, "does-not-exist.jsonl")
+            }));
+        await File.WriteAllTextAsync(
+            Path.Combine(directory, "fresh.json"),
+            TestSupport.Json(new
+            {
+                session_id = "fresh",
+                agents = Array.Empty<object>(),
+                started_at = now.AddMinutes(-2),
+                updated_at = now
+            }));
+
+        var sessions = await new ClaudeLiveSessionSource(directory)
+            .PollAsync(new LivePollContext(new MutableTimeProvider(now)));
+
+        Assert.Equal("fresh", Assert.Single(sessions).SessionId);
+    }
+
+    [Fact]
+    public async Task Reads_the_wait_reason_for_a_waiting_session()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var directory = TestSupport.TempDirectory("claude-waiting");
+        await File.WriteAllTextAsync(
+            Path.Combine(directory, "waiting.json"),
+            TestSupport.Json(new
+            {
+                session_id = "waiting",
+                status = "needs_input",
+                agents = Array.Empty<object>(),
+                started_at = now.AddMinutes(-2),
+                updated_at = now,
+                notice = "Claude needs your permission to use Bash"
+            }));
+
+        var session = Assert.Single(await new ClaudeLiveSessionSource(directory)
+            .PollAsync(new LivePollContext(new MutableTimeProvider(now))));
+
+        Assert.Equal("needs_input", session.Status);
+        Assert.Equal("Claude needs your permission to use Bash", session.Notice);
+    }
 }

@@ -162,6 +162,52 @@ public sealed class PetStateAdapterTests
         Assert.Equal(15, values[1].TotalTokens);
     }
 
+    [Fact]
+    public void WaitingSessionShowsWhyItIsWaitingInsteadOfTheTask()
+    {
+        var selected = Assert.Single(PetStateAdapter.CreatePresentations(
+        [
+            Session(
+                "waiting",
+                "needs_input",
+                DateTimeOffset.UtcNow,
+                task: "펫 UI 구현",
+                notice: "Claude needs your permission to use Bash")
+        ]));
+
+        Assert.Equal(PetActivityStatus.NeedsInput, selected.Status);
+        Assert.Equal("Claude needs your permission to use Bash", selected.InputPreview);
+    }
+
+    [Fact]
+    public void NoticeIsIgnoredWhileNotWaiting()
+    {
+        var selected = Assert.Single(PetStateAdapter.CreatePresentations(
+        [
+            Session(
+                "running",
+                "active",
+                DateTimeOffset.UtcNow,
+                task: "펫 UI 구현",
+                notice: "Claude needs your permission to use Bash")
+        ]));
+
+        Assert.Equal(PetActivityStatus.Running, selected.Status);
+        Assert.Equal("펫 UI 구현", selected.InputPreview);
+    }
+
+    [Fact]
+    public void WaitingSessionWithoutNoticeFallsBackToTask()
+    {
+        var selected = Assert.Single(PetStateAdapter.CreatePresentations(
+        [
+            Session("waiting", "needs_input", DateTimeOffset.UtcNow, task: "펫 UI 구현")
+        ]));
+
+        Assert.Equal(PetActivityStatus.NeedsInput, selected.Status);
+        Assert.Equal("펫 UI 구현", selected.InputPreview);
+    }
+
     private static LiveSession Session(
         string id,
         string status,
@@ -171,7 +217,8 @@ public sealed class PetStateAdapterTests
         string? task = "task",
         string? output = null,
         DateTimeOffset? updated = null,
-        LiveTokenSnapshot? tokens = null) =>
+        LiveTokenSnapshot? tokens = null,
+        string? notice = null) =>
         new(
             provider,
             id,
@@ -184,5 +231,6 @@ public sealed class PetStateAdapterTests
             null,
             tokens ?? LiveTokenSnapshot.Unavailable,
             started,
-            updated ?? started);
+            updated ?? started,
+            notice);
 }

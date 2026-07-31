@@ -222,6 +222,153 @@ public sealed class ClaudeHookProcessorTests : IDisposable
         }
     }
 
+    [Fact]
+    public void NotificationMarksTheSessionAsWaitingWithItsReason()
+    {
+        var processor = new ClaudeHookProcessor(root);
+        processor.Process(Event("SessionStart", cwd: @"C:\작업 폴더", extra: """
+            "source": "startup"
+            """));
+        processor.Process(Event("UserPromptSubmit", extra: """
+            "prompt": "펫 UI 구현"
+            """));
+        processor.Process(Event("Notification", extra: """
+            "message": "Claude needs your permission to use Bash\n두 번째 줄"
+            """));
+
+        var waiting = Read(processor.GetSessionPath("session/one"));
+        Assert.Equal("needs_input", waiting.Status);
+        Assert.Equal("Claude needs your permission to use Bash", waiting.Notice);
+        Assert.Equal("펫 UI 구현", waiting.CurrentTask);
+    }
+
+    [Theory]
+    [InlineData("PreToolUse", """
+        "tool_name": "Agent",
+        "tool_use_id": "agent-1",
+        "tool_input": { "subagent_type": "Explore", "description": "조사" }
+        """)]
+    [InlineData("Stop", """
+        "last_assistant_message": "완료했습니다"
+        """)]
+    [InlineData("UserPromptSubmit", """
+        "prompt": "계속 진행해"
+        """)]
+    public void AnyLaterEventReleasesTheWait(string eventName, string extra)
+    {
+        // Notification has no matching "no longer waiting" event, so the next event of any
+        // kind has to clear it. Otherwise the pet sticks on needs_input forever.
+        var processor = new ClaudeHookProcessor(root);
+        processor.Process(Event("SessionStart", cwd: @"C:\작업 폴더", extra: """
+            "source": "startup"
+            """));
+        processor.Process(Event("Notification", extra: """
+            "message": "권한 승인 필요"
+            """));
+        Assert.Equal("needs_input", Read(processor.GetSessionPath("session/one")).Status);
+
+        processor.Process(Event(eventName, extra: extra));
+
+        var released = Read(processor.GetSessionPath("session/one"));
+        Assert.Null(released.Notice);
+        Assert.NotEqual("needs_input", released.Status);
+    }
+
+    [Fact]
+    public void ClearResetsTheTaskSoTheFinishedWorkStopsShowing()
+    {
+        var processor = new ClaudeHookProcessor(root);
+        processor.Process(Event("SessionStart", cwd: @"C:\작업 폴더", extra: """
+            "source": "startup"
+            """));
+        processor.Process(Event("UserPromptSubmit", extra: """
+            "prompt": "긴 작업 하나 해줘"
+            """));
+        processor.Process(Event("PreToolUse", extra: """
+            "tool_name": "Agent",
+            "tool_use_id": "agent-1",
+            "tool_input": { "subagent_type": "Explore", "description": "조사" }
+            """));
+
+        processor.Process(Event("SessionStart", extra: """
+            "source": "clear"
+            """));
+
+        var cleared = Read(processor.GetSessionPath("session/one"));
+        Assert.Null(cleared.CurrentTask);
+        Assert.Null(cleared.LastResult);
+        Assert.Empty(cleared.Agents);
+        Assert.Equal("idle", cleared.Status);
+    }
+
+    [Theory]
+    [InlineData("compact")]
+    [InlineData("resume")]
+    public void CompactAndResumeKeepTheTaskGoing(string source)
+    {
+        var processor = new ClaudeHookProcessor(root);
+        processor.Process(Event("SessionStart", cwd: @"C:\작업 폴더", extra: """
+            "source": "startup"
+            """));
+        processor.Process(Event("UserPromptSubmit", extra: """
+            "prompt": "이어서 할 작업"
+            """));
+
+        processor.Process(Event("SessionStart", extra: $"""
+            "source": "{source}"
+            """));
+
+        var resumed = Read(processor.GetSessionPath("session/one"));
+        Assert.Equal("이어서 할 작업", resumed.CurrentTask);
+        Assert.Equal("active", resumed.Status);
+    }
+
+    [Theory]
+    [InlineData("/clear", null)]
+    [InlineData("/compact", null)]
+    [InlineData("/COST", null)]
+    [InlineData("/compact 지금까지 요약", null)]
+    [InlineData("/", null)]
+    [InlineData("/oh-my-claudecode:autopilot", "/oh-my-claudecode:autopilot")]
+    [InlineData("/review src/app.js", "/review src/app.js")]
+    [InlineData("일반 프롬프트", "일반 프롬프트")]
+    public void BuiltInSlashCommandsAreNotRecordedAsTasks(string prompt, string? expected)
+    {
+        var processor = new ClaudeHookProcessor(root);
+        processor.Process(Event("SessionStart", cwd: @"C:\작업 폴더", extra: """
+            "source": "startup"
+            """));
+
+        processor.Process(Event("UserPromptSubmit", extra: $"""
+            "prompt": {JsonSerializer.Serialize(prompt)}
+            """));
+
+        Assert.Equal(expected, Read(processor.GetSessionPath("session/one")).CurrentTask);
+    }
+
+    [Fact]
+    public void UpgradingAnOlderInstallRegistersTheNotificationHook()
+    {
+        // Existing installs registered four matcher-less events. Startup reinstalls, so the
+        // upgrade has to add Notification to what is already there — otherwise the pet never
+        // learns that Claude is waiting.
+        Directory.CreateDirectory(root);
+        var settingsPath = Path.Combine(root, "settings.json");
+        var executable = Path.Combine(root, ClaudeHookInstaller.ManagedExecutableName);
+        File.WriteAllText(executable, string.Empty);
+        new ClaudeHookInstaller(settingsPath, managedSettingsPath: null).Install(executable);
+        Assert.Contains("Notification", File.ReadAllText(settingsPath));
+
+        // A second run stays idempotent rather than stacking duplicate entries.
+        new ClaudeHookInstaller(settingsPath, managedSettingsPath: null).Install(executable);
+
+        using var document = JsonDocument.Parse(File.ReadAllText(settingsPath));
+        var groups = document.RootElement
+            .GetProperty("hooks")
+            .GetProperty("Notification");
+        Assert.Equal(1, groups.GetArrayLength());
+    }
+
     private static ClaudeLiveSession Read(string path) =>
         JsonSerializer.Deserialize<ClaudeLiveSession>(File.ReadAllText(path))!;
 

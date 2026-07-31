@@ -870,6 +870,64 @@ final class PetActivityTests: XCTestCase {
         }
     }
 
+    // MARK: - 입력 대기 사유 (Notification 훅)
+
+    func testWaitingSessionShowsWhyItIsWaitingInsteadOfTheTask() {
+        let session = makeSession(
+            id: "waiting",
+            status: "needs_input",
+            task: "펫 UI 구현",
+            notice: "Claude needs your permission to use Bash"
+        )
+
+        let presentation = PetStateAdapter.presentation(for: [session])
+
+        XCTAssertEqual(presentation.status, .needsInput)
+        // 기다리는 동안엔 "무엇을 기다리는지" 가 "무슨 작업 중인지" 보다 중요하다.
+        XCTAssertEqual(presentation.detail, "Claude needs your permission to use Bash")
+    }
+
+    func testNoticeIsIgnoredWhileNotWaiting() {
+        // 대기가 아닌 상태에서 남아 있는 사유가 현재 작업을 가리면 안 된다.
+        let session = makeSession(
+            id: "running",
+            status: "active",
+            task: "펫 UI 구현",
+            notice: "Claude needs your permission to use Bash"
+        )
+
+        let presentation = PetStateAdapter.presentation(for: [session])
+
+        XCTAssertEqual(presentation.status, .running)
+        XCTAssertEqual(presentation.detail, "펫 UI 구현")
+    }
+
+    func testWaitingSessionWithoutNoticeFallsBackToTask() {
+        let session = makeSession(id: "waiting", status: "needs_input", task: "펫 UI 구현")
+
+        let presentation = PetStateAdapter.presentation(for: [session])
+
+        XCTAssertEqual(presentation.status, .needsInput)
+        XCTAssertEqual(presentation.detail, "펫 UI 구현")
+    }
+
+    func testWaitingBubbleNeverAutoHides() {
+        // 완료는 잠깐 보였다 접히지만, 사람이 손대야 하는 대기는 계속 떠 있어야 한다.
+        let waiting = PetStateAdapter.presentation(
+            for: [makeSession(id: "waiting", status: "needs_input", notice: "권한 요청")]
+        )
+
+        XCTAssertTrue(
+            PetBubbleVisibility.showsBubble(
+                presentation: waiting,
+                showsCurrentTask: true,
+                localActivityEnabled: true,
+                now: Date(timeIntervalSince1970: 100_000),  // 한참 뒤
+                readyAutoHideDelay: 30
+            )
+        )
+    }
+
     private func makeSession(
         id: String,
         status: String,
@@ -880,7 +938,8 @@ final class PetActivityTests: XCTestCase {
         output: String? = nil,
         inputTokens: Int? = nil,
         outputTokens: Int? = nil,
-        totalTokens: Int? = 42
+        totalTokens: Int? = 42,
+        notice: String? = nil
     ) -> LiveSession {
         LiveSession(
             provider: "codex",
@@ -896,7 +955,8 @@ final class PetActivityTests: XCTestCase {
             inputTokens: inputTokens,
             outputTokens: outputTokens,
             startedAt: startedAt,
-            updatedAt: updatedAt
+            updatedAt: updatedAt,
+            notice: notice
         )
     }
 }

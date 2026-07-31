@@ -25,6 +25,9 @@ struct LiveSession: Equatable {
     let currentTask: String?
     /// 직전 턴의 응답 첫 줄(최대 200자). 턴이 끝났을 때(Stop)만 채워진다.
     let lastResult: String?
+    /// 입력 대기 사유(권한 승인 요청 등). `status == "needs_input"` 일 때만 채워진다.
+    /// Claude 가 만든 안내 문구라 사용자 프롬프트 원문이 아니다. 로컬 표시 전용이다.
+    let notice: String?
     /// 현재 세션에서 마지막으로 확인한 모델 ID. 없으면 nil.
     let model: String?
     /// 라이브 토큰 스냅샷. Codex 는 세션 누적값, Claude/Cursor 는 로그에 있는 최신 값이다.
@@ -50,8 +53,10 @@ struct LiveSession: Equatable {
         inputTokens: Int? = nil,
         outputTokens: Int? = nil,
         startedAt: Date,
-        updatedAt: Date
+        updatedAt: Date,
+        notice: String? = nil
     ) {
+        self.notice = notice
         self.provider = provider
         self.sessionId = sessionId
         self.projectLabel = projectLabel
@@ -160,10 +165,28 @@ enum LiveSessionParser {
             guard let data = try? Data(contentsOf: file),
                   let dto = try? decoder.decode(SessionDTO.self, from: data)
             else { continue }
-            if now.timeIntervalSince(dto.updated_at) > staleInterval { continue }
-            result.append(dto.toModel())
+            let touched = lastActivity(of: dto)
+            if now.timeIntervalSince(touched) > staleInterval { continue }
+            result.append(dto.toModel(updatedAt: touched))
         }
         return result
+    }
+
+    /// 세션이 마지막으로 "살아 있었던" 시각.
+    ///
+    /// 훅은 턴 시작(UserPromptSubmit)·종료(Stop)와 서브에이전트 호출에만 파일을
+    /// 건드린다. 그래서 서브에이전트 없이 툴만 오래 쓰는 턴(수십 분짜리 구현 작업)에는
+    /// 갱신이 한 번도 없어, 멀쩡히 돌아가는 세션이 stale 로 버려지고 펫에서 사라졌다.
+    ///
+    /// 트랜스크립트는 턴 내내 계속 append 되므로 그 mtime 이 실제 활동을 가장 잘
+    /// 나타낸다. 훅 기록과 둘 중 더 최근 값을 쓴다 — 훅을 매 툴 호출마다 돌리는(=매번
+    /// python3 프로세스가 뜨는) 비용 없이 같은 결과를 얻는다.
+    private static func lastActivity(of dto: SessionDTO) -> Date {
+        guard let path = dto.transcript_path, !path.isEmpty,
+              let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+              let mtime = attrs[.modificationDate] as? Date
+        else { return dto.updated_at }
+        return max(dto.updated_at, mtime)
     }
 
     private static func makeDecoder() -> JSONDecoder {
@@ -204,8 +227,12 @@ enum LiveSessionParser {
         let output_tokens: Int?
         let started_at: Date
         let updated_at: Date
+        /// 훅이 매 이벤트마다 갱신하는 트랜스크립트 경로. 활동 시각 판정에 쓴다.
+        let transcript_path: String?
+        let notice: String?
 
-        func toModel() -> LiveSession {
+        /// - Parameter updatedAt: 트랜스크립트 mtime 까지 반영한 실제 활동 시각.
+        func toModel(updatedAt: Date) -> LiveSession {
             LiveSession(
                 provider: provider ?? "claude",
                 sessionId: session_id,
@@ -220,7 +247,8 @@ enum LiveSessionParser {
                 inputTokens: input_tokens,
                 outputTokens: output_tokens,
                 startedAt: started_at,
-                updatedAt: updated_at
+                updatedAt: updatedAt,
+                notice: notice
             )
         }
     }

@@ -18,6 +18,14 @@ public sealed class ClaudeHookProcessor
         "<user-prompt-submit-hook",
     ];
 
+    // Built-in slash commands that only manipulate the conversation. They produce no
+    // assistant turn, so no Stop follows — recording one as a task leaves it never finishing.
+    private static readonly HashSet<string> NonTaskCommands = new(StringComparer.Ordinal)
+    {
+        "clear", "compact", "resume", "exit", "quit", "help", "login", "logout",
+        "status", "config", "cost", "doctor", "model", "context", "usage",
+    };
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -143,11 +151,29 @@ public sealed class ClaudeHookProcessor
         switch (payload.EventName)
         {
             case "SessionStart":
-                session.Status = "active";
+                ResumeFromWait(session);
+                if (string.Equals(payload.Source, "clear", StringComparison.Ordinal))
+                {
+                    // /clear empties the conversation but keeps the session id. Leaving the
+                    // previous task behind makes the pet show finished work as still running,
+                    // and /clear produces no assistant turn, so Stop never arrives to move it
+                    // on. Clearing here is what keeps the display matching an empty
+                    // conversation. compact/resume continue the work, so they are left alone.
+                    session.CurrentTask = null;
+                    session.LastResult = null;
+                    session.Agents.Clear();
+                    session.Status = "idle";
+                }
+                else
+                {
+                    session.Status = "active";
+                }
+
                 break;
             case "UserPromptSubmit":
+                ResumeFromWait(session);
                 session.Status = "active";
-                session.CurrentTask = IsRealPrompt(payload.Prompt)
+                session.CurrentTask = IsTaskPrompt(payload.Prompt)
                     ? FirstLine(payload.Prompt, 120)
                     : null;
                 session.LastResult = null;
@@ -155,7 +181,16 @@ public sealed class ClaudeHookProcessor
                 RefreshFromTranscript(session, includeAssistantResult: false);
                 session.CurrentTask = submittedTask ?? session.CurrentTask;
                 break;
+            case "Notification":
+                // The only signal that Claude is waiting on a person — a tool permission
+                // prompt or an idle wait. needs_input makes the pet show this first and stops
+                // the bubble from auto-collapsing. The message is Claude's own wording, never
+                // the user's prompt, so one line of it is kept as-is.
+                session.Notice = FirstLine(payload.Message, 200);
+                session.Status = "needs_input";
+                break;
             case "Stop":
+                ResumeFromWait(session);
                 session.Status = "idle";
                 session.LastResult = FirstLine(payload.LastAssistantMessage, 200);
                 var officialLastResult = session.LastResult;
@@ -166,11 +201,13 @@ public sealed class ClaudeHookProcessor
             case "PreToolUse" when IsAgentTool(payload.ToolName):
                 RefreshFromTranscript(session, includeAssistantResult: false);
                 UpsertAgent(session, payload, now);
+                ResumeFromWait(session);
                 session.Status = "active";
                 break;
             case "PostToolUse" when IsAgentTool(payload.ToolName):
                 session.Agents.RemoveAll(agent =>
                     string.Equals(agent.ToolUseId, payload.ToolUseId, StringComparison.Ordinal));
+                ResumeFromWait(session);
                 break;
             default:
                 return;
@@ -394,6 +431,44 @@ public sealed class ClaudeHookProcessor
         return !string.IsNullOrWhiteSpace(value) &&
             !NonPromptPrefixes.Any(prefix =>
                 value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Whether this is work a person asked for. Injected text and built-in commands are not.
+    /// </summary>
+    private static bool IsTaskPrompt(string? text)
+    {
+        if (!IsRealPrompt(text))
+        {
+            return false;
+        }
+
+        var value = text!.Trim();
+        if (!value.StartsWith('/'))
+        {
+            return true;
+        }
+
+        // Built-in commands produce no assistant turn even with arguments, so match on the
+        // name alone. User skills carry a colon in the name and pass straight through.
+        var name = value[1..].Split((char[]?)null, 2)[0].ToLowerInvariant();
+        return name.Length > 0 && !NonTaskCommands.Contains(name);
+    }
+
+    /// <summary>
+    /// The wait is over — something moved, so drop the waiting indicator.
+    ///
+    /// Notification has no matching "no longer waiting" event, so any later event (a tool
+    /// run, the end of a response, a new prompt) counts as the release signal. Without this
+    /// the pet sticks on needs_input and never auto-collapses.
+    /// </summary>
+    private static void ResumeFromWait(ClaudeLiveSession session)
+    {
+        session.Notice = null;
+        if (string.Equals(session.Status, "needs_input", StringComparison.Ordinal))
+        {
+            session.Status = "active";
+        }
     }
 
     private static string ProjectLabel(string? workingDirectory)
@@ -654,6 +729,10 @@ public sealed class ClaudeHookProcessor
 
         [JsonPropertyName("last_assistant_message")]
         public string? LastAssistantMessage { get; init; }
+
+        // Notification only. Claude's own wording for what it is waiting on.
+        [JsonPropertyName("message")]
+        public string? Message { get; init; }
 
         [JsonPropertyName("tool_name")]
         public string? ToolName { get; init; }

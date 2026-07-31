@@ -31,8 +31,10 @@ public sealed class ClaudeHookInstaller
     public const string ManagedMarker = "A-mon local live activity";
     public const string ManagedExecutableName = "AMon.ClaudeHook.exe";
 
+    // Notification fires when Claude asks for tool permission or otherwise waits on a
+    // person. It is the only signal that produces the pet's "needs input" state.
     private static readonly string[] EventsWithoutMatcher =
-        ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"];
+        ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd", "Notification"];
     private static readonly string[] AgentToolEvents = ["PreToolUse", "PostToolUse"];
     private static readonly JsonSerializerOptions WriteOptions = new() { WriteIndented = true };
 
