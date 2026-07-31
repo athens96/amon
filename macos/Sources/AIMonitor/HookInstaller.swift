@@ -754,10 +754,26 @@ def handle_stop(payload):
 
 
 def handle_notification(payload):
-    """Claude 가 사람을 기다린다 — 툴 권한 승인 요청이나 입력 대기.
+    """Claude 가 사람을 기다린다 — 그런데 이 훅은 두 가지 상황에 다 온다.
 
-    이 훅이 "기다리는 중" 을 알 수 있는 유일한 신호다. 상태를 needs_input 으로 올리면
-    펫이 최우선으로 표시하고 자동으로 접지 않는다(PetBubbleVisibility).
+    1. **툴 권한 승인 요청** — 턴이 도는 중에 온다. 사람이 눌러 줘야 진행된다.
+    2. **유휴 알림**("Claude is waiting for your input") — 턴이 끝나고 한참 뒤에 온다.
+       막힌 게 아니라 그냥 다음 지시를 기다리는 중이다.
+
+    둘을 같이 needs_input 으로 올렸더니, 2번이 Stop 뒤에 도착해 이미 완료된 세션을
+    "입력 필요" 로 되돌렸다. needsInput 은 손이 필요한 상태라 자동으로 접지 않게
+    해 뒀으므로(PetBubbleVisibility) 그대로 눌어붙어, 작업이 끝났는데도 펫이 계속
+    입력을 기다린다고 표시했다.
+
+    구분은 **문구가 아니라 상태로** 한다. 안내 문구는 버전에 따라 바뀌지만 순서는
+    바뀌지 않는다 — 막는 알림은 턴 도중(active)에 오고, 유휴 알림은 Stop 뒤(idle)에
+    온다. 이미 idle 이면 완료 표시를 덮지 않는다.
+
+    이미 needs_input 인 경우에도 손대지 않는다. 권한 요청을 방치하면 유휴 알림이
+    뒤따라 오는데, 그때 사유를 덮어쓰면 "Bash 권한이 필요하다" 가 "입력을 기다린다"
+    로 바뀐다 — 무엇을 기다리는지 보여주려고 만든 값이 정작 그걸 잃는다.
+    그래서 **대기로 들어가는 순간에만** 기록한다.
+
     message 는 Claude 가 만든 안내 문구라 사용자 프롬프트 원문이 아니다 — 그대로
     한 줄만 보관한다.
     """
@@ -767,9 +783,12 @@ def handle_notification(payload):
     cwd = payload.get("cwd") or ""
     data = load_session(session_id, cwd)
     remember_transcript(data, payload)
-    message = payload.get("message")
-    data["notice"] = first_line(message, 200) if isinstance(message, str) else None
-    data["status"] = "needs_input"
+    # idle 이면 턴 뒤의 유휴 알림, needs_input 이면 이미 잡아 둔 사유가 있다.
+    # 둘 다 시각만 갱신하고 상태와 사유는 두 손 뗀다.
+    if data.get("status") not in ("idle", "needs_input"):
+        message = payload.get("message")
+        data["notice"] = first_line(message, 200) if isinstance(message, str) else None
+        data["status"] = "needs_input"
     write_session(session_id, data)
 
 

@@ -242,6 +242,59 @@ public sealed class ClaudeHookProcessorTests : IDisposable
         Assert.Equal("펫 UI 구현", waiting.CurrentTask);
     }
 
+    [Fact]
+    public void IdleNoticeAfterStopDoesNotReopenTheFinishedTurn()
+    {
+        // Reported: the pet kept saying it needed input after the work was done, showing
+        // "Claude is waiting for your input". That notice arrives well after Stop, and
+        // treating it as blocking dragged a finished session back to needs_input — which
+        // never auto-collapses, so it stayed there.
+        var processor = new ClaudeHookProcessor(root);
+        processor.Process(Event("SessionStart", cwd: @"C:\작업 폴더", extra: """
+            "source": "startup"
+            """));
+        processor.Process(Event("UserPromptSubmit", extra: """
+            "prompt": "펫 UI 구현"
+            """));
+        processor.Process(Event("Stop", extra: """
+            "last_assistant_message": "완료했습니다"
+            """));
+
+        processor.Process(Event("Notification", extra: """
+            "message": "Claude is waiting for your input"
+            """));
+
+        var finished = Read(processor.GetSessionPath("session/one"));
+        Assert.Equal("idle", finished.Status);
+        Assert.Null(finished.Notice);
+    }
+
+    [Fact]
+    public void IdleNoticeDoesNotOverwriteWhyItIsAlreadyWaiting()
+    {
+        // Leaving a permission prompt unanswered produces an idle notice behind it. The
+        // session really is waiting, so it must stay — and it has to keep saying what for,
+        // not degrade to the generic idle wording.
+        var processor = new ClaudeHookProcessor(root);
+        processor.Process(Event("SessionStart", cwd: @"C:\작업 폴더", extra: """
+            "source": "startup"
+            """));
+        processor.Process(Event("UserPromptSubmit", extra: """
+            "prompt": "펫 UI 구현"
+            """));
+        processor.Process(Event("Notification", extra: """
+            "message": "Claude needs your permission to use Bash"
+            """));
+
+        processor.Process(Event("Notification", extra: """
+            "message": "Claude is waiting for your input"
+            """));
+
+        var waiting = Read(processor.GetSessionPath("session/one"));
+        Assert.Equal("needs_input", waiting.Status);
+        Assert.Equal("Claude needs your permission to use Bash", waiting.Notice);
+    }
+
     [Theory]
     [InlineData("PreToolUse", """
         "tool_name": "Agent",
