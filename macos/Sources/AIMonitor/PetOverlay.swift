@@ -24,6 +24,8 @@ final class PetOverlayController {
     private var bubbleOverride = PetBubbleOverride()
     /// 마지막 자동 판정 — 클릭 즉시 반대로 뒤집을 때 기준으로 쓴다.
     private var lastAutoShowsBubble = false
+    /// 히스토리 열기 전 프레임. 닫을 때 펫 위치를 그대로 복원한다.
+    private var preHistoryFrame: NSRect?
     /// 리사이즈 드래그를 시작한 시점의 말풍선 크기 — 이동량을 여기에 더한다.
     private var resizeStartBubbleSize: CGSize?
     private var resizeHandle: PetOverlayGeometry.ResizeHandle = .corner
@@ -60,6 +62,9 @@ final class PetOverlayController {
                 overlayModel: overlayModel,
                 onToggleBubble: { [weak self] in
                     self?.toggleBubble()
+                },
+                onToggleHistory: { [weak self] in
+                    self?.toggleHistory()
                 }
             )
         )
@@ -70,8 +75,45 @@ final class PetOverlayController {
         contentView.onToggleBubble = { [weak self] in
             self?.toggleBubble()
         }
-        contentView.shouldForwardLeftClick = { [weak overlayModel] point, size in
-            overlayModel?.isCarouselControlPoint(point, in: size) ?? false
+        contentView.shouldBubbleJumpClick = { [weak self] point, size in
+            guard let self, self.showsTaskBubble else { return false }
+            return PetOverlayGeometry.bubbleFrame(
+                in: size,
+                bubblePlacement: self.overlayModel.bubblePlacement
+            ).contains(point)
+        }
+        contentView.onBubbleJump = { [weak self] in
+            self?.jumpToSelectedHost()
+        }
+        contentView.shouldForwardLeftClick = { [weak self] point, size in
+            guard let self else { return false }
+            let cardHeight = self.state.settings.petBubbleSize.height
+            if self.overlayModel.isCarouselControlPoint(
+                point,
+                in: size,
+                cardHeight: cardHeight
+            ) {
+                return true
+            }
+            guard self.showsTaskBubble else { return false }
+            let placement = self.overlayModel.bubblePlacement
+            if self.overlayModel.selectedPresentation?.transcriptPath != nil,
+               PetOverlayGeometry.historyControlFrame(
+                in: size,
+                bubblePlacement: placement,
+                cardHeight: cardHeight
+            ).contains(point) {
+                return true
+            }
+            if self.overlayModel.showsHistory,
+               PetOverlayGeometry.historyAreaFrame(
+                   in: size,
+                   bubblePlacement: placement,
+                   historyHeight: self.overlayModel.historyHeight
+               ).contains(point) {
+                return true
+            }
+            return false
         }
         contentView.beginResize = { [weak self] point, size in
             self?.beginResize(at: point, in: size) ?? false
@@ -163,6 +205,12 @@ final class PetOverlayController {
             }
             .store(in: &cancellables)
 
+        overlayModel.$selectedSessionIdentity
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak self] _ in self?.reloadHistoryIfOpen() }
+            .store(in: &cancellables)
+
         NotificationCenter.default.publisher(
             for: NSApplication.didChangeScreenParametersNotification
         )
@@ -205,6 +253,7 @@ final class PetOverlayController {
             return
         }
         showsTaskBubble = expanded
+        if !expanded { clearHistoryState() }
         let oldFrame = panel.frame
         let visible = visibleFrame(for: oldFrame)
         let targetFrame: NSRect
@@ -265,11 +314,105 @@ final class PetOverlayController {
         )
     }
 
+    /// 말풍선 본문 클릭 시, 확인된 로컬 호스트 앱으로 이동한다.
+    private func jumpToSelectedHost() {
+        guard let presentation = overlayModel.selectedPresentation else { return }
+        let app = PetSessionHost.resolveRunningApp(
+            hostApp: presentation.hostApp,
+            hostPID: presentation.hostPID
+        ) ?? PetSessionHost.redetectRunningApp(
+            provider: presentation.provider ?? "",
+            cwd: presentation.cwd
+        )
+        guard let app else { return }
+        PetSessionHost.activate(app)
+    }
+
+    // MARK: - 히스토리
+
+    private func toggleHistory() {
+        if overlayModel.showsHistory {
+            closeHistory()
+            return
+        }
+        guard showsTaskBubble,
+              overlayModel.selectedPresentation?.transcriptPath != nil
+        else { return }
+        let frame = panel.frame
+        let height = PetOverlayGeometry.historyHeight(
+            panelTop: frame.maxY,
+            visibleFrame: visibleFrame(for: frame)
+        )
+        guard height > 0 else { return }
+        preHistoryFrame = frame
+        overlayModel.showsHistory = true
+        overlayModel.historyHeight = height
+        panel.setFrame(
+            NSRect(
+                origin: frame.origin,
+                size: NSSize(width: frame.width, height: frame.height + height)
+            ),
+            display: true,
+            animate: false
+        )
+        invalidateResizeCursors()
+        reloadHistoryIfOpen()
+    }
+
+    private func closeHistory() {
+        guard overlayModel.showsHistory else { return }
+        let restore = preHistoryFrame
+        clearHistoryState()
+        if let restore {
+            panel.setFrame(
+                PetOverlayGeometry.constrained(restore, to: visibleFrame(for: restore)),
+                display: true,
+                animate: false
+            )
+        }
+        invalidateResizeCursors()
+    }
+
+    private func clearHistoryState() {
+        preHistoryFrame = nil
+        overlayModel.showsHistory = false
+        overlayModel.historyHeight = 0
+        overlayModel.historyTurns = []
+        overlayModel.historyLoading = false
+    }
+
+    private func reloadHistoryIfOpen() {
+        guard overlayModel.showsHistory else { return }
+        guard let presentation = overlayModel.selectedPresentation else {
+            overlayModel.historyTurns = []
+            return
+        }
+        let identity = presentation.sessionIdentity
+        let provider = presentation.provider
+        let transcriptPath = presentation.transcriptPath
+        overlayModel.historyLoading = true
+        Task { [weak self] in
+            let turns = await Task.detached(priority: .userInitiated) {
+                PetSessionHistoryLoader.load(
+                    provider: provider,
+                    transcriptPath: transcriptPath
+                )
+            }.value
+            guard let self, self.overlayModel.showsHistory else { return }
+            guard self.overlayModel.selectedPresentation?.sessionIdentity == identity else {
+                self.overlayModel.historyLoading = false
+                return
+            }
+            self.overlayModel.historyTurns = turns
+            self.overlayModel.historyLoading = false
+        }
+    }
+
     // MARK: - 말풍선 리사이즈
 
     /// 누른 지점이 말풍선 테두리면 추적을 시작한다.
     private func beginResize(at point: NSPoint, in size: NSSize) -> Bool {
-        guard showsTaskBubble,
+        guard showsTaskBubble, !overlayModel.showsHistory,
               let handle = PetOverlayGeometry.resizeHandle(
                 at: point,
                 in: size,
@@ -285,7 +428,8 @@ final class PetOverlayController {
 
     /// 테두리 위에서 커서를 바꿔 크기를 조절할 수 있음을 알린다.
     private func resizeCursorZones(in size: NSSize) -> [(NSRect, NSCursor)] {
-        guard showsTaskBubble, PetOverlayGeometry.hasBubble(in: size) else { return [] }
+        guard showsTaskBubble, !overlayModel.showsHistory,
+              PetOverlayGeometry.hasBubble(in: size) else { return [] }
         let placement = overlayModel.bubblePlacement
         let bubble = PetOverlayGeometry.bubbleFrame(in: size, bubblePlacement: placement)
         let thickness = PetOverlayGeometry.resizeEdgeThickness
@@ -362,6 +506,10 @@ final class PetOverlayController {
     private func constrainToVisibleScreen() {
         let current = panel.frame
         let visible = visibleFrame(for: current)
+        if overlayModel.showsHistory {
+            panel.setFrame(PetOverlayGeometry.constrained(current, to: visible), display: false)
+            return
+        }
         let constrained: NSRect
         if showsTaskBubble {
             let bubble = PetOverlayGeometry.bubbleSize(
@@ -400,6 +548,10 @@ private final class PetOverlayModel: ObservableObject {
     @Published var locomotion: PetLocomotion?
     @Published private(set) var presentations: [PetPresentation] = []
     @Published private(set) var selectedSessionIdentity: String?
+    @Published var showsHistory = false
+    @Published var historyHeight: CGFloat = 0
+    @Published var historyTurns: [PetHistoryTurn] = []
+    @Published var historyLoading = false
 
     var selectedIndex: Int {
         PetCarousel.index(
@@ -443,10 +595,19 @@ private final class PetOverlayModel: ObservableObject {
     /// SwiftUI 버튼 영역은 hosting view의 일반 이벤트 경로로 보내야
     /// 패널 drag 처리에 가로막히지 않는다.
     func isCarouselControlPoint(_ point: NSPoint, in size: NSSize) -> Bool {
+        isCarouselControlPoint(point, in: size, cardHeight: nil)
+    }
+
+    func isCarouselControlPoint(
+        _ point: NSPoint,
+        in size: NSSize,
+        cardHeight: CGFloat?
+    ) -> Bool {
         guard presentations.count > 1 else { return false }
         return PetOverlayGeometry.carouselControlFrame(
             in: size,
-            bubblePlacement: bubblePlacement
+            bubblePlacement: bubblePlacement,
+            cardHeight: cardHeight
         ).contains(point)
     }
 
@@ -458,6 +619,8 @@ private final class PetInteractiveHostingView<Content: View>: NSHostingView<Cont
     var makeContextMenu: (() -> NSMenu)?
     var shouldToggleBubbleClick: ((NSPoint, NSSize) -> Bool)?
     var onToggleBubble: (() -> Void)?
+    var shouldBubbleJumpClick: ((NSPoint, NSSize) -> Bool)?
+    var onBubbleJump: (() -> Void)?
     var shouldForwardLeftClick: ((NSPoint, NSSize) -> Bool)?
     var beginResize: ((NSPoint, NSSize) -> Bool)?
     var onResizeChanged: ((CGSize) -> Void)?
@@ -506,15 +669,21 @@ private final class PetInteractiveHostingView<Content: View>: NSHostingView<Cont
             trackResize()
             return
         }
-        // 드래그는 펫 이동, 제자리 클릭은 말풍선 여닫기.
-        // 대시보드는 상태바 아이콘이나 우클릭 메뉴로 연다.
-        trackDragOrClick(canToggle: shouldToggleBubbleClick?(point, bounds.size) == true)
+        let onClick: (() -> Void)?
+        if shouldToggleBubbleClick?(point, bounds.size) == true {
+            onClick = onToggleBubble
+        } else if shouldBubbleJumpClick?(point, bounds.size) == true {
+            onClick = onBubbleJump
+        } else {
+            onClick = nil
+        }
+        trackDragOrClick(onClick: onClick)
     }
 
     /// 이동이 먼저다. 임계값을 넘으면 그 순간부터 패널을 끌고, 끝까지 넘지 않은 채
     /// 버튼을 떼면 그때 클릭으로 처리한다. `performDrag` 는 미세한 흔들림에도
     /// 창을 움직여 클릭과 뒤섞이므로 직접 추적한다.
-    private func trackDragOrClick(canToggle: Bool) {
+    private func trackDragOrClick(onClick: (() -> Void)?) {
         guard let window else { return }
         let mouseDown = NSEvent.mouseLocation
         let originAtMouseDown = window.frame.origin
@@ -544,8 +713,8 @@ private final class PetInteractiveHostingView<Content: View>: NSHostingView<Cont
 
         if isDragging {
             onLocomotion?(nil)
-        } else if canToggle {
-            onToggleBubble?()
+        } else {
+            onClick?()
         }
     }
 
@@ -578,6 +747,7 @@ private struct PetOverlayView: View {
     @ObservedObject var settings: AppSettings
     @ObservedObject var overlayModel: PetOverlayModel
     let onToggleBubble: () -> Void
+    let onToggleHistory: () -> Void
 
     private var presentation: PetPresentation {
         overlayModel.selectedPresentation ?? .idle
@@ -603,13 +773,14 @@ private struct PetOverlayView: View {
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
             if showsBubble, overlayModel.bubblePlacement == .left {
-                activityBubble
+                bubbleColumn
                     .transition(.opacity.combined(with: .move(edge: .trailing)))
             }
 
             PetAvatarView(
                 status: presentation.status,
                 spritePath: settings.petSpritePath,
+                spriteRevision: settings.petSpriteRevision,
                 spriteVersion: CodexPetSpriteVersion(rawValue: settings.petSpriteVersion) ?? .v1,
                 bundled: BundledPet.pet(id: settings.petBundledID),
                 locomotion: overlayModel.locomotion
@@ -624,13 +795,22 @@ private struct PetOverlayView: View {
             .accessibilityAction { onToggleBubble() }
 
             if showsBubble, overlayModel.bubblePlacement == .right {
-                activityBubble
+                bubbleColumn
                     .transition(.opacity.combined(with: .move(edge: .leading)))
             }
         }
         .padding(8)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
         .animation(.easeOut(duration: 0.18), value: showsBubble)
+    }
+
+    private var bubbleColumn: some View {
+        VStack(alignment: .leading, spacing: Self.historyCardSpacing) {
+            if overlayModel.showsHistory {
+                historyStack
+            }
+            activityBubble
+        }
     }
 
     private var activityBubble: some View {
@@ -650,11 +830,21 @@ private struct PetOverlayView: View {
                         .font(.amonCaption.weight(.semibold))
                         .foregroundStyle(presentation.status.tint)
                     Spacer(minLength: 4)
+                    if let host = presentation.hostApp {
+                        Text("⇢ \(host)")
+                            .font(.system(size: 9, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .help("말풍선을 클릭하면 \(host) 앱으로 이동합니다")
+                    }
                     if let provider = presentation.provider {
                         providerBadge(provider)
                     }
                     if overlayModel.presentations.count > 1 {
                         carouselIndicator
+                    }
+                    if presentation.transcriptPath != nil {
+                        historyToggleButton
                     }
                 }
 
@@ -693,7 +883,9 @@ private struct PetOverlayView: View {
         .overlay(
             alignment: overlayModel.bubblePlacement == .left ? .topLeading : .topTrailing
         ) {
-            resizeGrip
+            if !overlayModel.showsHistory {
+                resizeGrip
+            }
         }
         .accessibilityAdjustableAction { direction in
             guard overlayModel.presentations.count > 1 else { return }
@@ -707,6 +899,129 @@ private struct PetOverlayView: View {
             }
         }
     }
+
+    private var historyToggleButton: some View {
+        Button {
+            onToggleHistory()
+        } label: {
+            Image(systemName: "clock.arrow.circlepath")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(
+                    overlayModel.showsHistory
+                        ? MenuBarContentView.accent
+                        : Color.secondary
+                )
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(overlayModel.showsHistory ? "히스토리 접기" : "지난 대화 히스토리")
+        .accessibilityLabel(
+            overlayModel.showsHistory ? "히스토리 접기" : "히스토리 펼치기"
+        )
+    }
+
+    private var historyStack: some View {
+        Group {
+            if overlayModel.historyLoading, overlayModel.historyTurns.isEmpty {
+                historyPlaceholder("히스토리 읽는 중…", systemImage: "clock.arrow.circlepath")
+            } else if overlayModel.historyTurns.isEmpty {
+                historyPlaceholder("이 세션에는 보여줄 지난 대화가 없습니다.", systemImage: "tray")
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView(showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: Self.historyCardSpacing) {
+                            ForEach(overlayModel.historyTurns) { turn in
+                                historyCard(turn)
+                                    .id(turn.id)
+                            }
+                        }
+                        .padding(.top, 8)
+                    }
+                    .onReceive(overlayModel.$historyTurns) { turns in
+                        proxy.scrollTo(turns.last?.id, anchor: .bottom)
+                    }
+                }
+            }
+        }
+        .frame(
+            width: bubbleSize.width,
+            height: max(0, overlayModel.historyHeight - Self.historyCardSpacing),
+            alignment: .bottom
+        )
+    }
+
+    static let historyCardSpacing: CGFloat = 8
+
+    private func historyCard(_ turn: PetHistoryTurn) -> some View {
+        let status: PetActivityStatus = turn.reply == nil ? .running : .ready
+        return VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                PetStatusIndicator(status: status)
+                Text(status.displayName)
+                    .font(.amonCaption.weight(.semibold))
+                    .foregroundStyle(status.tint)
+                Spacer(minLength: 4)
+                if let timestamp = turn.timestamp {
+                    Text(Self.historyTimeFormatter.string(from: timestamp))
+                        .font(.system(size: 9, design: .rounded))
+                        .foregroundStyle(.tertiary)
+                }
+                if let provider = presentation.provider {
+                    providerBadge(provider)
+                }
+            }
+
+            Text(presentation.title)
+                .font(.amonBody.weight(.semibold))
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            summaryLine(
+                label: "입력",
+                systemImage: "arrow.down.left",
+                text: turn.prompt,
+                lineLimit: 1
+            )
+            summaryLine(
+                label: "출력",
+                systemImage: "arrow.up.right",
+                text: turn.reply ?? "응답 생성 중…",
+                lineLimit: 1
+            )
+
+            tokenRow(input: turn.inputTokens, output: turn.outputTokens, total: nil)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.09), lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.14), radius: 12, y: 5)
+    }
+
+    private func historyPlaceholder(_ text: String, systemImage: String) -> some View {
+        Label(text, systemImage: systemImage)
+            .font(.amonCaption)
+            .foregroundStyle(.secondary)
+            .padding(10)
+            .frame(maxWidth: .infinity)
+            .background(.regularMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.09), lineWidth: 0.5)
+            )
+    }
+
+    private static let historyTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "M/d HH:mm"
+        return formatter
+    }()
 
     /// 말풍선 바깥쪽 위 모서리의 크기 조절 손잡이. 실제 드래그 추적은 AppKit
     /// 호스팅 뷰가 맡고, 여기서는 어디를 끌면 되는지 보여주기만 한다.
@@ -826,11 +1141,16 @@ private struct PetOverlayView: View {
         }
     }
 
-    @ViewBuilder
     private var tokenRow: some View {
-        let input = presentation.inputTokens
-        let output = presentation.outputTokens
-        let total = presentation.totalTokens
+        tokenRow(
+            input: presentation.inputTokens,
+            output: presentation.outputTokens,
+            total: presentation.totalTokens
+        )
+    }
+
+    @ViewBuilder
+    private func tokenRow(input: Int?, output: Int?, total: Int?) -> some View {
         HStack(spacing: 8) {
             if let input {
                 Label("입력 \(TokenFormat.compact(input))", systemImage: "arrow.down.left")
@@ -886,6 +1206,7 @@ private extension PetActivityStatus {
 private struct PetAvatarView: View {
     let status: PetActivityStatus
     let spritePath: String
+    let spriteRevision: Int
     let spriteVersion: CodexPetSpriteVersion
     let bundled: BundledPet
     let locomotion: PetLocomotion?
@@ -905,6 +1226,7 @@ private struct PetAvatarView: View {
             if let selection {
                 CodexPetSpriteView(
                     path: selection.path,
+                    revision: spriteRevision,
                     status: status,
                     spriteVersion: selection.version,
                     locomotion: locomotion
@@ -924,6 +1246,7 @@ private struct PetAvatarView: View {
 /// 프레임으로 바꿔 그리기만 한다.
 private struct CodexPetSpriteView: View {
     let path: String
+    let revision: Int
     let status: PetActivityStatus
     let spriteVersion: CodexPetSpriteVersion
     let locomotion: PetLocomotion?
@@ -952,7 +1275,7 @@ private struct CodexPetSpriteView: View {
             }
         }
         .background(PetWindowAccessor { hostWindow = $0 })
-        .task(id: "\(path)|\(spriteVersion.rawValue)") {
+        .task(id: "\(path)|\(revision)|\(spriteVersion.rawValue)") {
             frames = PetSpriteFrames.load(path: path, version: spriteVersion)
         }
     }

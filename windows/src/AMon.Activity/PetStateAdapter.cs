@@ -89,7 +89,8 @@ public static class PetStateAdapter
             "ready" or "complete" or "completed" or "done"
                 or "success" or "succeeded" =>
                 PetActivityStatus.Ready,
-            "review" or "reviewing" or "in_review" or "inreview" =>
+            "review" or "reviewing" or "in_review" or "inreview"
+                or "verify" or "verifying" or "checking" =>
                 PetActivityStatus.Reviewing,
             "active" or "running" or "working" or "in_progress"
                 or "inprogress" or "busy" =>

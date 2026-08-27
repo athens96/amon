@@ -233,6 +233,7 @@ public sealed class ClaudeHookProcessorTests : IDisposable
             "prompt": "펫 UI 구현"
             """));
         processor.Process(Event("Notification", extra: """
+            "notification_type": "permission_prompt",
             "message": "Claude needs your permission to use Bash\n두 번째 줄"
             """));
 
@@ -240,6 +241,50 @@ public sealed class ClaudeHookProcessorTests : IDisposable
         Assert.Equal("needs_input", waiting.Status);
         Assert.Equal("Claude needs your permission to use Bash", waiting.Notice);
         Assert.Equal("펫 UI 구현", waiting.CurrentTask);
+        Assert.Equal("permission", waiting.AttentionKind);
+    }
+
+    [Theory]
+    [InlineData("AskUserQuestion", "question")]
+    [InlineData("PermissionRequest", "permission")]
+    [InlineData("Elicitation", "elicitation")]
+    public void StructuredEventsMarkOnlyTheirInputKind(string eventName, string kind)
+    {
+        var processor = new ClaudeHookProcessor(root);
+        processor.Process(Event("SessionStart", extra: "\"source\": \"startup\""));
+        var extra = eventName == "AskUserQuestion"
+            ? "\"tool_name\": \"AskUserQuestion\""
+            : eventName == "PermissionRequest"
+                ? "\"tool_name\": \"Bash\""
+                : "\"message\": \"MCP 입력이 필요합니다\"";
+        processor.Process(Event(eventName == "AskUserQuestion" ? "PreToolUse" : eventName, extra: extra));
+
+        var waiting = Read(processor.GetSessionPath("session/one"));
+        Assert.Equal("needs_input", waiting.Status);
+        Assert.Equal(kind, waiting.AttentionKind);
+    }
+
+    [Fact]
+    public void SdkPromptIsCollectedButTaskNotificationIsIgnored()
+    {
+        Directory.CreateDirectory(root);
+        var transcript = Path.Combine(root, "sdk.jsonl");
+        File.WriteAllLines(transcript,
+        [
+            """{"type":"user","promptSource":"sdk","message":{"content":"SDK 요청"}}""",
+            """{"type":"user","promptSource":"sdk","message":{"content":"<task-notification>주입"}}""",
+        ]);
+        var processor = new ClaudeHookProcessor(Path.Combine(root, "live"));
+        processor.Process(Event(
+            "SessionStart",
+            transcriptPath: transcript,
+            extra: "\"source\": \"startup\""));
+        processor.Process(Event(
+            "UserPromptSubmit",
+            transcriptPath: transcript,
+            extra: "\"prompt\": \"<task-notification>주입\""));
+
+        Assert.Equal("SDK 요청", Read(processor.GetSessionPath("session/one")).CurrentTask);
     }
 
     [Fact]
@@ -261,6 +306,7 @@ public sealed class ClaudeHookProcessorTests : IDisposable
             """));
 
         processor.Process(Event("Notification", extra: """
+            "notification_type": "idle_prompt",
             "message": "Claude is waiting for your input"
             """));
 
@@ -295,6 +341,7 @@ public sealed class ClaudeHookProcessorTests : IDisposable
         Assert.Equal("active", Read(processor.GetSessionPath("session/one")).Status);
 
         processor.Process(Event("Notification", transcriptPath: transcript, extra: """
+            "notification_type": "idle_prompt",
             "message": "Claude is waiting for your input"
             """));
 
@@ -324,13 +371,13 @@ public sealed class ClaudeHookProcessorTests : IDisposable
             "prompt": "작업"
             """));
 
-        processor.Process(Event("Notification", transcriptPath: transcript, extra: """
-            "message": "Claude needs your permission to use Bash"
+        processor.Process(Event("PermissionRequest", transcriptPath: transcript, extra: """
+            "tool_name": "Bash"
             """));
 
         var session = Read(processor.GetSessionPath("session/one"));
         Assert.Equal("needs_input", session.Status);
-        Assert.Equal("Claude needs your permission to use Bash", session.Notice);
+        Assert.Equal("Bash 권한 확인이 필요합니다", session.Notice);
     }
 
     [Fact]
@@ -362,6 +409,7 @@ public sealed class ClaudeHookProcessorTests : IDisposable
             """));
 
         processor.Process(Event("Notification", transcriptPath: transcript, extra: """
+            "notification_type": "idle_prompt",
             "message": "Claude is waiting for your input"
             """));
 
@@ -371,7 +419,7 @@ public sealed class ClaudeHookProcessorTests : IDisposable
     }
 
     [Fact]
-    public void IdleNoticeDoesNotOverwriteWhyItIsAlreadyWaiting()
+    public void StructuredIdleNoticeReleasesAnEarlierPermissionWait()
     {
         // Leaving a permission prompt unanswered produces an idle notice behind it. The
         // session really is waiting, so it must stay — and it has to keep saying what for,
@@ -384,16 +432,18 @@ public sealed class ClaudeHookProcessorTests : IDisposable
             "prompt": "펫 UI 구현"
             """));
         processor.Process(Event("Notification", extra: """
+            "notification_type": "permission_prompt",
             "message": "Claude needs your permission to use Bash"
             """));
 
         processor.Process(Event("Notification", extra: """
+            "notification_type": "idle_prompt",
             "message": "Claude is waiting for your input"
             """));
 
         var waiting = Read(processor.GetSessionPath("session/one"));
-        Assert.Equal("needs_input", waiting.Status);
-        Assert.Equal("Claude needs your permission to use Bash", waiting.Notice);
+        Assert.Equal("idle", waiting.Status);
+        Assert.Null(waiting.Notice);
     }
 
     [Theory]
@@ -416,8 +466,8 @@ public sealed class ClaudeHookProcessorTests : IDisposable
         processor.Process(Event("SessionStart", cwd: @"C:\작업 폴더", extra: """
             "source": "startup"
             """));
-        processor.Process(Event("Notification", extra: """
-            "message": "권한 승인 필요"
+        processor.Process(Event("PermissionRequest", extra: """
+            "tool_name": "Bash"
             """));
         Assert.Equal("needs_input", Read(processor.GetSessionPath("session/one")).Status);
 

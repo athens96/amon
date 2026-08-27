@@ -122,6 +122,11 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(CodexPetSpriteVersion(rawValue: petSpriteVersion)?.rawValue ?? 1, forKey: "pet.spriteVersion") }
     }
 
+    /// 같은 설치 경로에 새 스프라이트를 덮어쓴 경우에도 뷰가 파일을 다시 읽게 하는 값.
+    @Published var petSpriteRevision: Int {
+        didSet { defaults.set(petSpriteRevision, forKey: "pet.spriteRevision") }
+    }
+
     /// 작업 중일 때 펫 옆에 프로젝트와 현재 작업의 첫 줄을 표시한다.
     @Published var petShowsCurrentTask: Bool {
         didSet { defaults.set(petShowsCurrentTask, forKey: "pet.showsCurrentTask") }
@@ -152,6 +157,26 @@ final class AppSettings: ObservableObject {
     var dashboardLastUploadSHA: String {
         get { defaults.string(forKey: "dashboard.lastSHA") ?? "" }
         set { defaults.set(newValue, forKey: "dashboard.lastSHA") }
+    }
+
+    var dashboardLastUploadSuccessAt: Date? {
+        get { defaults.object(forKey: "dashboard.lastSuccessAt") as? Date }
+        set { defaults.set(newValue, forKey: "dashboard.lastSuccessAt") }
+    }
+
+    var dashboardLastUploadAttemptAt: Date? {
+        get { defaults.object(forKey: "dashboard.lastAttemptAt") as? Date }
+        set { defaults.set(newValue, forKey: "dashboard.lastAttemptAt") }
+    }
+
+    var dashboardLastUploadError: String? {
+        get { defaults.string(forKey: "dashboard.lastError") }
+        set { defaults.set(newValue, forKey: "dashboard.lastError") }
+    }
+
+    var dashboardLastUploadErrorAt: Date? {
+        get { defaults.object(forKey: "dashboard.lastErrorAt") as? Date }
+        set { defaults.set(newValue, forKey: "dashboard.lastErrorAt") }
     }
 
     private let defaults = UserDefaults.standard
@@ -214,6 +239,7 @@ final class AppSettings: ObservableObject {
         petBundledID = petMigration.resolvedPet.id
         petSpritePath = petMigration.spritePath
         petSpriteVersion = petMigration.spriteVersion
+        petSpriteRevision = UserDefaults.standard.object(forKey: "pet.spriteRevision") as? Int ?? 0
         if petMigration.persists {
             UserDefaults.standard.set(
                 BundledPetMigration.currentVersion,

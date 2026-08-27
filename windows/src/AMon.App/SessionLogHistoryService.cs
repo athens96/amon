@@ -389,10 +389,13 @@ public static class SessionTranscriptParser
             var model = String(message, "model");
             if (type == "user")
             {
-                if (Boolean(root, "isSidechain") || String(root, "promptSource") != "typed")
+                var promptSource = String(root, "promptSource");
+                if (Boolean(root, "isSidechain") ||
+                    (promptSource != "typed" && promptSource != "sdk"))
                     continue;
                 var text = ContentText(message, "content");
-                if (!string.IsNullOrWhiteSpace(text))
+                if (!string.IsNullOrWhiteSpace(text) &&
+                    !text.TrimStart().StartsWith("<task-notification", StringComparison.OrdinalIgnoreCase))
                     turns.Add(new SessionTurnViewModel("사용자", text, timestamp, model, null));
             }
             else if (type == "assistant")

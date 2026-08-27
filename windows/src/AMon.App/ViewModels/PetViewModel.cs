@@ -14,6 +14,7 @@ public sealed class PetViewModel : ObservableObject
     private bool _showsCurrentTask;
     private string _spritePath = string.Empty;
     private int _spriteVersion = 1;
+    private int _spriteRevision;
     private bool _hasCustomSprite;
     private bool _hasSprite;
     private int _dragDirection;
@@ -72,6 +73,12 @@ public sealed class PetViewModel : ObservableObject
     {
         get => _spriteVersion;
         private set => SetProperty(ref _spriteVersion, value);
+    }
+
+    public int SpriteRevision
+    {
+        get => _spriteRevision;
+        private set => SetProperty(ref _spriteRevision, value);
     }
 
     /// <summary>-1 while dragging left, 1 while dragging right, otherwise 0.</summary>
@@ -210,6 +217,9 @@ public sealed class PetViewModel : ObservableObject
             < 0 => -1,
             _ => 0,
         };
+
+    /// <summary>Reload a sprite that was replaced in place at the same installed path.</summary>
+    public void ReloadSprite() => SpriteRevision = unchecked(SpriteRevision + 1);
 
     private void Previous() => CurrentIndex--;
 

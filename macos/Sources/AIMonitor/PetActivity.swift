@@ -52,6 +52,11 @@ struct PetPresentation: Equatable {
     let updatedAt: Date?
     /// 현재 작동 중이거나 명시적인 lifecycle 상태를 가진 활동 수.
     let activeCount: Int
+    /// 로컬 세션 호스트 이동과 턴 히스토리에만 쓰는 메타데이터.
+    let hostApp: String?
+    let hostPID: Int?
+    let cwd: String?
+    let transcriptPath: String?
 
     static let idle = PetPresentation(
         status: .idle,
@@ -65,7 +70,11 @@ struct PetPresentation: Equatable {
         outputTokens: nil,
         totalTokens: nil,
         updatedAt: nil,
-        activeCount: 0
+        activeCount: 0,
+        hostApp: nil,
+        hostPID: nil,
+        cwd: nil,
+        transcriptPath: nil
     )
 }
 
@@ -237,7 +246,11 @@ enum PetStateAdapter {
             outputTokens: selected.session.outputTokens,
             totalTokens: selected.session.totalTokens,
             updatedAt: selected.session.updatedAt,
-            activeCount: activeCount
+            activeCount: activeCount,
+            hostApp: selected.session.hostApp,
+            hostPID: selected.session.hostPID,
+            cwd: selected.session.cwd,
+            transcriptPath: selected.session.transcriptPath
         )
     }
 

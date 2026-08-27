@@ -381,13 +381,18 @@ final class PetActivityTests: XCTestCase {
             bubble: PetOverlayGeometry.defaultBubbleSize
         )
 
+        let cardHeight = PetOverlayGeometry.defaultBubbleSize.height
         XCTAssertEqual(
-            PetOverlayGeometry.carouselControlFrame(in: size, bubblePlacement: .left),
-            CGRect(x: 144, y: 118, width: 82, height: 34)
+            PetOverlayGeometry.carouselControlFrame(
+                in: size, bubblePlacement: .left, cardHeight: cardHeight
+            ),
+            CGRect(x: 116, y: 118, width: 82, height: 34)
         )
         XCTAssertEqual(
-            PetOverlayGeometry.carouselControlFrame(in: size, bubblePlacement: .right),
-            CGRect(x: 278, y: 118, width: 82, height: 34)
+            PetOverlayGeometry.carouselControlFrame(
+                in: size, bubblePlacement: .right, cardHeight: cardHeight
+            ),
+            CGRect(x: 250, y: 118, width: 82, height: 34)
         )
     }
 
@@ -647,7 +652,11 @@ final class PetActivityTests: XCTestCase {
             outputTokens: nil,
             totalTokens: 42,
             updatedAt: updatedAt,
-            activeCount: 1
+            activeCount: 1,
+            hostApp: nil,
+            hostPID: nil,
+            cwd: nil,
+            transcriptPath: nil
         )
     }
 

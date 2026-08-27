@@ -377,6 +377,7 @@
               Visibility="{Binding HasSprite, Converter={StaticResource BooleanToVisibility}}">
           <local:CodexPetSpriteControl SourcePath="{Binding SpritePath}"
                                        SpriteVersion="{Binding SpriteVersion}"
+                                       SpriteRevision="{Binding SpriteRevision}"
                                        DragDirection="{Binding DragDirection}"
                                        Status="{Binding Current.Status}" />
         </Grid>

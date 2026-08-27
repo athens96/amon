@@ -153,7 +153,8 @@ enum SessionTranscriptLoader {
             switch obj["type"] as? String {
             case "user":
                 guard !isSidechain,
-                      obj["promptSource"] as? String == "typed",
+                      let promptSource = obj["promptSource"] as? String,
+                      promptSource == "typed" || promptSource == "sdk",
                       let message = obj["message"] as? [String: Any],
                       let text = SessionHistoryScanner.promptText(message["content"])?
                         .trimmingCharacters(in: .whitespacesAndNewlines),

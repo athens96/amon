@@ -18,10 +18,9 @@ enum HookInstallError: LocalizedError {
     }
 }
 
-/// Claude Code 훅 시스템에 amon 라이브 세션 훅을 설치/제거한다.
+/// Claude Code 훅 시스템에 A-mon 라이브 세션 훅을 설치/제거한다.
 ///
-/// - 호환성을 위해 파이썬 훅 스크립트(순수 stdlib)를 기존
-///   `~/Library/Application Support/A-mon/hooks/live_hook.py`에 둔다.
+/// - 파이썬 훅 스크립트(순수 stdlib)를 `~/Library/Application Support/A-mon/hooks/live_hook.py`
 ///   에 써 두고, `~/.claude/settings.json` 의 `hooks` 서브트리에 6개 이벤트 엔트리를 넣는다.
 /// - settings.json 은 다른 도구가 쓴 임의 키가 있을 수 있어 `Codable` 대신
 ///   `JSONSerialization` 으로 `[String: Any]` 로 다뤄, `hooks` 서브트리만 건드리고
@@ -29,16 +28,24 @@ enum HookInstallError: LocalizedError {
 /// - 우리 엔트리는 command 문자열에 `live_hook.py` 가 들어있는지로만 식별한다 —
 ///   다른 도구(예: 이 저장소의 cmux 훅)의 matcher 그룹은 절대 건드리지 않는다.
 enum HookInstaller {
-    /// matcher 없이(모든 호출) 거는 이벤트.
-    ///
-    /// `Notification` 은 Claude 가 툴 권한을 묻거나 입력을 기다릴 때 온다 — 펫의
-    /// "입력 필요"(needsInput) 상태를 만드는 유일한 신호다.
+    /// matcher 없이(모든 호출) 거는 lifecycle 이벤트.
     private static let noMatcherEvents = [
-        "SessionStart", "UserPromptSubmit", "Stop", "SessionEnd", "Notification",
+        "SessionStart", "UserPromptSubmit", "Stop", "SessionEnd",
+        "Elicitation", "ElicitationResult",
     ]
-    /// 서브에이전트(Agent) 툴에만 거는 이벤트.
-    private static let agentMatcherEvents = ["PreToolUse", "PostToolUse"]
-    private static var allEvents: [String] { noMatcherEvents + agentMatcherEvents }
+    /// 실제 사람의 응답을 기다리는 구조화 알림만 받는다. message 문자열은 표시용일 뿐
+    /// 상태 판정에는 쓰지 않는다. auth_success 같은 일반 알림은 여기서부터 제외한다.
+    private static let notificationMatcher =
+        "permission_prompt|idle_prompt|elicitation_dialog|elicitation_complete|elicitation_response"
+    /// Agent 시작 추적과 Claude 내장 질문 도구의 입력 대기를 함께 관찰한다.
+    private static let preToolMatcher = "Agent|Task|AskUserQuestion"
+    /// 권한 승인 뒤 어떤 도구가 실행돼도 대기 상태를 해제할 수 있어야 한다.
+    private static let allToolEvents = [
+        "PermissionRequest", "PostToolUse", "PostToolUseFailure", "PermissionDenied",
+    ]
+    private static var allEvents: [String] {
+        noMatcherEvents + ["Notification", "PreToolUse"] + allToolEvents
+    }
 
     /// 시스템 파이썬으로 실행하는 이식성 있는 접두사 — miniconda 등 사용자 고유 경로를
     /// 박아 넣지 않는다. `PATH` 의 python3(Xcode CLT 또는 시스템)를 찾는다.
@@ -82,8 +89,19 @@ enum HookInstaller {
         for event in noMatcherEvents {
             hooks[event] = upsert(into: hooks[event], group: hookGroup(matcher: nil, command: command))
         }
-        for event in agentMatcherEvents {
-            hooks[event] = upsert(into: hooks[event], group: hookGroup(matcher: "Agent", command: command))
+        hooks["Notification"] = upsert(
+            into: hooks["Notification"],
+            group: hookGroup(matcher: notificationMatcher, command: command)
+        )
+        hooks["PreToolUse"] = upsert(
+            into: hooks["PreToolUse"],
+            group: hookGroup(matcher: preToolMatcher, command: command)
+        )
+        for event in allToolEvents {
+            hooks[event] = upsert(
+                into: hooks[event],
+                group: hookGroup(matcher: nil, command: command)
+            )
         }
         root["hooks"] = hooks
 
@@ -222,24 +240,33 @@ enum HookInstaller {
         try? FileManager.default.removeItem(at: scriptURL)
     }
 
+    #if DEBUG
+    /// 임베드된 훅을 임시 HOME 에서 실제 프로세스로 실행하는 회귀 테스트용.
+    static var hookScriptSourceForTesting: String { hookScriptSource }
+    static var configuredEventsForTesting: [String] { allEvents }
+    static var notificationMatcherForTesting: String { notificationMatcher }
+    static var preToolMatcherForTesting: String { preToolMatcher }
+    #endif
+
     // MARK: - 임베드된 파이썬 훅 스크립트 (순수 stdlib, plain python3 로 실행)
 
     /// Claude Code 훅 시스템이 stdin JSON 으로 호출하는 스크립트. 절대 크래시/블록하지
-    /// 않도록 전부 예외를 삼키고 항상 exit(0). 프롬프트 원문은 저장하지 않는다.
+    /// 않도록 전부 예외를 삼키고 항상 exit(0). 프롬프트 원문은 절대 저장/전송하지 않는다.
     /// (Swift raw string `#"""..."""#` 로 감싸 파이썬의 따옴표/역슬래시를 그대로 보존한다.)
     static let hookScriptSource: String = #"""
 #!/usr/bin/env python3
-# amon 라이브 세션 훅 — Claude Code 훅 시스템이 stdin JSON 페이로드로 호출한다.
+# A-mon 라이브 세션 훅 — Claude Code 훅 시스템이 stdin JSON 페이로드로 호출한다.
 #
 # payload["hook_event_name"] 로 디스패치한다(argv 가 아니라 JSON 필드 기준 — 항상 존재).
-# 세션별 상태를 레거시 ~/Library/Application Support/A-mon/live/<session_id>.json 에 원자적으로
+# 세션별 상태를 ~/Library/Application Support/A-mon/live/<session_id>.json 에 원자적으로
 # 유지하고, macOS 앱이 이 디렉토리를 폴링해 로컬 현재 활동 화면에 표시한다.
 #
-# 개인정보 규칙: tool_input["prompt"] 는 절대 읽거나 저장하지 않는다.
+# 개인정보 규칙: tool_input["prompt"] 는 절대 읽거나 저장하거나 전송하지 않는다.
 # 오직 description(1줄 요약)만 보관한다.
 #
 # 절대 크래시/블록하지 않는다: 모든 예외를 삼키고 항상 exit(0). 표준 라이브러리만 사용.
 import json
+import fcntl
 import os
 import re
 import subprocess
@@ -308,8 +335,54 @@ def git_branch(cwd):
     return None
 
 
+def detect_host():
+    """훅을 띄운 부모 프로세스 체인을 거슬러 올라 가장 가까운 GUI 앱(.app 번들)을
+    찾는다. 훅은 claude 프로세스의 자식으로 뜨므로, Paseo·cmux·Orca 같은 래퍼 앱이
+    claude 를 띄웠다면 그 앱이, 터미널에서 직접 띄웠다면 Terminal/iTerm2 가 잡힌다.
+    tmux 서버처럼 체인에 .app 이 없으면 (None, None) — 앱은 세션 이동을 제공하지
+    않는다(확인될 때만 이동). 경로의 첫 .app 세그먼트 = 가장 바깥 번들이므로 헬퍼
+    프로세스(…/Orca.app/Contents/…/Helper)여도 앱 이름은 바르게 나온다."""
+    try:
+        pid = os.getppid()
+        for _ in range(15):
+            if pid <= 1:
+                break
+            r = subprocess.run(
+                ["/bin/ps", "-p", str(pid), "-o", "ppid=,comm="],
+                timeout=2,
+                capture_output=True,
+                text=True,
+            )
+            if r.returncode != 0:
+                break
+            out = r.stdout.strip()
+            if not out:
+                break
+            parts = out.split(None, 1)
+            comm = parts[1] if len(parts) > 1 else ""
+            m = re.search(r"/([^/]+)\.app/", comm)
+            if m:
+                return (m.group(1)[:64], pid)
+            pid = int(parts[0])
+    except Exception:
+        pass
+    return (None, None)
+
+
+def ensure_host(data):
+    """호스트가 비어 있으면(구 훅 세션·감지 실패) 다시 알아낸다.
+    한 번 잡히면 다시 돌지 않고, tmux 처럼 원래 감지 불가면 그대로 비워 둔다."""
+    if data.get("host_app"):
+        return
+    host_app, host_pid = detect_host()
+    if host_app:
+        data["host_app"] = host_app
+        data["host_pid"] = host_pid
+
+
 def default_session(session_id, cwd):
     now = now_iso()
+    host_app, host_pid = detect_host()
     return {
         "provider": "claude",  # 훅이 있는 건 Claude Code 뿐 — Codex 는 앱이 로그로 수집
         "session_id": str(session_id),
@@ -322,6 +395,10 @@ def default_session(session_id, cwd):
         "current_task": None,
         "last_result": None,
         "notice": None,  # 입력 대기 사유(Notification 훅) — 대기가 풀리면 지운다
+        "attention_kind": None,  # permission | question | elicitation (로컬 상태 판정용)
+        "host_app": host_app,  # 세션을 띄운 GUI 앱 이름(.app 번들) — 로컬 표시/이동 전용
+        "host_pid": host_pid,
+
         "model": None,
         "total_tokens": None,
         "input_tokens": None,
@@ -338,6 +415,7 @@ NON_PROMPT_PREFIXES = (
     "<local-command",
     "<system-reminder",
     "<user-prompt-submit-hook",
+    "<task-notification",  # 백그라운드 작업 알림 주입 — sdk 세션에서 user 턴으로 온다
 )
 
 
@@ -363,8 +441,7 @@ def is_task_prompt(text):
         return False
     t = (text or "").strip()
     if t.startswith("/"):
-        # `/clear`, `/compact` 같은 내장 명령은 인자가 붙어도 어시스턴트 턴을 만들지
-        # 않으므로 이름만 보고 걸러낸다. 이름에 콜론이 있는 사용자 스킬은 통과한다.
+        # `/clear`, `/compact` 처럼 인자 없는 내장 명령만 걸러낸다.
         name = t[1:].split(None, 1)[0].lower() if len(t) > 1 else ""
         if not name:
             return False  # 슬래시만 친 경우 — 작업이 아니다
@@ -428,9 +505,10 @@ def scan_tail_for(transcript_path, tail_bytes, kind):
             continue  # 창 경계에서 잘린 첫 라인 등
         if obj.get("type") != kind or obj.get("isSidechain"):
             continue
-        # 사람이 직접 타이핑한 프롬프트만. 훅 주입·스킬 출력·task-notification 라인엔
-        # promptSource 가 없거나 "system" 이다(전 트랜스크립트 실측).
-        if kind == "user" and obj.get("promptSource") != "typed":
+        # 사람이 낸 프롬프트만 — "typed"(터미널 직접)·"sdk"(Paseo 등 SDK 호스트).
+        # 훅 주입·스킬 출력·task-notification 라인엔 promptSource 가 없거나
+        # "system" 이다(전 트랜스크립트 실측).
+        if kind == "user" and obj.get("promptSource") not in ("typed", "sdk"):
             continue
         text = extract((obj.get("message") or {}).get("content"))
         if text:
@@ -458,75 +536,6 @@ def read_last_message(transcript_path, kind):
     return None
 
 
-def turn_is_open(transcript_path):
-    """트랜스크립트 내용만으로 "지금 턴이 아직 도는 중인지" 를 판정한다.
-
-    상태 플래그(`status`)는 Stop 훅이 세운다. 그런데 Stop 은 사용자가 중간에 끊거나
-    프로세스가 죽으면 오지 않아서, 플래그만 믿으면 끝난 턴을 도는 중으로, 도는 턴을
-    끝난 것으로 볼 수 있다. 그래서 여기서는 **기록 자체**를 본다.
-
-    판정 규칙: 마지막으로 사람이 친 프롬프트 이후에 나온 tool_use 중 결과
-    (tool_result)가 아직 안 돌아온 게 하나라도 있으면 도는 중이다. 권한 승인을
-    기다리는 상태가 정확히 이 모양이다 — 도구를 부르는 줄은 이미 쓰였고 결과 줄만
-    없다.
-
-    두 가지를 조심한다.
-    - 어시스턴트 메시지는 블록마다 줄이 나뉜다(thinking/text/tool_use). 마지막 한 줄만
-      보면 tool_use 를 놓치므로 턴 구간 전체에서 짝을 맞춘다.
-    - 직전 턴에서 끊긴 tool_use 가 창에 남아 있을 수 있다. 마지막 typed 프롬프트
-      이후로 범위를 잘라 그 찌꺼기를 제외한다.
-
-    판정할 수 없으면(파일 없음·파싱 실패) None. 호출부가 기존 상태 판정으로 물러난다.
-    """
-    if not transcript_path:
-        return None
-    try:
-        with open(transcript_path, "rb") as f:
-            f.seek(0, os.SEEK_END)
-            size = f.tell()
-            f.seek(max(0, size - TAIL_WINDOWS[0]))
-            chunk = f.read()
-    except Exception:
-        return None
-
-    entries = []
-    for raw in chunk.split(b"\n"):
-        raw = raw.strip()
-        if not raw:
-            continue
-        try:
-            obj = json.loads(raw)
-        except Exception:
-            continue  # 창 경계에서 잘린 첫 줄
-        if isinstance(obj, dict) and not obj.get("isSidechain"):
-            entries.append(obj)
-    if not entries:
-        return None
-
-    # 이번 턴의 시작 — 마지막 typed 프롬프트. 없으면 창 전체를 본다.
-    start = 0
-    for index in range(len(entries) - 1, -1, -1):
-        item = entries[index]
-        if item.get("type") == "user" and item.get("promptSource") == "typed":
-            start = index
-            break
-
-    requested = set()
-    answered = set()
-    for item in entries[start:]:
-        content = (item.get("message") or {}).get("content")
-        if not isinstance(content, list):
-            continue
-        for block in content:
-            if not isinstance(block, dict):
-                continue
-            if block.get("type") == "tool_use" and block.get("id"):
-                requested.add(block["id"])
-            elif block.get("type") == "tool_result" and block.get("tool_use_id"):
-                answered.add(block["tool_use_id"])
-    return bool(requested - answered)
-
-
 def first_line(text, limit):
     """요약용 — 첫 줄만, limit 자로 자른다. 전체 본문은 절대 보관하지 않는다."""
     if not text:
@@ -552,6 +561,9 @@ def load_session(session_id, cwd):
             data.setdefault("current_task", None)
             data.setdefault("last_result", None)
             data.setdefault("notice", None)
+            data.setdefault("attention_kind", None)
+            data.setdefault("host_app", None)
+            data.setdefault("host_pid", None)
             data.setdefault("model", None)
             data.setdefault("total_tokens", None)
             data.setdefault("input_tokens", None)
@@ -583,6 +595,12 @@ def write_session(session_id, data):
             pass
 
 
+def set_wait(data, kind, message=None):
+    data["attention_kind"] = kind
+    data["notice"] = first_line(message, 200) if isinstance(message, str) else None
+    data["status"] = "needs_input"
+
+
 def remember_transcript(data, payload):
     """모든 훅 페이로드에 오는 transcript_path 를 보관 — 앱이 토큰 집계에 쓴다."""
     tp = payload.get("transcript_path")
@@ -597,6 +615,7 @@ def resume_from_wait(data):
     어떤 이벤트(툴 실행·응답 종료·새 프롬프트)든 대기 해제 신호로 삼는다. 이게 없으면
     펫이 needsInput 에 붙박여 자동으로 접히지도 않는다."""
     data["notice"] = None
+    data["attention_kind"] = None
     if data.get("status") == "needs_input":
         data["status"] = "active"
 
@@ -698,12 +717,23 @@ def handle_pretooluse(payload):
         return
     cwd = payload.get("cwd") or ""
     tool_input = payload.get("tool_input") or {}
+    tool_name = str(payload.get("tool_name") or "")
     tool_use_id = str(payload.get("tool_use_id") or "")[:128]
+    data = load_session(session_id, cwd)
+    remember_transcript(data, payload)
+
+    # 질문 본문은 저장하지 않는다. 구조화된 tool_name 만으로 입력 대기를 판정한다.
+    if tool_name == "AskUserQuestion":
+        set_wait(data, "question", "Claude가 질문에 답을 기다리고 있습니다")
+        write_session(session_id, data)
+        return
+
+    if tool_name not in ("Agent", "Task"):
+        return
+
     # tool_input["prompt"] 는 절대 읽지 않는다 — description(1줄)만 보관.
     description = str(tool_input.get("description") or "")[:256]
     agent_type = str(tool_input.get("subagent_type") or "")[:64]
-    data = load_session(session_id, cwd)
-    remember_transcript(data, payload)
     refresh_current_task(data, payload)
     refresh_model_tokens(data, payload)
     known = {a.get("tool_use_id") for a in data.get("agents", [])}
@@ -729,13 +759,64 @@ def handle_posttooluse(payload):
     if not session_id:
         return
     cwd = payload.get("cwd") or ""
+    tool_name = str(payload.get("tool_name") or "")
     tool_use_id = str(payload.get("tool_use_id") or "")[:128]
     data = load_session(session_id, cwd)
     remember_transcript(data, payload)
-    refresh_current_task(data, payload)
-    refresh_model_tokens(data, payload)
-    data["agents"] = [a for a in data.get("agents", []) if a.get("tool_use_id") != tool_use_id]
+    if tool_name in ("Agent", "Task"):
+        refresh_current_task(data, payload)
+        refresh_model_tokens(data, payload)
+        data["agents"] = [
+            a for a in data.get("agents", []) if a.get("tool_use_id") != tool_use_id
+        ]
     resume_from_wait(data)
+    data["status"] = "active"
+    write_session(session_id, data)
+
+
+def handle_posttoolusefailure(payload):
+    """도구 실패도 권한/질문 UI 를 이미 벗어났다는 구조화된 해제 신호다."""
+    session_id = payload.get("session_id")
+    if not session_id:
+        return
+    cwd = payload.get("cwd") or ""
+    tool_name = str(payload.get("tool_name") or "")
+    tool_use_id = str(payload.get("tool_use_id") or "")[:128]
+    data = load_session(session_id, cwd)
+    remember_transcript(data, payload)
+    if tool_name in ("Agent", "Task"):
+        data["agents"] = [
+            a for a in data.get("agents", []) if a.get("tool_use_id") != tool_use_id
+        ]
+    resume_from_wait(data)
+    data["status"] = "active"
+    write_session(session_id, data)
+
+
+def handle_permissionrequest(payload):
+    """Claude 가 실제 권한 대화상자를 열기 직전 보내는 구조화 이벤트."""
+    session_id = payload.get("session_id")
+    if not session_id:
+        return
+    cwd = payload.get("cwd") or ""
+    data = load_session(session_id, cwd)
+    remember_transcript(data, payload)
+    tool_name = str(payload.get("tool_name") or "")[:64]
+    notice = f"{tool_name} 권한 확인이 필요합니다" if tool_name else "도구 권한 확인이 필요합니다"
+    set_wait(data, "permission", notice)
+    write_session(session_id, data)
+
+
+def handle_permissiondenied(payload):
+    """auto mode 거절은 대화상자 해제 신호다. 거절 사유 문자열은 판정에 쓰지 않는다."""
+    session_id = payload.get("session_id")
+    if not session_id:
+        return
+    cwd = payload.get("cwd") or ""
+    data = load_session(session_id, cwd)
+    remember_transcript(data, payload)
+    resume_from_wait(data)
+    data["status"] = "active"
     write_session(session_id, data)
 
 
@@ -752,6 +833,9 @@ def handle_sessionstart(payload):
         data = load_session(session_id, cwd)
         remember_transcript(data, payload)
         resume_from_wait(data)
+        # 구 훅 시절 만들어졌거나 감지에 실패했던 세션 — resume/clear 시점에도
+        # 훅은 여전히 claude 의 자식이므로 호스트를 다시 알아낼 수 있다.
+        ensure_host(data)
         if payload.get("source") == "clear":
             # /clear 는 대화를 비우지만 세션 id 는 그대로다. 직전 작업 내용을 남겨두면
             # 펫이 끝난 작업을 계속 "작업 중" 으로 보여준다 — 게다가 /clear 에는
@@ -778,12 +862,15 @@ def handle_userpromptsubmit(payload):
     data = load_session(session_id, cwd)
     remember_transcript(data, payload)
     resume_from_wait(data)
+    # 이미 떠 있던 구 훅 세션도 다음 프롬프트부터는 호스트 이동이 되게 한다.
+    ensure_host(data)
     data["status"] = "active"
     # 페이로드의 prompt 가 방금 제출된 원문이다. 트랜스크립트는 이 시점에 아직
-    # 새 프롬프트가 안 써진 경우가 있어 먼저 읽으면 직전 입력으로 한 턴 밀린다.
-    # 로컬 UI에는 첫 줄 120자만 저장하고 서버로는 보내지 않는다.
+    # 새 프롬프트가 안 써진 경우가 있어, 그대로 읽으면 직전 프롬프트에 한 턴씩
+    # 밀린다. 그래서 페이로드를 먼저 보고 없을 때만 트랜스크립트로 폴백한다.
+    # 로컬 UI에 저장되는 건 첫 줄 120자뿐 — 전체 프롬프트는 저장하지 않는다.
     #
-    # is_task_prompt 를 여기서도 건다 — 트랜스크립트 경로에만 걸려 있어서 주입 텍스트나
+    # is_real_prompt 를 여기서도 건다 — 트랜스크립트 경로에만 걸려 있어서 주입 텍스트나
     # 내장 슬래시 명령이 페이로드로 들어오면 그대로 작업으로 찍혔다.
     prompt = payload.get("prompt")
     if isinstance(prompt, str) and not is_task_prompt(prompt):
@@ -791,7 +878,7 @@ def handle_userpromptsubmit(payload):
     latest = first_line(prompt, 120) if isinstance(prompt, str) else None
     if latest:
         data["current_task"] = latest
-        data["last_result"] = None
+        data["last_result"] = None  # 새 요청 시작 — 직전 응답 요약은 지운다
     elif payload.get("transcript_path"):
         text = read_last_message(payload["transcript_path"], "user")
         if text:
@@ -823,52 +910,59 @@ def handle_stop(payload):
 
 
 def handle_notification(payload):
-    """Claude 가 사람을 기다린다 — 그런데 이 훅은 두 가지 상황에 다 온다.
+    """Notification 의 구조화된 notification_type 만으로 상태를 전이한다.
 
-    1. **툴 권한 승인 요청** — 턴이 도는 중에 온다. 사람이 눌러 줘야 진행된다.
-    2. **유휴 알림**("Claude is waiting for your input") — 턴이 끝나고 한참 뒤에 온다.
-       막힌 게 아니라 그냥 다음 지시를 기다리는 중이다.
-
-    둘을 같이 needs_input 으로 올렸더니, 2번이 Stop 뒤에 도착해 이미 완료된 세션을
-    "입력 필요" 로 되돌렸다. needsInput 은 손이 필요한 상태라 자동으로 접지 않게
-    해 뒀으므로(PetBubbleVisibility) 그대로 눌어붙어, 작업이 끝났는데도 펫이 계속
-    입력을 기다린다고 표시했다.
-
-    구분은 **문구가 아니라 트랜스크립트로** 한다. 안내 문구는 버전과 언어에 따라
-    바뀌지만, 기록의 모양은 바뀌지 않는다 — 막고 있는 알림은 결과가 안 돌아온
-    tool_use 를 남기고(`turn_is_open`), 유휴 알림은 그런 게 없는 상태에서 온다.
-
-    상태 플래그를 안 쓰는 이유는 Stop 이 항상 오지는 않기 때문이다. 사용자가 중간에
-    끊으면 status 는 active 로 남고, 그러면 뒤따라온 유휴 알림이 멀쩡히 끝난 세션을
-    "입력 필요" 로 만든다. 트랜스크립트에는 끊긴 자리가 그대로 남으므로 그쪽이 더
-    정확하다. 읽지 못할 때만 예전 방식(status)으로 물러난다.
-
-    이미 needs_input 이면 손대지 않는다. 권한 요청을 방치하면 유휴 알림이 뒤따라
-    오는데, 그때 사유를 덮어쓰면 "Bash 권한이 필요하다" 가 "입력을 기다린다" 로
-    바뀐다 — 무엇을 기다리는지 보여주려고 만든 값이 정작 그걸 잃는다.
-
-    message 는 Claude 가 만든 안내 문구라 사용자 프롬프트 원문이 아니다 — 그대로
-    한 줄만 보관한다.
+    message 는 로컬 표시용이다. 번역되거나 문구가 바뀔 수 있으므로 분류에는 절대 쓰지
+    않는다. idle/auth/elicitation 완료를 입력 대기로 오인하지 않는 것이 핵심이다.
     """
+    session_id = payload.get("session_id")
+    if not session_id:
+        return
+    notification_type = str(payload.get("notification_type") or "")
+    if notification_type not in {
+        "permission_prompt", "idle_prompt", "elicitation_dialog",
+        "elicitation_complete", "elicitation_response",
+    }:
+        return
+    cwd = payload.get("cwd") or ""
+    data = load_session(session_id, cwd)
+    remember_transcript(data, payload)
+    message = payload.get("message")
+    if notification_type == "permission_prompt":
+        set_wait(data, "permission", message)
+    elif notification_type == "elicitation_dialog":
+        set_wait(data, "elicitation", message)
+    elif notification_type == "idle_prompt":
+        resume_from_wait(data)
+        data["status"] = "idle"
+    else:  # elicitation_complete | elicitation_response
+        resume_from_wait(data)
+        data["status"] = "active"
+    write_session(session_id, data)
+
+
+def handle_elicitation(payload):
+    """MCP 서버가 실제 사용자 입력 폼/URL 확인을 요청했다."""
     session_id = payload.get("session_id")
     if not session_id:
         return
     cwd = payload.get("cwd") or ""
     data = load_session(session_id, cwd)
     remember_transcript(data, payload)
+    set_wait(data, "elicitation", payload.get("message"))
+    write_session(session_id, data)
 
-    if data.get("status") == "needs_input":
-        # 이미 사유를 잡아 뒀다. 뒤따라오는 유휴 알림이 그걸 덮지 않게 시각만 갱신한다.
-        write_session(session_id, data)
+
+def handle_elicitationresult(payload):
+    """사용자가 MCP 입력에 accept/decline/cancel 중 하나로 응답했다."""
+    session_id = payload.get("session_id")
+    if not session_id:
         return
-
-    blocked = turn_is_open(data.get("transcript_path") or payload.get("transcript_path"))
-    if blocked is None:
-        blocked = data.get("status") != "idle"  # 트랜스크립트를 못 읽었을 때의 대비책
-    if blocked:
-        message = payload.get("message")
-        data["notice"] = first_line(message, 200) if isinstance(message, str) else None
-        data["status"] = "needs_input"
+    cwd = payload.get("cwd") or ""
+    data = load_session(session_id, cwd)
+    remember_transcript(data, payload)
+    resume_from_wait(data)
+    data["status"] = "active"
     write_session(session_id, data)
 
 
@@ -910,12 +1004,44 @@ def handle_sessionend(payload):
 HANDLERS = {
     "PreToolUse": handle_pretooluse,
     "PostToolUse": handle_posttooluse,
+    "PostToolUseFailure": handle_posttoolusefailure,
+    "PermissionRequest": handle_permissionrequest,
+    "PermissionDenied": handle_permissiondenied,
     "SessionStart": handle_sessionstart,
     "UserPromptSubmit": handle_userpromptsubmit,
     "Stop": handle_stop,
     "SessionEnd": handle_sessionend,
     "Notification": handle_notification,
+    "Elicitation": handle_elicitation,
+    "ElicitationResult": handle_elicitationresult,
 }
+
+
+def run_handler_locked(handler, payload):
+    """세션 JSON 전체 read-modify-replace 를 세션별 flock 으로 직렬화한다."""
+    session_id = payload.get("session_id")
+    if not session_id:
+        handler(payload)
+        return
+    lock_fd = None
+    try:
+        lock_path = live_dir() / (safe_id(session_id) + ".lock")
+        lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        handler(payload)
+    except Exception:
+        # 관찰 훅 때문에 Claude 작업을 막지 않는다. 잠금 전 실패라면 상태 갱신도 포기한다.
+        return
+    finally:
+        if lock_fd is not None:
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            except OSError:
+                pass
+            try:
+                os.close(lock_fd)
+            except OSError:
+                pass
 
 
 def main():
@@ -935,7 +1061,7 @@ def main():
     if handler is None:
         return
     try:
-        handler(payload)
+        run_handler_locked(handler, payload)
     except Exception:
         return
 

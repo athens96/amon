@@ -9,6 +9,12 @@ import Foundation
 enum AgentDashboardReporter {
     static let reportPath = "/api/v1/ai-agents/report"
 
+    struct UploadError: LocalizedError, Equatable {
+        let message: String
+        let retryable: Bool
+        var errorDescription: String? { message }
+    }
+
     /// 베이스 URL → 최종 업로드 엔드포인트 URL.
     static func endpoint(from serverURL: String) -> URL? {
         var s = serverURL.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -38,17 +44,40 @@ enum AgentDashboardReporter {
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
+    static func retryDelay(forAttempt attempt: Int) -> TimeInterval {
+        let exponent = min(max(attempt - 1, 0), 5)
+        return min(15 * pow(2, Double(exponent)), 300)
+    }
+
+    static func isRetryableHTTPStatus(_ statusCode: Int) -> Bool {
+        statusCode == 408
+            || statusCode == 425
+            || statusCode == 429
+            || (500...599).contains(statusCode)
+    }
+
+    static func shouldRetry(_ error: Error) -> Bool {
+        if let error = error as? UploadError { return error.retryable }
+        guard let error = error as? URLError else { return false }
+        return [
+            .timedOut, .notConnectedToInternet, .networkConnectionLost,
+            .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed,
+        ].contains(error.code)
+    }
+
     /// 스냅샷 db 파일을 multipart 로 업로드한다. 성공 시 서버가 저장한 바이트 수를 돌려준다.
     /// 실패 시 `ReportError` throw (401=유저키 오류, 413=크기 초과).
     @discardableResult
     static func send(serverURL: String, userKey: String, snapshot: URL) async throws -> Int {
         guard let url = endpoint(from: serverURL) else {
-            throw ReportError.message("서버 URL이 올바르지 않습니다")
+            throw UploadError(message: "서버 URL이 올바르지 않습니다", retryable: false)
         }
         let key = userKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty else { throw ReportError.message("유저 키가 비어 있습니다") }
+        guard !key.isEmpty else {
+            throw UploadError(message: "유저 키가 비어 있습니다", retryable: false)
+        }
         guard let fileData = try? Data(contentsOf: snapshot) else {
-            throw ReportError.message("스냅샷을 읽을 수 없습니다")
+            throw UploadError(message: "스냅샷을 읽을 수 없습니다", retryable: false)
         }
 
         let boundary = "amon-\(UUID().uuidString)"
@@ -77,20 +106,21 @@ enum AgentDashboardReporter {
 
         let (data, response) = try await PinnedHTTP.session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
-            throw ReportError.message("서버 응답을 받지 못했습니다")
+            throw UploadError(message: "서버 응답을 받지 못했습니다", retryable: true)
         }
         switch http.statusCode {
         case 200..<300:
             let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
             return (obj?["bytes"] as? Int) ?? fileData.count
         case 401:
-            throw ReportError.message("유효하지 않은 유저 키입니다")
+            throw UploadError(message: "유효하지 않은 유저 키입니다", retryable: false)
         case 413:
-            throw ReportError.message("업로드 크기가 서버 제한을 초과했습니다")
+            throw UploadError(message: "업로드 크기가 서버 제한을 초과했습니다", retryable: false)
         default:
-            let bodyText = String(data: data, encoding: .utf8) ?? ""
-            let tail = bodyText.isEmpty ? "" : ": \(bodyText.prefix(120))"
-            throw ReportError.message("서버 오류 \(http.statusCode)\(tail)")
+            throw UploadError(
+                message: "서버 오류 \(http.statusCode)",
+                retryable: isRetryableHTTPStatus(http.statusCode)
+            )
         }
     }
 }

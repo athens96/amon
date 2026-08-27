@@ -38,6 +38,11 @@ struct LiveSession: Equatable {
     let outputTokens: Int?
     let startedAt: Date
     let updatedAt: Date
+    /// 세션을 실행한 GUI 앱과 로컬 원본 위치. 펫 상호작용에만 사용하며 업로드하지 않는다.
+    let hostApp: String?
+    let hostPID: Int?
+    let cwd: String?
+    let transcriptPath: String?
 
     init(
         provider: String,
@@ -54,9 +59,17 @@ struct LiveSession: Equatable {
         outputTokens: Int? = nil,
         startedAt: Date,
         updatedAt: Date,
-        notice: String? = nil
+        notice: String? = nil,
+        hostApp: String? = nil,
+        hostPID: Int? = nil,
+        cwd: String? = nil,
+        transcriptPath: String? = nil
     ) {
         self.notice = notice
+        self.hostApp = hostApp
+        self.hostPID = hostPID
+        self.cwd = cwd
+        self.transcriptPath = transcriptPath
         self.provider = provider
         self.sessionId = sessionId
         self.projectLabel = projectLabel
@@ -167,7 +180,10 @@ enum LiveSessionParser {
             else { continue }
             let touched = lastActivity(of: dto)
             if now.timeIntervalSince(touched) > staleInterval { continue }
-            result.append(dto.toModel(updatedAt: touched))
+            let liveOutput = ClaudeTranscriptTail.latestOutput(
+                transcriptPath: dto.transcript_path
+            )
+            result.append(dto.toModel(updatedAt: touched, lastResultOverride: liveOutput))
         }
         return result
     }
@@ -230,9 +246,14 @@ enum LiveSessionParser {
         /// 훅이 매 이벤트마다 갱신하는 트랜스크립트 경로. 활동 시각 판정에 쓴다.
         let transcript_path: String?
         let notice: String?
+        let host_app: String?
+        let host_pid: Int?
+        let cwd: String?
 
-        /// - Parameter updatedAt: 트랜스크립트 mtime 까지 반영한 실제 활동 시각.
-        func toModel(updatedAt: Date) -> LiveSession {
+        /// - Parameters:
+        ///   - updatedAt: 트랜스크립트 mtime 까지 반영한 실제 활동 시각.
+        ///   - lastResultOverride: 현재 턴에서 폴링한 최신 assistant 출력.
+        func toModel(updatedAt: Date, lastResultOverride: String? = nil) -> LiveSession {
             LiveSession(
                 provider: provider ?? "claude",
                 sessionId: session_id,
@@ -241,14 +262,18 @@ enum LiveSessionParser {
                 status: status,
                 agents: agents.map { $0.toModel() },
                 currentTask: current_task,
-                lastResult: last_result,
+                lastResult: lastResultOverride ?? last_result,
                 model: model,
                 totalTokens: total_tokens,
                 inputTokens: input_tokens,
                 outputTokens: output_tokens,
                 startedAt: started_at,
                 updatedAt: updatedAt,
-                notice: notice
+                notice: notice,
+                hostApp: host_app,
+                hostPID: host_pid,
+                cwd: cwd,
+                transcriptPath: transcript_path
             )
         }
     }
@@ -311,6 +336,7 @@ enum CodexLiveParser {
         var sessionID: String?
         var cwd: String?
         var model: String?
+        var hostApp: String?
         var firstTS: Date?
         var lastTS: Date?
         var lastTotalTokens: Int?
@@ -333,6 +359,9 @@ enum CodexLiveParser {
             case "session_meta":
                 sessionID = payload["id"] as? String ?? sessionID
                 cwd = payload["cwd"] as? String ?? cwd
+                if payload["source"] as? String == "vscode" {
+                    hostApp = "Visual Studio Code"
+                }
             case "turn_context":
                 cwd = payload["cwd"] as? String ?? cwd
                 model = payload["model"] as? String ?? model
@@ -425,7 +454,10 @@ enum CodexLiveParser {
             inputTokens: lastInputTokens,
             outputTokens: lastOutputTokens,
             startedAt: started,
-            updatedAt: lastTS ?? modifiedAt
+            updatedAt: lastTS ?? modifiedAt,
+            hostApp: hostApp,
+            cwd: cwd,
+            transcriptPath: file.path
         )
     }
 
@@ -577,7 +609,11 @@ private enum CursorLiveParser {
                 inputTokens: session.inputTokens,
                 outputTokens: session.outputTokens,
                 startedAt: session.startedAt,
-                updatedAt: session.updatedAt
+                updatedAt: session.updatedAt,
+                hostApp: session.hostApp,
+                hostPID: session.hostPID,
+                cwd: session.cwd,
+                transcriptPath: session.transcriptPath
             )
         }
     }
@@ -623,7 +659,8 @@ private enum CursorLiveParser {
                     inputTokens: (estimate?.usage.input).flatMap { $0 > 0 ? $0 : nil },
                     outputTokens: (estimate?.usage.output).flatMap { $0 > 0 ? $0 : nil },
                     startedAt: composer.createdAt ?? updated,
-                    updatedAt: updated
+                    updatedAt: updated,
+                    hostApp: "Cursor"
                 )
             }
         }

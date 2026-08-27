@@ -34,6 +34,13 @@ public sealed class CodexPetSpriteControl : FrameworkElement
             typeof(CodexPetSpriteControl),
             new FrameworkPropertyMetadata(1, OnSpriteVersionChanged));
 
+    public static readonly DependencyProperty SpriteRevisionProperty =
+        DependencyProperty.Register(
+            nameof(SpriteRevision),
+            typeof(int),
+            typeof(CodexPetSpriteControl),
+            new FrameworkPropertyMetadata(0, OnSpriteRevisionChanged));
+
     public static readonly DependencyProperty DragDirectionProperty =
         DependencyProperty.Register(
             nameof(DragDirection),
@@ -75,6 +82,12 @@ public sealed class CodexPetSpriteControl : FrameworkElement
     {
         get => (int)GetValue(SpriteVersionProperty);
         set => SetValue(SpriteVersionProperty, value);
+    }
+
+    public int SpriteRevision
+    {
+        get => (int)GetValue(SpriteRevisionProperty);
+        set => SetValue(SpriteRevisionProperty, value);
     }
 
     public int DragDirection
@@ -229,6 +242,11 @@ public sealed class CodexPetSpriteControl : FrameworkElement
         }
         control.LoadFrames();
     }
+
+    private static void OnSpriteRevisionChanged(
+        DependencyObject dependencyObject,
+        DependencyPropertyChangedEventArgs e) =>
+        ((CodexPetSpriteControl)dependencyObject).LoadFrames();
 
     private static void OnStatusChanged(
         DependencyObject dependencyObject,

@@ -119,19 +119,73 @@ enum PetOverlayGeometry {
         )
     }
 
+    static let minimumHistoryHeight: CGFloat = 120
+
+    static func mainCardTop(
+        in size: CGSize,
+        bubblePlacement: PetBubblePlacement,
+        cardHeight: CGFloat
+    ) -> CGFloat {
+        let bubble = bubbleFrame(in: size, bubblePlacement: bubblePlacement)
+        return min(bubble.minY + cardHeight, bubble.maxY)
+    }
+
     /// 캐러셀 화살표는 말풍선 헤더 오른쪽 끝에 있다. SwiftUI 버튼으로 이벤트를
     /// 넘겨야 하므로 패널 드래그와 구분할 히트 영역을 계산한다.
     static func carouselControlFrame(
         in size: CGSize,
-        bubblePlacement: PetBubblePlacement
+        bubblePlacement: PetBubblePlacement,
+        cardHeight: CGFloat? = nil
     ) -> CGRect {
         let bubble = bubbleFrame(in: size, bubblePlacement: bubblePlacement)
+        let top = cardHeight.map {
+            mainCardTop(in: size, bubblePlacement: bubblePlacement, cardHeight: $0)
+        } ?? bubble.maxY
         return CGRect(
-            x: bubble.maxX - 90,
-            y: bubble.maxY - 40,
+            x: bubble.maxX - 118,
+            y: top - 40,
             width: 82,
             height: 34
         )
+    }
+
+    static func historyControlFrame(
+        in size: CGSize,
+        bubblePlacement: PetBubblePlacement,
+        cardHeight: CGFloat
+    ) -> CGRect {
+        let bubble = bubbleFrame(in: size, bubblePlacement: bubblePlacement)
+        let top = mainCardTop(
+            in: size,
+            bubblePlacement: bubblePlacement,
+            cardHeight: cardHeight
+        )
+        return CGRect(x: bubble.maxX - 36, y: top - 40, width: 30, height: 34)
+    }
+
+    static func historyAreaFrame(
+        in size: CGSize,
+        bubblePlacement: PetBubblePlacement,
+        historyHeight: CGFloat
+    ) -> CGRect {
+        guard historyHeight > 0 else { return .null }
+        let bubble = bubbleFrame(in: size, bubblePlacement: bubblePlacement)
+        let height = min(historyHeight, bubble.height)
+        return CGRect(
+            x: bubble.minX,
+            y: bubble.maxY - height,
+            width: bubble.width,
+            height: height
+        )
+    }
+
+    static func historyHeight(
+        panelTop: CGFloat,
+        visibleFrame: CGRect,
+        margin: CGFloat = 8
+    ) -> CGFloat {
+        let available = visibleFrame.maxY - margin - panelTop
+        return available >= minimumHistoryHeight ? available : 0
     }
 
     /// 리사이즈 그립 — 말풍선의 아바타 반대쪽 위 모서리.

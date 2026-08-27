@@ -24,6 +24,9 @@ public sealed class UsageCollectionService : IDisposable
     private readonly SemaphoreSlim _sendGate = new(1, 1);
     private readonly Dispatcher _dispatcher;
     private readonly CancellationTokenSource _cancellation = new();
+    private readonly object _retryLock = new();
+    private CancellationTokenSource? _retryCancellation;
+    private int _retryAttempt;
     private Task? _loop;
 
     public UsageCollectionService(
@@ -179,21 +182,74 @@ public sealed class UsageCollectionService : IDisposable
                     _ => $"서버 전송 실패 ({(int)response.StatusCode})",
                 };
                 await SetReportStatusAsync(message);
+                if (DashboardReporter.IsRetryableStatus(response.StatusCode))
+                    ScheduleUploadRetry(summaries, force);
+                else
+                    ResetUploadRetry();
                 return;
             }
 
+            ResetUploadRetry();
             config.LastUploadSignature = uploadSignature;
             await _configStore.SaveAsync(config, cancellationToken);
             await SetReportStatusAsync($"마지막 전송 {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+        }
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            await SetReportStatusAsync($"전송 실패 · {exception.Message}");
+            ScheduleUploadRetry(summaries, force);
         }
         catch (Exception exception) when (
             exception is HttpRequestException or IOException or InvalidOperationException)
         {
             await SetReportStatusAsync($"전송 실패 · {exception.Message}");
+            if (DashboardReporter.IsRetryableException(exception))
+                ScheduleUploadRetry(summaries, force);
+            else
+                ResetUploadRetry();
         }
         finally
         {
             _sendGate.Release();
+        }
+    }
+
+    private void ScheduleUploadRetry(IReadOnlyList<ToolSummary> summaries, bool force)
+    {
+        CancellationTokenSource retry;
+        TimeSpan delay;
+        lock (_retryLock)
+        {
+            _retryCancellation?.Cancel();
+            _retryCancellation?.Dispose();
+            _retryAttempt += 1;
+            delay = DashboardReporter.RetryDelay(_retryAttempt);
+            retry = CancellationTokenSource.CreateLinkedTokenSource(_cancellation.Token);
+            _retryCancellation = retry;
+        }
+
+        var snapshot = summaries.ToArray();
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(delay, retry.Token);
+                await UploadIfConfiguredAsync(snapshot, force, _cancellation.Token);
+            }
+            catch (OperationCanceledException) when (retry.IsCancellationRequested)
+            {
+            }
+        });
+    }
+
+    private void ResetUploadRetry()
+    {
+        lock (_retryLock)
+        {
+            _retryAttempt = 0;
+            _retryCancellation?.Cancel();
+            _retryCancellation?.Dispose();
+            _retryCancellation = null;
         }
     }
 
@@ -209,6 +265,7 @@ public sealed class UsageCollectionService : IDisposable
     public void Dispose()
     {
         _cancellation.Cancel();
+        ResetUploadRetry();
         _httpClient.Dispose();
         _sendGate.Dispose();
     }

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 
 namespace AMon.Activity;
@@ -193,6 +194,8 @@ public sealed class ClaudeLiveSessionSource : ILiveSessionSource
                         total is not null;
         if (total is null && hasTokens)
             total = (input ?? 0) + (output ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0);
+        var transcriptPath = Text(root, "transcript_path");
+        var latestOutput = LatestTranscriptOutput(transcriptPath);
         session = new LiveSession(
             LiveText.FirstLine(Text(root, "provider"), 32) ?? "claude",
             LiveText.FirstLine(id, 128)!,
@@ -201,7 +204,7 @@ public sealed class ClaudeLiveSessionSource : ILiveSessionSource
             LiveText.FirstLine(Text(root, "status"), 32) ?? "idle",
             agents,
             LiveText.FirstLine(Text(root, "current_task"), 120),
-            LiveText.FirstLine(Text(root, "last_result"), 200),
+            latestOutput ?? LiveText.FirstLine(Text(root, "last_result"), 200),
             LiveText.FirstLine(Text(root, "model"), 128),
             hasTokens
                 ? new LiveTokenSnapshot(
@@ -218,6 +221,120 @@ public sealed class ClaudeLiveSessionSource : ILiveSessionSource
             LiveText.FirstLine(Text(root, "notice"), 200));
         return true;
     }
+
+    /// <summary>
+    /// Reads only the latest 256 KiB and returns assistant text written after the most
+    /// recent human prompt. This keeps a long running turn live without retaining the
+    /// transcript or exposing tool/thinking blocks.
+    /// </summary>
+    private static string? LatestTranscriptOutput(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return null;
+
+        try
+        {
+            using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            const int maximumBytes = 256 * 1024;
+            var offset = Math.Max(0, stream.Length - maximumBytes);
+            stream.Seek(offset, SeekOrigin.Begin);
+            var buffer = new byte[checked((int)(stream.Length - offset))];
+            stream.ReadExactly(buffer);
+            var lines = Encoding.UTF8.GetString(buffer).Split('\n');
+            var firstCompleteLine = offset > 0 ? 1 : 0;
+            for (var index = lines.Length - 1; index >= firstCompleteLine; index--)
+            {
+                if (string.IsNullOrWhiteSpace(lines[index]))
+                    continue;
+                JsonDocument document;
+                try
+                {
+                    document = JsonDocument.Parse(lines[index]);
+                }
+                catch (JsonException)
+                {
+                    continue;
+                }
+
+                using (document)
+                {
+                    var root = document.RootElement;
+                    if (root.ValueKind != JsonValueKind.Object ||
+                        root.TryGetProperty("isSidechain", out var sidechain) &&
+                        sidechain.ValueKind == JsonValueKind.True)
+                        continue;
+                    var type = Text(root, "type");
+                    if (type == "user" && IsHumanPromptSource(Text(root, "promptSource")) &&
+                        root.TryGetProperty("message", out var userMessage) &&
+                        userMessage.TryGetProperty("content", out var userContent) &&
+                        HumanPromptText(userContent) is not null)
+                        return null;
+                    if (type != "assistant" ||
+                        !root.TryGetProperty("message", out var message) ||
+                        !message.TryGetProperty("content", out var content))
+                        continue;
+                    var text = AssistantText(content);
+                    if (LiveText.FirstLine(text, 200) is { } output)
+                        return output;
+                }
+            }
+        }
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or ArgumentException
+                or NotSupportedException or PathTooLongException)
+        {
+        }
+
+        return null;
+    }
+
+    private static string? AssistantText(JsonElement content)
+    {
+        if (content.ValueKind == JsonValueKind.String)
+            return content.GetString();
+        if (content.ValueKind != JsonValueKind.Array)
+            return null;
+        var parts = content.EnumerateArray()
+            .Where(block => Text(block, "type") == "text")
+            .Select(block => Text(block, "text"))
+            .Where(static text => !string.IsNullOrWhiteSpace(text));
+        var joined = string.Join(' ', parts);
+        return string.IsNullOrWhiteSpace(joined) ? null : joined;
+    }
+
+    private static string? HumanPromptText(JsonElement content)
+    {
+        string? text = null;
+        if (content.ValueKind == JsonValueKind.String)
+            text = content.GetString();
+        else if (content.ValueKind == JsonValueKind.Array)
+        {
+            if (content.EnumerateArray().Any(block => Text(block, "type") == "tool_result"))
+                return null;
+            text = content.EnumerateArray()
+                .Where(block => Text(block, "type") == "text")
+                .Select(block => Text(block, "text"))
+                .FirstOrDefault(IsRealHumanPrompt);
+        }
+        return IsRealHumanPrompt(text) ? text : null;
+    }
+
+    private static bool IsRealHumanPrompt(string? text)
+    {
+        var value = text?.TrimStart();
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+        string[] injected =
+            ["<command-", "<local-command", "<system-reminder", "<user-prompt-submit-hook", "<task-notification"];
+        return !injected.Any(prefix => value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsHumanPromptSource(string? source) =>
+        source is "typed" or "sdk";
 
     /// <summary>
     /// When the session was last actually alive.
