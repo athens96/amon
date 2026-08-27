@@ -48,6 +48,9 @@ public sealed record ClaudeLiveSession
     [JsonPropertyName("notice")]
     public string? Notice { get; set; }
 
+    [JsonPropertyName("attention_kind")]
+    public string? AttentionKind { get; set; }
+
     [JsonPropertyName("agents")]
     public List<ClaudeLiveAgent> Agents { get; init; } = [];
 

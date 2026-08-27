@@ -47,6 +47,20 @@ public sealed class ClaudeHookInstallerTests : IDisposable
         Assert.Contains("\"args\": []", firstText);
         Assert.DoesNotContain("\"async\"", firstText);
         Assert.Contains("other.exe", firstText);
+        Assert.Equal(
+            "permission_prompt|idle_prompt|elicitation_dialog|elicitation_complete|elicitation_response",
+            parsed["hooks"]!["Notification"]![0]!["matcher"]!.GetValue<string>());
+        Assert.Equal(
+            "Agent|Task|AskUserQuestion",
+            parsed["hooks"]!["PreToolUse"]![0]!["matcher"]!.GetValue<string>());
+        foreach (var eventName in new[]
+                 {
+                     "PermissionRequest", "PostToolUseFailure", "PermissionDenied",
+                     "Elicitation", "ElicitationResult",
+                 })
+        {
+            Assert.NotNull(parsed["hooks"]![eventName]);
+        }
     }
 
     [Fact]

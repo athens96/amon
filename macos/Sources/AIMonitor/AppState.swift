@@ -55,6 +55,11 @@ final class AppState: ObservableObject {
     /// 패널 오픈 재스캔 최소 간격 — 직전 스캔이 이보다 최근이면 생략(과도 스캔 방지).
     private let appearThrottle: TimeInterval = 15
     private var autoTask: Task<Void, Never>?
+    private var dashboardSyncTask: Task<Void, Never>?
+    private let dashboardSyncDebounce: TimeInterval = 5
+    private var dashboardUploadInFlight = false
+    private var dashboardSyncRequested = false
+    private var dashboardRetryAttempt = 0
     init() {
         // 콜드 스타트: 직전 스캔 결과가 SQLite 에 있으면 즉시 렌더해 빈 화면을 피한다.
         // (스캔은 곧바로 startAutoReport 에서 돌아 최신값으로 덮어쓴다.)
@@ -74,8 +79,11 @@ final class AppState: ObservableObject {
             guard let self else { return }
             Task.detached(priority: .utility) { [store = usageStore] in
                 store.upsert(sessions: records)
+                await MainActor.run { self.scheduleAgentDashboardSync() }
             }
         }
+
+        restoreDashboardOutcome()
 
         // 앱 실행 즉시 1회 스캔·전송하고, 이후 주기 타이머를 건다.
         // (패널을 한 번도 안 열어도 백그라운드로 계속 보고된다.)
@@ -273,7 +281,7 @@ final class AppState: ObservableObject {
                 self.lastScan = Date()
                 self.isScanning = false
                 // 에이전트 대시보드 동기화(서버 연동 설정됨 + 내용 변경 시).
-                self.syncAgentDashboard()
+                self.scheduleAgentDashboardSync()
             }
         }
     }
@@ -283,15 +291,23 @@ final class AppState: ObservableObject {
     /// - 자동(스캔 사이클 끝): 서버 설정됨 + 직전 업로드 대비 내용 변경 시에만 전송.
     /// - 수동("지금 전송"): 변경 감지 없이 즉시 시도.
     func syncAgentDashboard(manual: Bool = false) {
+        if manual {
+            dashboardSyncTask?.cancel()
+            dashboardSyncTask = nil
+        }
         guard settings.reportConfigured else {
-            if manual { dashboardOutcome = .failure("서버 URL과 유저 키를 먼저 입력하세요") }
+            if manual { recordDashboardFailure("서버 URL과 유저 키를 먼저 입력하세요") }
             return
         }
-        if case .sending = dashboardOutcome { return }
+        if dashboardUploadInFlight {
+            dashboardSyncRequested = true
+            return
+        }
 
         let serverURL = settings.serverURL
         let userKey = settings.userKey
         let lastSig = settings.dashboardLastUploadSHA
+        dashboardUploadInFlight = true
         dashboardOutcome = .sending
 
         Task { [store = usageStore] in
@@ -306,7 +322,8 @@ final class AppState: ObservableObject {
                 userKey: userKey
             )
             if !manual, !sig.isEmpty, sig == lastSig {
-                self.dashboardOutcome = .idle
+                self.restoreDashboardOutcome()
+                self.finishDashboardUpload()
                 return
             }
 
@@ -317,18 +334,82 @@ final class AppState: ObservableObject {
                 store.uploadSnapshot(to: tmp)
             }.value
             guard let snapshot else {
-                self.dashboardOutcome = .failure("스냅샷 생성 실패")
+                self.recordDashboardFailure("스냅샷 생성 실패")
+                self.scheduleDashboardRetryAfterFailure()
                 return
             }
+            self.settings.dashboardLastUploadAttemptAt = Date()
             do {
                 _ = try await AgentDashboardReporter.send(
                     serverURL: serverURL, userKey: userKey, snapshot: snapshot
                 )
+                let succeededAt = Date()
                 if !sig.isEmpty { self.settings.dashboardLastUploadSHA = sig }
-                self.dashboardOutcome = .success(Date())
+                self.settings.dashboardLastUploadSuccessAt = succeededAt
+                self.settings.dashboardLastUploadError = nil
+                self.settings.dashboardLastUploadErrorAt = nil
+                self.dashboardRetryAttempt = 0
+                self.dashboardOutcome = .success(succeededAt)
+                self.finishDashboardUpload()
             } catch {
-                self.dashboardOutcome = .failure(error.localizedDescription)
+                self.recordDashboardFailure(error.localizedDescription)
+                if AgentDashboardReporter.shouldRetry(error) {
+                    self.scheduleDashboardRetryAfterFailure()
+                } else {
+                    self.finishDashboardUpload()
+                }
             }
+        }
+    }
+
+    private func scheduleAgentDashboardSync(after delay: TimeInterval? = nil) {
+        guard settings.reportConfigured else { return }
+        dashboardSyncTask?.cancel()
+        let nanoseconds = UInt64((delay ?? dashboardSyncDebounce) * 1_000_000_000)
+        dashboardSyncTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: nanoseconds)
+            if Task.isCancelled { return }
+            guard let self else { return }
+            self.dashboardSyncTask = nil
+            self.syncAgentDashboard()
+        }
+    }
+
+    private func finishDashboardUpload(retryAfter: TimeInterval? = nil) {
+        dashboardUploadInFlight = false
+        if dashboardSyncRequested {
+            dashboardSyncRequested = false
+            scheduleAgentDashboardSync(after: 1)
+        } else if let retryAfter {
+            scheduleAgentDashboardSync(after: retryAfter)
+        }
+    }
+
+    private func scheduleDashboardRetryAfterFailure() {
+        dashboardRetryAttempt += 1
+        finishDashboardUpload(
+            retryAfter: AgentDashboardReporter.retryDelay(forAttempt: dashboardRetryAttempt)
+        )
+    }
+
+    private func recordDashboardFailure(_ message: String) {
+        let now = Date()
+        settings.dashboardLastUploadError = message
+        settings.dashboardLastUploadErrorAt = now
+        dashboardOutcome = .failure(message)
+    }
+
+    private func restoreDashboardOutcome() {
+        let successAt = settings.dashboardLastUploadSuccessAt
+        let errorAt = settings.dashboardLastUploadErrorAt
+        if let message = settings.dashboardLastUploadError,
+           let errorAt,
+           successAt == nil || errorAt > successAt! {
+            dashboardOutcome = .failure(message)
+        } else if let successAt {
+            dashboardOutcome = .success(successAt)
+        } else {
+            dashboardOutcome = .idle
         }
     }
 

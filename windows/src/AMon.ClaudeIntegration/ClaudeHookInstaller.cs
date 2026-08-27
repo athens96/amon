@@ -31,11 +31,15 @@ public sealed class ClaudeHookInstaller
     public const string ManagedMarker = "A-mon local live activity";
     public const string ManagedExecutableName = "AMon.ClaudeHook.exe";
 
-    // Notification fires when Claude asks for tool permission or otherwise waits on a
-    // person. It is the only signal that produces the pet's "needs input" state.
     private static readonly string[] EventsWithoutMatcher =
-        ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd", "Notification"];
-    private static readonly string[] AgentToolEvents = ["PreToolUse", "PostToolUse"];
+        ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd", "Elicitation", "ElicitationResult"];
+    private const string NotificationMatcher =
+        "permission_prompt|idle_prompt|elicitation_dialog|elicitation_complete|elicitation_response";
+    private const string PreToolMatcher = "Agent|Task|AskUserQuestion";
+    private static readonly string[] AllToolEvents =
+        ["PermissionRequest", "PostToolUse", "PostToolUseFailure", "PermissionDenied"];
+    private static IEnumerable<string> AllEvents =>
+        EventsWithoutMatcher.Concat(["Notification", "PreToolUse"]).Concat(AllToolEvents);
     private static readonly JsonSerializerOptions WriteOptions = new() { WriteIndented = true };
 
     private readonly string settingsPath;
@@ -133,9 +137,13 @@ public sealed class ClaudeHookInstaller
             GetOrCreateEvent(hooks, eventName).Add(CreateGroup(executablePath, matcher: null));
         }
 
-        foreach (var eventName in AgentToolEvents)
+        GetOrCreateEvent(hooks, "Notification").Add(
+            CreateGroup(executablePath, NotificationMatcher));
+        GetOrCreateEvent(hooks, "PreToolUse").Add(
+            CreateGroup(executablePath, PreToolMatcher));
+        foreach (var eventName in AllToolEvents)
         {
-            GetOrCreateEvent(hooks, eventName).Add(CreateGroup(executablePath, "Agent|Task"));
+            GetOrCreateEvent(hooks, eventName).Add(CreateGroup(executablePath, matcher: null));
         }
     }
 
@@ -173,7 +181,7 @@ public sealed class ClaudeHookInstaller
             throw new ClaudeHookInstallException("Claude settings 'hooks' must be an object.");
         }
 
-        foreach (var eventName in EventsWithoutMatcher.Concat(AgentToolEvents))
+        foreach (var eventName in AllEvents)
         {
             if (hooks[eventName] is null)
             {

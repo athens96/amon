@@ -62,6 +62,38 @@ public sealed class ClaudeLiveSessionSourceTests
     }
 
     [Fact]
+    public async Task LatestAssistantTailOverridesCompletedHookResult()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var directory = TestSupport.TempDirectory("claude-live-tail");
+        var transcript = Path.Combine(directory, "transcript.jsonl");
+        await File.WriteAllLinesAsync(transcript,
+        [
+            """{"type":"user","promptSource":"sdk","message":{"content":"새 작업"}}""",
+            """{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"비공개"},{"type":"text","text":"현재 출력\n비공개 본문"}]}}""",
+            """{"type":"assistant","isSidechain":true,"message":{"content":"서브에이전트 비밀"}}""",
+            """{"type":"user","promptSource":"sdk","message":{"content":"<task-notification>완료"}}""",
+        ]);
+        await File.WriteAllTextAsync(
+            Path.Combine(directory, "live.json"),
+            TestSupport.Json(new
+            {
+                session_id = "live-tail",
+                status = "active",
+                agents = Array.Empty<object>(),
+                transcript_path = transcript,
+                last_result = "지난 턴 출력",
+                started_at = now.AddMinutes(-1),
+                updated_at = now,
+            }));
+
+        var session = Assert.Single(await new ClaudeLiveSessionSource(directory)
+            .PollAsync(new LivePollContext(new MutableTimeProvider(now))));
+
+        Assert.Equal("현재 출력", session.LastResult);
+    }
+
+    [Fact]
     public async Task Cleanup_removes_only_expired_snapshots_and_tombstones()
     {
         var now = DateTimeOffset.Parse("2026-07-26T12:00:00Z");

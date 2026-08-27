@@ -139,6 +139,7 @@ struct PetSettingsRow: View {
         settings.petBundledID = pet.id
         settings.petSpritePath = ""
         settings.petSpriteVersion = pet.spriteVersion.rawValue
+        settings.petSpriteRevision = 0
         validationFailed = false
         validationMessage = "기본 펫 \(pet.displayName) 을(를) 사용합니다."
     }
@@ -166,6 +167,8 @@ struct PetSettingsRow: View {
             )
             settings.petSpritePath = installedURL.path
             settings.petSpriteVersion = (payload.metadata.spriteVersion ?? .v1).rawValue
+            // 경로가 같고 같은 초 안에 연속 교체돼도 반드시 새 시트를 읽는다.
+            settings.petSpriteRevision &+= 1
             settings.petEnabled = true
             validationFailed = false
             let name = payload.displayName.map { "\($0) · " } ?? ""

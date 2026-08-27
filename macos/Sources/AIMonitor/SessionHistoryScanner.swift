@@ -45,6 +45,7 @@ enum SessionHistoryScanner {
     /// 사람이 친 프롬프트가 아닌 주입 텍스트(훅 스크립트의 규칙과 동일하게 유지).
     private static let nonPromptPrefixes = [
         "<command-", "<local-command", "<system-reminder", "<user-prompt-submit-hook",
+        "<task-notification",
     ]
 
     /// 본 세션 + 서브에이전트 트랜스크립트를 훑어 세션 요약을 만든다.
@@ -128,7 +129,9 @@ enum SessionHistoryScanner {
             case "user":
                 // 사람이 직접 타이핑한 프롬프트만. 훅 주입·스킬 출력·task-notification
                 // 같은 라인엔 promptSource 가 없거나 "system" 이다(전 트랜스크립트 실측).
-                guard !isSidechain, obj["promptSource"] as? String == "typed",
+                guard !isSidechain,
+                      let promptSource = obj["promptSource"] as? String,
+                      promptSource == "typed" || promptSource == "sdk",
                       let message = obj["message"] as? [String: Any],
                       let text = promptText(message["content"]),
                       let line = firstLine(text, 120)

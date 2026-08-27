@@ -47,6 +47,7 @@ public partial class DashboardWindow : Window
                 dialog.FileName,
                 Settings.PetSpriteVersion);
             Settings.ApplyImportedPet(result);
+            PetViewModel?.ReloadSprite();
         }
         catch (Exception exception) when (
             exception is IOException

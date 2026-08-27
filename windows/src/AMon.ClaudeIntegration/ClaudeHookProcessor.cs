@@ -16,6 +16,7 @@ public sealed class ClaudeHookProcessor
         "<local-command",
         "<system-reminder",
         "<user-prompt-submit-hook",
+        "<task-notification",
     ];
 
     // Built-in slash commands that only manipulate the conversation. They produce no
@@ -182,41 +183,42 @@ public sealed class ClaudeHookProcessor
                 session.CurrentTask = submittedTask ?? session.CurrentTask;
                 break;
             case "Notification":
-                // This hook fires for two different situations:
-                //   1. A tool permission prompt, mid-turn. Nothing proceeds until a person
-                //      acts on it.
-                //   2. An idle notice ("Claude is waiting for your input"), which arrives
-                //      well after the turn ended. Not blocked, just out of instructions.
-                //
-                // Raising both to needs_input meant case 2 landed after Stop and dragged a
-                // finished session back to "waiting". needs_input deliberately never
-                // auto-collapses, so it stuck there and the pet claimed to be waiting for
-                // input long after the work was done.
-                //
-                // Tell them apart by the transcript, not by wording — the text varies with
-                // version and language, the shape of the record does not. A blocking notice
-                // leaves a tool_use with no result behind it; an idle one does not.
-                //
-                // The status flag is only the fallback because Stop does not always arrive:
-                // interrupt a turn and status stays "active", so a later idle notice would
-                // drag a perfectly finished session into "waiting". The transcript still
-                // shows where it stopped, which is why it is asked first.
-                //
-                // A session already in needs_input is left alone. Ignoring a permission
-                // prompt long enough produces an idle notice behind it, and overwriting there
-                // would turn "needs your permission to use Bash" into "waiting for your
-                // input" — losing the one thing the reason exists to say.
-                if (!string.Equals(session.Status, "needs_input", StringComparison.Ordinal))
+                switch (payload.NotificationType)
                 {
-                    var blocked = TurnIsOpen(session.TranscriptPath ?? payload.TranscriptPath)
-                        ?? !string.Equals(session.Status, "idle", StringComparison.Ordinal);
-                    if (blocked)
-                    {
-                        session.Notice = FirstLine(payload.Message, 200);
-                        session.Status = "needs_input";
-                    }
+                    case "permission_prompt":
+                        SetWait(session, "permission", payload.Message);
+                        break;
+                    case "elicitation_dialog":
+                        SetWait(session, "elicitation", payload.Message);
+                        break;
+                    case "idle_prompt":
+                        ResumeFromWait(session);
+                        session.Status = "idle";
+                        break;
+                    case "elicitation_complete":
+                    case "elicitation_response":
+                        ResumeFromWait(session);
+                        session.Status = "active";
+                        break;
+                    default:
+                        return;
                 }
 
+                break;
+            case "PermissionRequest":
+                SetWait(
+                    session,
+                    "permission",
+                    string.IsNullOrWhiteSpace(payload.ToolName)
+                        ? "도구 권한 확인이 필요합니다"
+                        : $"{payload.ToolName} 권한 확인이 필요합니다");
+                break;
+            case "Elicitation":
+                SetWait(session, "elicitation", payload.Message);
+                break;
+            case "ElicitationResult":
+                ResumeFromWait(session);
+                session.Status = "active";
                 break;
             case "Stop":
                 ResumeFromWait(session);
@@ -227,16 +229,28 @@ public sealed class ClaudeHookProcessor
                 session.LastResult = officialLastResult ?? session.LastResult;
                 session.Agents.Clear();
                 break;
+            case "PreToolUse" when string.Equals(
+                payload.ToolName,
+                "AskUserQuestion",
+                StringComparison.OrdinalIgnoreCase):
+                SetWait(session, "question", "Claude가 질문에 답을 기다리고 있습니다");
+                break;
             case "PreToolUse" when IsAgentTool(payload.ToolName):
                 RefreshFromTranscript(session, includeAssistantResult: false);
                 UpsertAgent(session, payload, now);
                 ResumeFromWait(session);
                 session.Status = "active";
                 break;
-            case "PostToolUse" when IsAgentTool(payload.ToolName):
-                session.Agents.RemoveAll(agent =>
-                    string.Equals(agent.ToolUseId, payload.ToolUseId, StringComparison.Ordinal));
+            case "PostToolUse":
+            case "PostToolUseFailure":
+            case "PermissionDenied":
+                if (IsAgentTool(payload.ToolName))
+                {
+                    session.Agents.RemoveAll(agent =>
+                        string.Equals(agent.ToolUseId, payload.ToolUseId, StringComparison.Ordinal));
+                }
                 ResumeFromWait(session);
+                session.Status = "active";
                 break;
             default:
                 return;
@@ -372,7 +386,8 @@ public sealed class ClaudeHookProcessor
                 if (root.ValueKind != JsonValueKind.Object || GetBoolean(root, "isSidechain"))
                     continue;
 
-                if (GetString(root, "type") == "user" && GetString(root, "promptSource") == "typed")
+                if (GetString(root, "type") == "user" &&
+                    IsHumanPromptSource(GetString(root, "promptSource")))
                     turnStart = index;
 
                 if (!root.TryGetProperty("message", out var message) ||
@@ -438,7 +453,7 @@ public sealed class ClaudeHookProcessor
 
     private static string? ExtractTypedUser(JsonElement root)
     {
-        if (GetString(root, "promptSource") != "typed" ||
+        if (!IsHumanPromptSource(GetString(root, "promptSource")) ||
             !root.TryGetProperty("message", out var message) ||
             !message.TryGetProperty("content", out var content))
         {
@@ -546,6 +561,10 @@ public sealed class ClaudeHookProcessor
                 value.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
     }
 
+    private static bool IsHumanPromptSource(string? source) =>
+        string.Equals(source, "typed", StringComparison.Ordinal) ||
+        string.Equals(source, "sdk", StringComparison.Ordinal);
+
     /// <summary>
     /// Whether this is work a person asked for. Injected text and built-in commands are not.
     /// </summary>
@@ -578,10 +597,18 @@ public sealed class ClaudeHookProcessor
     private static void ResumeFromWait(ClaudeLiveSession session)
     {
         session.Notice = null;
+        session.AttentionKind = null;
         if (string.Equals(session.Status, "needs_input", StringComparison.Ordinal))
         {
             session.Status = "active";
         }
+    }
+
+    private static void SetWait(ClaudeLiveSession session, string kind, string? message)
+    {
+        session.AttentionKind = kind;
+        session.Notice = FirstLine(message, 200);
+        session.Status = "needs_input";
     }
 
     private static string ProjectLabel(string? workingDirectory)
@@ -846,6 +873,9 @@ public sealed class ClaudeHookProcessor
         // Notification only. Claude's own wording for what it is waiting on.
         [JsonPropertyName("message")]
         public string? Message { get; init; }
+
+        [JsonPropertyName("notification_type")]
+        public string? NotificationType { get; init; }
 
         [JsonPropertyName("tool_name")]
         public string? ToolName { get; init; }

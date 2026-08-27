@@ -203,6 +203,17 @@ public sealed class PetViewModelTests
         Assert.Equal(0, viewModel.DragDirection);
     }
 
+    [Fact]
+    public void ReloadSpriteChangesRevisionEvenWhenInstalledPathIsUnchanged()
+    {
+        var viewModel = new PetViewModel();
+
+        viewModel.ReloadSprite();
+        viewModel.ReloadSprite();
+
+        Assert.Equal(2, viewModel.SpriteRevision);
+    }
+
     private static PetPresentation Presentation(
         string identity,
         string provider,

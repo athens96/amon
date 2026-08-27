@@ -86,6 +86,25 @@ final class SessionTranscriptTests: XCTestCase {
         XCTAssertEqual(turns.map(\.text), ["진짜 요청", "본 세션 응답"])
     }
 
+    func testClaudeIncludesSDKPromptButExcludesTaskNotification() throws {
+        let file = try writeLines([
+            claudeUser("SDK 요청", ts: "2026-07-14T01:00:00Z", promptSource: "sdk"),
+            claudeUser(
+                "<task-notification>백그라운드 완료",
+                ts: "2026-07-14T01:00:01Z",
+                promptSource: "sdk"
+            ),
+            claudeAssistant("응답", id: "msg-1", ts: "2026-07-14T01:00:02Z"),
+        ], name: "session-sdk.jsonl")
+
+        let turns = try SessionTranscriptLoader.load(
+            record(provider: "claude", sessionId: "session-sdk", sourcePath: file.path),
+            claudeRoot: tempDir.path, codexRoot: ""
+        )
+
+        XCTAssertEqual(turns.map(\.text), ["SDK 요청", "응답"])
+    }
+
     /// 요청→다음 요청 사이의 usage 를 요청 턴에 귀속 — 스트리밍 재등장은 last-wins,
     /// 본문 없는 툴 스텝과 같은 파일의 sidechain 소비도 페어에 포함된다.
     func testClaudeTurnUsageAttributedToRequestPair() throws {
