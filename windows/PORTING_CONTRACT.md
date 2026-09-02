@@ -75,5 +75,7 @@ runtime smoke tests pass.
   counts without reading or storing prompt/response bodies.
 - `AMon.Scanner` exposes the same normalized aggregate as local JSON for
   parser parity diagnostics.
-- Live provider quotas, local active-session transcripts, and production
-  Windows runtime smoke tests remain later milestones.
+- Live provider quotas are implemented for all nine providers in `AMon.Quotas`,
+  read from credentials the user's tools already left on the machine, refreshed
+  every five minutes, shown only when detected, and never persisted or uploaded.
+- Production Windows runtime smoke tests remain a later milestone.

@@ -478,7 +478,8 @@
                             </Grid>
                             <!-- 의미색이 정체성을 덮어쓴다 — 경고·위험이면 액센트를 버린다. -->
                             <ProgressBar Maximum="100"
-                                         Value="{Binding RemainingPercent}">
+                                         Value="{Binding RemainingPercent}"
+                                         Visibility="{Binding HasProgress, Converter={StaticResource BoolToVisibility}}">
                               <ProgressBar.Style>
                                 <Style TargetType="ProgressBar" BasedOn="{StaticResource UsageProgressBarStyle}">
                                   <Style.Triggers>
@@ -496,7 +497,8 @@
                                        HorizontalAlignment="Right"
                                        Foreground="{StaticResource MutedBrush}"
                                        FontSize="10"
-                                       Text="{Binding UsedText}" />
+                                       Text="{Binding UsedText}"
+                                       Visibility="{Binding HasProgress, Converter={StaticResource BoolToVisibility}}" />
                           </StackPanel>
                         </DataTemplate>
                       </ItemsControl.ItemTemplate>

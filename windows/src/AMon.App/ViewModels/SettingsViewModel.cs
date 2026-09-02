@@ -33,7 +33,7 @@ public sealed class SettingsViewModel : ObservableObject
     public ICommand RefreshNowCommand { get; }
 
     public IReadOnlyList<string> TrayQuotaProviders { get; } =
-        ["자동 선택", "Claude Code", "Codex", "Cursor"];
+        ["자동 선택", "Claude Code", "Codex", "Cursor", "GitHub Copilot", "Antigravity", "Devin", "Grok", "OpenRouter", "Z.ai"];
 
     public IReadOnlyList<int> PetSpriteVersions { get; } = [1, 2, 3];
 
