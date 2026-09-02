@@ -7,6 +7,7 @@
     <Project Path="src/AMon.Collectors/AMon.Collectors.csproj" />
     <Project Path="src/AMon.Core/AMon.Core.csproj" />
     <Project Path="src/AMon.LocalData/AMon.LocalData.csproj" />
+    <Project Path="src/AMon.Quotas/AMon.Quotas.csproj" />
     <Project Path="src/AMon.Reporting/AMon.Reporting.csproj" />
     <Project Path="src/AMon.Scanner/AMon.Scanner.csproj" />
     <Project Path="src/AMon.Update/AMon.Update.csproj" />
@@ -20,6 +21,7 @@
     <Project Path="tests/AMon.Collectors.Tests/AMon.Collectors.Tests.csproj" />
     <Project Path="tests/AMon.Core.Tests/AMon.Core.Tests.csproj" />
     <Project Path="tests/AMon.LocalData.Tests/AMon.LocalData.Tests.csproj" />
+    <Project Path="tests/AMon.Quotas.Tests/AMon.Quotas.Tests.csproj" />
     <Project Path="tests/AMon.Reporting.Tests/AMon.Reporting.Tests.csproj" />
     <Project Path="tests/AMon.Update.Tests/AMon.Update.Tests.csproj" />
   </Folder>

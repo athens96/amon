@@ -26,6 +26,7 @@
     <ProjectReference Include="..\AMon.Collectors\AMon.Collectors.csproj" />
     <ProjectReference Include="..\AMon.Core\AMon.Core.csproj" />
     <ProjectReference Include="..\AMon.LocalData\AMon.LocalData.csproj" />
+    <ProjectReference Include="..\AMon.Quotas\AMon.Quotas.csproj" />
     <ProjectReference Include="..\AMon.Reporting\AMon.Reporting.csproj" />
     <ProjectReference Include="..\AMon.Update\AMon.Update.csproj" />
     <ProjectReference Include="..\AMon.WindowsPlatform\AMon.WindowsPlatform.csproj" />

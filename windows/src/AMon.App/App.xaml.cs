@@ -8,6 +8,7 @@ using AMon.App.ViewModels;
 using AMon.ClaudeIntegration;
 using AMon.Collectors;
 using AMon.LocalData;
+using AMon.Quotas;
 using AMon.WindowsPlatform;
 
 namespace AMon.App;
@@ -137,6 +138,7 @@ public partial class App : System.Windows.Application
         settingsViewModel.ConfigureRefresh(_usageCollectionService.RefreshNowAsync);
         _usageCollectionService.Start();
         _providerQuotaService = new ProviderQuotaService(
+            QuotaProviderRegistry.CreateDefault(),
             dashboardViewModel,
             Dispatcher,
             quotas => ApplyProviderQuotaRuntime(quotas));
@@ -382,13 +384,13 @@ public partial class App : System.Windows.Application
         else
         {
             var provider = SelectTrayProvider(quotas, settings.TrayQuotaProvider);
-            if (provider is null || provider.Metrics.Count == 0)
+            if (provider is null || !provider.ProgressMetrics.Any())
             {
                 _tray.SetToolTip("amon · 할당량 정보 없음");
             }
             else
             {
-                var meters = provider.Metrics
+                var meters = provider.ProgressMetrics
                     .Take(2)
                     .Select(metric => settings.TrayQuotaShowsRemaining
                         ? $"{metric.Label} {metric.RemainingPercent:0.#}% 남음"
@@ -400,7 +402,7 @@ public partial class App : System.Windows.Application
 
         foreach (var provider in quotas)
         {
-            foreach (var metric in provider.Metrics)
+            foreach (var metric in provider.ProgressMetrics)
             {
                 var alertKey = $"{provider.Provider}\n{metric.Label}";
                 if (metric.RemainingPercent > 15)
@@ -433,9 +435,9 @@ public partial class App : System.Windows.Application
         }
 
         return quotas
-            .Where(static provider => provider.Metrics.Count > 0)
+            .Where(static provider => provider.ProgressMetrics.Any())
             .OrderBy(static provider =>
-                provider.Metrics.Min(static metric => metric.RemainingPercent))
+                provider.ProgressMetrics.Min(static metric => metric.RemainingPercent))
             .FirstOrDefault();
     }
 
@@ -479,9 +481,9 @@ public partial class App : System.Windows.Application
         _petActivityConnector?.Dispose();
         _sessionActivityConnector?.Dispose();
         _petWindow?.Close();
+        _providerQuotaService?.Dispose();
         _tray?.Dispose();
         _usageCollectionService?.Dispose();
-        _providerQuotaService?.Dispose();
         _updateCoordinator?.Dispose();
         _singleInstance?.Dispose();
         _themeManager?.Dispose();
