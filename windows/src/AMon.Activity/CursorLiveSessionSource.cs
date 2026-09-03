@@ -68,8 +68,8 @@ public sealed class CursorLiveSessionSource : ILiveSessionSource
         {
             command.CommandText = """
                 SELECT substr(key, 14),
-                       CAST(json_extract(value, '$.createdAt') AS INTEGER),
-                       CAST(json_extract(value, '$.lastUpdatedAt') AS INTEGER)
+                       CAST(json_extract(CAST(value AS TEXT), '$.createdAt') AS INTEGER),
+                       CAST(json_extract(CAST(value AS TEXT), '$.lastUpdatedAt') AS INTEGER)
                   FROM cursorDiskKV
                  WHERE key > 'composerData:' AND key < 'composerData;'
                 """;
@@ -264,7 +264,12 @@ public sealed class CursorLiveSessionSource : ILiveSessionSource
         await using var command = connection.CreateCommand();
         command.CommandText = "SELECT value FROM cursorDiskKV WHERE key=$key";
         command.Parameters.AddWithValue("$key", key);
-        return await command.ExecuteScalarAsync(cancellationToken) as string;
+        return await command.ExecuteScalarAsync(cancellationToken) switch
+        {
+            string text => text,
+            byte[] bytes => System.Text.Encoding.UTF8.GetString(bytes),
+            _ => null,
+        };
     }
 
     private static IReadOnlyList<LiveSession> Refresh(

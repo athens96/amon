@@ -21,6 +21,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
     private string? _claudeRoot;
     private string? _codexRoot;
     private string? _cursorRoot;
+    private const int MaxTranscriptTurns = 200;
 
     public SessionHistoryViewModel(string historyPath)
     {
@@ -91,6 +92,11 @@ public sealed class SessionHistoryViewModel : ObservableObject
         foreach (var session in sessions)
             _lastSessions[session.Identity] = session;
 
+        // A session filed as completed by an earlier scan that has since resumed (a Cursor composer
+        // typed into again) must not be listed twice.
+        foreach (var resumed in CompletedSessions.Where(row => current.ContainsKey(row.Identity)).ToArray())
+            CompletedSessions.Remove(resumed);
+
         ActiveSessions.Clear();
         foreach (var session in sessions.OrderByDescending(static session => session.UpdatedAt))
             ActiveSessions.Add(SessionRowViewModel.FromLive(session));
@@ -146,7 +152,9 @@ public sealed class SessionHistoryViewModel : ObservableObject
                     session.Record.SessionId));
         });
         var turns = result.Turns;
-        foreach (var turn in turns)
+        // Markdown rendering builds several elements per turn in a non-virtualized list; the newest
+        // turns are what the detail view is for, so very long sessions are capped.
+        foreach (var turn in turns.Count <= MaxTranscriptTurns ? turns : turns.Skip(turns.Count - MaxTranscriptTurns))
             Transcript.Add(turn);
         foreach (var finding in result.Audit.Findings)
             Findings.Add(finding);
@@ -168,7 +176,9 @@ public sealed class SessionHistoryViewModel : ObservableObject
         OnPropertyChanged(nameof(AuditSummary));
         DetailStatus = turns.Count == 0
             ? "원본 로그를 찾지 못했거나 표시할 대화가 없습니다."
-            : $"{turns.Count:N0}개의 대화 항목";
+            : turns.Count <= MaxTranscriptTurns
+                ? $"{turns.Count:N0}개의 대화 항목"
+                : $"{turns.Count:N0}개의 대화 항목 중 최근 {MaxTranscriptTurns:N0}개";
     }
 
     private void CloseSession()

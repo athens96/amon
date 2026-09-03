@@ -181,13 +181,17 @@ public partial class App : System.Windows.Application
         if (current is null || current.SessionIdentity is null)
             return false;
         var activation = new WindowActivationService();
-        if (current.HostProcessId is { } recordedPid && activation.TryActivateProcessWindow(recordedPid))
+        // The recorded pid only counts while it still belongs to the recorded app — pids recycle.
+        if (current.HostProcessId is { } recordedPid && activation.TryActivateProcessWindow(recordedPid, current.HostApp))
+            return true;
+        // The app restarted (new pid) or the pid was a helper: match by name, like macOS does.
+        if (current.HostApp is { Length: > 0 } hostApp && activation.TryActivateProcessNamed(hostApp))
             return true;
         if (current.Provider is not ("claude" or "codex"))
             return false;
         var candidates = HostProcessScanner.Candidates(ProcessTree.Snapshot(), current.Provider, HostProcessScanner.OwnsTopLevelWindow);
-        var pick = HostProcessScanner.Select(candidates, current.WorkingDirectory);
-        return pick is not null && activation.TryActivateProcessWindow(pick.HostProcessId);
+        var pick = HostProcessScanner.Select(candidates);
+        return pick is not null && activation.TryActivateProcessWindow(pick.HostProcessId, pick.HostApp);
     }
 
     private void ToggleDashboard()

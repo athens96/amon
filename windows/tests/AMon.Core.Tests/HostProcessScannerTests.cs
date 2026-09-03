@@ -19,12 +19,24 @@ public sealed class HostProcessScannerTests
             new ProcessEntry(40, 30, "node"),
             new ProcessEntry(50, 40, "AMon.ClaudeHook"));
 
-        var host = HostProcessScanner.HostOf(tree, 50, pid => pid is 10 or 20, "C:\\work\\repo");
+        var host = HostProcessScanner.HostOf(tree, 50, pid => pid is 10 or 20);
 
         Assert.NotNull(host);
         Assert.Equal("WindowsTerminal", host!.HostApp);
         Assert.Equal(10, host.HostProcessId);
-        Assert.Equal("C:\\work\\repo", host.WorkingDirectory);
+    }
+
+    [Fact]
+    public void ExplorerAboveAConsoleShellIsNotAHost()
+    {
+        // explorer(5) → cmd(20) → claude(30): the console belongs to conhost (a child), so the walk
+        // would otherwise reach the desktop window owned by explorer.
+        var tree = Tree(
+            new ProcessEntry(5, 4, "explorer"),
+            new ProcessEntry(20, 5, "cmd"),
+            new ProcessEntry(30, 20, "claude"));
+
+        Assert.Null(HostProcessScanner.HostOf(tree, 30, _ => true));
     }
 
     [Fact]
@@ -49,15 +61,14 @@ public sealed class HostProcessScannerTests
     }
 
     [Fact]
-    public void SelectPrefersWorkingDirectoryThenTheOnlyHost()
+    public void SelectOnlyGuessesWhenEveryCandidateSharesOneHost()
     {
-        var code = new HostProcessScanner.Candidate("Code", 1, "C:\\a");
-        var terminal = new HostProcessScanner.Candidate("WindowsTerminal", 2, "C:\\b\\");
+        var code = new HostProcessScanner.Candidate("Code", 1);
+        var terminal = new HostProcessScanner.Candidate("WindowsTerminal", 2);
 
-        Assert.Same(terminal, HostProcessScanner.Select([code, terminal], "c:/b"));
-        Assert.Null(HostProcessScanner.Select([code, terminal], "C:\\c"));
-        Assert.Same(code, HostProcessScanner.Select([code, code with { HostProcessId = 3 }], null));
-        Assert.Null(HostProcessScanner.Select([], "C:\\a"));
+        Assert.Null(HostProcessScanner.Select([code, terminal]));
+        Assert.Same(code, HostProcessScanner.Select([code, code with { HostProcessId = 3 }]));
+        Assert.Null(HostProcessScanner.Select([]));
     }
 
     [Fact]

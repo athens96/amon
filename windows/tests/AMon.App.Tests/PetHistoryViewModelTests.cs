@@ -56,6 +56,23 @@ public sealed class PetHistoryViewModelTests
     }
 
     [Fact]
+    public async Task HistoryClosesItselfWhenTheSessionEnds()
+    {
+        var viewModel = new PetViewModel(
+            [Session("claude:a", "claude", "C:\\t.jsonl")],
+            historyLoader: (_, _) => Task.FromResult<IReadOnlyList<PetHistoryTurn>>([new PetHistoryTurn(0, "p", "r", null, null, null)]));
+        viewModel.ToggleHistoryCommand.Execute(null);
+        await Task.Delay(50);
+        Assert.True(viewModel.ShowsHistory);
+
+        viewModel.UpdatePresentations([]);
+
+        Assert.False(viewModel.ShowsHistory);
+        Assert.False(viewModel.IsHistoryLoading);
+        Assert.Empty(viewModel.HistoryTurns);
+    }
+
+    [Fact]
     public void CursorAndIdleHaveNoHistorySource()
     {
         var cursor = new PetViewModel([Session("cursor:c", "cursor", null)], historyLoader: (_, _) => Task.FromResult<IReadOnlyList<PetHistoryTurn>>([]));
@@ -67,11 +84,10 @@ public sealed class PetHistoryViewModelTests
     }
 
     [Fact]
-    public void HostJumpAndTooltipFollowTheRecordedHost()
+    public void TooltipFollowsTheRecordedHost()
     {
         var viewModel = new PetViewModel([Session("claude:a", "claude", "C:\\t.jsonl")]);
 
-        Assert.True(viewModel.HasHostJump);
         Assert.Equal("클릭하여 WindowsTerminal 로 이동", viewModel.BubbleToolTip);
         Assert.Equal("클릭하여 현재 세션 열기", new PetViewModel([]).BubbleToolTip);
     }

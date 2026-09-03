@@ -77,9 +77,6 @@ public sealed class PetViewModel : ObservableObject
         : HistoryTurns.Count == 0 ? "표시할 지난 턴이 없습니다."
         : $"최근 {HistoryTurns.Count:N0}턴";
 
-    /// The host app that launched the current session, when the hook recorded one.
-    public bool HasHostJump => Current.HostProcessId is not null || !string.IsNullOrWhiteSpace(Current.HostApp);
-
     public string BubbleToolTip => Current.HostApp is { Length: > 0 } host
         ? $"클릭하여 {host} 로 이동"
         : "클릭하여 현재 세션 열기";
@@ -98,6 +95,7 @@ public sealed class PetViewModel : ObservableObject
     public void CloseHistory()
     {
         _historyLoad?.Cancel();
+        _historyLoad?.Dispose();
         _historyLoad = null;
         ShowsHistory = false;
         IsHistoryLoading = false;
@@ -112,12 +110,13 @@ public sealed class PetViewModel : ObservableObject
         var presentation = Current;
         if (!presentation.HasHistorySource)
         {
-            HistoryTurns.Clear();
-            IsHistoryLoading = false;
-            OnPropertyChanged(nameof(HistoryStatusText));
+            // The session ended or moved to one without a turn log: the pane would otherwise stay
+            // open with no button to close it, hiding the live input/output.
+            CloseHistory();
             return;
         }
         _historyLoad?.Cancel();
+        _historyLoad?.Dispose();
         var load = new CancellationTokenSource();
         _historyLoad = load;
         IsHistoryLoading = true;
@@ -126,7 +125,7 @@ public sealed class PetViewModel : ObservableObject
 
     private async Task LoadHistoryAsync(PetPresentation presentation, CancellationTokenSource load)
     {
-        IReadOnlyList<PetHistoryTurn> turns;
+        IReadOnlyList<PetHistoryTurn> turns = [];
         try
         {
             turns = await _historyLoader!(presentation, load.Token);
@@ -135,9 +134,14 @@ public sealed class PetViewModel : ObservableObject
         {
             return;
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is not OutOfMemoryException)
         {
-            turns = [];
+            // A loader failure is an empty history, never a bubble stuck on "reading…".
+        }
+        finally
+        {
+            if (ReferenceEquals(_historyLoad, load))
+                IsHistoryLoading = false;
         }
         if (load.IsCancellationRequested || !ReferenceEquals(_historyLoad, load))
             return;
@@ -145,7 +149,6 @@ public sealed class PetViewModel : ObservableObject
         // Newest first: the card the user most likely wants is the latest exchange.
         foreach (var turn in turns.Reverse())
             HistoryTurns.Add(new PetHistoryTurnViewModel(turn, presentation.Provider));
-        IsHistoryLoading = false;
         OnPropertyChanged(nameof(HistoryStatusText));
     }
 
@@ -388,7 +391,6 @@ public sealed class PetViewModel : ObservableObject
         OnPropertyChanged(nameof(OutputFraction));
         OnPropertyChanged(nameof(RemainderFraction));
         OnPropertyChanged(nameof(HasHistorySource));
-        OnPropertyChanged(nameof(HasHostJump));
         OnPropertyChanged(nameof(BubbleToolTip));
     }
 
