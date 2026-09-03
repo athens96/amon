@@ -135,7 +135,6 @@
                     AutomationProperties.Name="지난 턴 보기"
                     Command="{Binding ToggleHistoryCommand}"
                     Content="≡"
-                    PreviewMouseLeftButtonUp="OnHistoryToggleClick"
                     Style="{StaticResource PetCarouselButtonStyle}"
                     ToolTip="이 세션의 지난 턴"
                     Visibility="{Binding HasHistorySource, Converter={StaticResource BooleanToVisibility}}" />

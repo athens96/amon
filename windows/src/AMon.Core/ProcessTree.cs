@@ -115,19 +115,19 @@ public sealed class ProcessTree(IReadOnlyDictionary<int, ProcessEntry> entries)
 /// `HostProcessScanner` / hook `detect_host`, with "owns a window" standing in for ".app bundle".
 public static class HostProcessScanner
 {
-    public sealed record Candidate(string HostApp, int HostProcessId, string? WorkingDirectory);
+    public sealed record Candidate(string HostApp, int HostProcessId);
 
     /// The nearest windowed ancestor of `processId`, or `null`.
-    public static Candidate? HostOf(ProcessTree tree, int processId, Func<int, bool> ownsWindow, string? workingDirectory = null)
+    public static Candidate? HostOf(ProcessTree tree, int processId, Func<int, bool> ownsWindow)
     {
         foreach (var ancestor in tree.Ancestors(processId))
         {
             if (ancestor.ProcessId <= 4 || string.IsNullOrEmpty(ancestor.Name))
                 continue;
-            if (IsShell(ancestor.Name))
+            if (IsNeverAHost(ancestor.Name))
                 continue;
             if (ownsWindow(ancestor.ProcessId))
-                return new Candidate(ancestor.Name, ancestor.ProcessId, workingDirectory);
+                return new Candidate(ancestor.Name, ancestor.ProcessId);
         }
         return null;
     }
@@ -140,18 +140,11 @@ public static class HostProcessScanner
             .Select(static candidate => candidate!)
             .ToArray();
 
-    /// Which candidate to jump to: an exact working-directory match wins; otherwise only when every
-    /// candidate points at the same host app — several different hosts means no guess is made.
-    public static Candidate? Select(IReadOnlyList<Candidate> candidates, string? workingDirectory)
+    /// Which candidate to jump to: only when every candidate points at the same host app —
+    /// several different hosts means no guess is made. Unlike macOS, Windows offers no cheap way
+    /// to read another process's working directory, so there is no cwd match here.
+    public static Candidate? Select(IReadOnlyList<Candidate> candidates)
     {
-        if (!string.IsNullOrWhiteSpace(workingDirectory))
-        {
-            var match = candidates.FirstOrDefault(candidate =>
-                candidate.WorkingDirectory is not null
-                && string.Equals(NormalizePath(candidate.WorkingDirectory), NormalizePath(workingDirectory), StringComparison.OrdinalIgnoreCase));
-            if (match is not null)
-                return match;
-        }
         var hosts = candidates.Select(static candidate => candidate.HostApp).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         return hosts.Length == 1 ? candidates[0] : null;
     }
@@ -170,10 +163,11 @@ public static class HostProcessScanner
         }
     }
 
-    /// Shells and CLI runtimes are never the host, even when a console window is attributed to them.
-    private static bool IsShell(string name) =>
-        name.ToLowerInvariant() is "cmd" or "powershell" or "pwsh" or "bash" or "sh" or "zsh" or "node" or "conhost" or "claude" or "codex";
-
-    private static string NormalizePath(string path) =>
-        path.Replace('/', '\\').TrimEnd('\\');
+    /// Shells, CLI runtimes, and the desktop/system processes above a console-launched shell are
+    /// never the host, even though some of them (explorer's desktop) own a top-level window.
+    private static bool IsNeverAHost(string name) =>
+        name.ToLowerInvariant() is "cmd" or "powershell" or "pwsh" or "bash" or "sh" or "zsh" or "node"
+            or "conhost" or "openconsole" or "claude" or "codex"
+            or "explorer" or "dwm" or "sihost" or "taskhostw" or "svchost" or "services" or "wininit" or "winlogon"
+            or "runtimebroker" or "applicationframehost";
 }

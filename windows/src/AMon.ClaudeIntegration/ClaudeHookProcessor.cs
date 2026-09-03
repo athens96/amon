@@ -167,7 +167,11 @@ public sealed class ClaudeHookProcessor
         {
             session.TranscriptPath = payload.TranscriptPath;
         }
-        EnsureHost(session);
+        // Detection walks the process table, so it runs only when the host is unknown or on the
+        // events that can move a session to another terminal (start/resume, a new prompt) — not
+        // on every tool call, where the hook sits on Claude's critical path.
+        if (session.HostApp is null || payload.EventName is "SessionStart" or "UserPromptSubmit")
+            EnsureHost(session);
 
         switch (payload.EventName)
         {
@@ -867,8 +871,8 @@ public sealed class ClaudeHookProcessor
         return Path.Combine(appData, "A-mon", "live");
     }
 
-    /// Record the host app once per session; a later hook whose chain differs (the session was
-    /// resumed from another terminal) replaces it, so the bubble jumps to where the CLI lives now.
+    /// Record the host app; a later start/prompt hook whose chain differs (the session was resumed
+    /// from another terminal) replaces it, so the bubble jumps to where the CLI lives now.
     private void EnsureHost(ClaudeLiveSession session)
     {
         var host = hostDetector();

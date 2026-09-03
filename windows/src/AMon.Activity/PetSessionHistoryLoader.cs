@@ -267,14 +267,30 @@ public static class PetSessionHistoryLoader
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             var wholeFile = stream.Length <= bytes;
             var offset = wholeFile ? 0 : stream.Length - bytes;
+            // The first line of a window is cut mid-record unless the window happens to start
+            // right after a newline; only a genuinely cut line is dropped.
+            var startsOnLineBoundary = wholeFile;
+            if (!wholeFile)
+            {
+                stream.Seek(offset - 1, SeekOrigin.Begin);
+                startsOnLineBoundary = stream.ReadByte() == '\n';
+            }
             stream.Seek(offset, SeekOrigin.Begin);
             using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: false);
-            var text = reader.ReadToEnd();
-            var lines = text.Split('\n');
-            IEnumerable<string> usable = lines;
-            if (!wholeFile && lines.Length > 0)
-                usable = lines.Skip(1);
-            return (usable.Where(static line => line.Length > 0).ToArray(), wholeFile);
+            var lines = new List<string>();
+            var first = true;
+            while (reader.ReadLine() is { } line)
+            {
+                if (first && !startsOnLineBoundary)
+                {
+                    first = false;
+                    continue;
+                }
+                first = false;
+                if (line.Length > 0)
+                    lines.Add(line);
+            }
+            return (lines, wholeFile);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {

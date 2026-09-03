@@ -11,7 +11,7 @@ public sealed class ClaudeHookHostRecordingTests : IDisposable
     [Fact]
     public void HookRecordsTheDetectedHostAndReplacesItWhenTheChainMoves()
     {
-        var host = new HostProcessScanner.Candidate("WindowsTerminal", 4242, null);
+        var host = new HostProcessScanner.Candidate("WindowsTerminal", 4242);
         var processor = new ClaudeHookProcessor(root, hostDetector: () => host);
 
         processor.Process(Event("SessionStart"));
@@ -19,7 +19,7 @@ public sealed class ClaudeHookHostRecordingTests : IDisposable
         Assert.Equal("WindowsTerminal", session.HostApp);
         Assert.Equal(4242, session.HostProcessId);
 
-        host = new HostProcessScanner.Candidate("Code", 99, null);
+        host = new HostProcessScanner.Candidate("Code", 99);
         processor.Process(Event("UserPromptSubmit", "\"prompt\": \"resume elsewhere\""));
         session = Read(processor.GetSessionPath("session/host"));
         Assert.Equal("Code", session.HostApp);

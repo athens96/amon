@@ -253,14 +253,6 @@ public partial class PetWindow : Window
         DashboardToggleRequested?.Invoke(this, EventArgs.Empty);
     }
 
-    /// The history toggle sits inside the bubble; its click must not also count as a bubble click.
-    private void OnHistoryToggleClick(object sender, MouseButtonEventArgs e)
-    {
-        if (sender is System.Windows.Controls.Button { Command: { } command } button && command.CanExecute(null))
-            command.Execute(null);
-        e.Handled = true;
-    }
-
     private void OnAvatarRightClick(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;

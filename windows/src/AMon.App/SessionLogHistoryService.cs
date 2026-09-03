@@ -416,7 +416,13 @@ public static class SessionTranscriptParser
                     builder.Skill(String(input, "skill"));
                     break;
                 default:
-                    builder.McpTool(name);
+                    if (name.StartsWith("mcp__", StringComparison.Ordinal))
+                        builder.McpTool(name);
+                    // Other tools (MCP filesystem servers, say) that name a file still count as
+                    // file access so the sensitive-path rules keep seeing them.
+                    builder.File(
+                        String(input, "file_path") ?? String(input, "notebook_path"),
+                        name.Contains("write", StringComparison.OrdinalIgnoreCase) || name.Contains("edit", StringComparison.OrdinalIgnoreCase));
                     break;
             }
         }

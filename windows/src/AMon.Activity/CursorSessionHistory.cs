@@ -192,8 +192,8 @@ public static class CursorSessionHistory
         using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT substr(key, 14),
-                   CAST(json_extract(value, '$.createdAt') AS INTEGER),
-                   CAST(json_extract(value, '$.lastUpdatedAt') AS INTEGER)
+                   CAST(json_extract(CAST(value AS TEXT), '$.createdAt') AS INTEGER),
+                   CAST(json_extract(CAST(value AS TEXT), '$.lastUpdatedAt') AS INTEGER)
               FROM cursorDiskKV
              WHERE key > 'composerData:' AND key < 'composerData;'
             """;
@@ -288,20 +288,27 @@ public static class CursorSessionHistory
             return null;
 
         // The first line of every user bubble is the request list; empty bodies (context-only
-        // bubbles) are not requests. A composer with no request (an empty draft) is not recorded.
+        // bubbles) are not requests. Only the newest `MaxPrompts` are kept, so bubbles are read from
+        // the end and reading stops once enough were found — a long composer costs 12 lookups, not
+        // one per turn. A composer with no request (an empty draft) is not recorded.
+        var userHeaders = composer.Headers.Where(static header => header.Type == 1).ToArray();
         var prompts = new List<string>();
-        foreach (var header in composer.Headers.Where(static header => header.Type == 1))
+        var visited = 0;
+        foreach (var header in userHeaders.Reverse())
         {
-            var bubble = ReadBubble(connection, composer.Id, header.BubbleId);
+            if (prompts.Count >= MaxPrompts)
+                break;
+            visited++;
+            var bubble = ReadBubble(connection, meta.Id, header.BubbleId);
             if (bubble is null || LiveText.FirstLine(bubble.Text, 120) is not { } line)
                 continue;
-            prompts.Add(line);
+            prompts.Insert(0, line);
         }
         if (prompts.Count == 0)
             return null;
-        var promptCount = prompts.Count;
-        if (prompts.Count > MaxPrompts)
-            prompts = prompts.Skip(prompts.Count - MaxPrompts).ToList();
+        // Exact when every user bubble was inspected; beyond the cap the uninspected headers are
+        // assumed to be requests (empty context-only bubbles are the exception, not the rule).
+        var promptCount = prompts.Count + (userHeaders.Length - visited);
 
         var started = composer.CreatedAt
             ?? composer.Headers.FirstOrDefault()?.CreatedAt
@@ -309,13 +316,13 @@ public static class CursorSessionHistory
             ?? DateTimeOffset.UtcNow;
         var ended = composer.UpdatedAt ?? meta.UpdatedAt ?? started;
         return new CursorSessionSummary(
-            composer.Id,
+            meta.Id,
             label,
             started,
             ended,
             prompts,
             promptCount,
-            LatestText(connection, composer, type: 2, limit: 200),
+            LatestText(connection, composer with { Id = meta.Id }, type: 2, limit: 200),
             composer.ModelName,
             composer.SubagentCount);
     }
