@@ -2,6 +2,7 @@
         x:Name="RootWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:AMon.App"
         Title="amon"
         Width="900"
         Height="820"
@@ -922,10 +923,10 @@
                                      Text="{Binding UsageText}" />
                         </StackPanel>
                       </Grid>
-                      <TextBlock Margin="0,12,0,0"
-                                 LineHeight="22"
-                                 Text="{Binding Text}"
-                                 TextWrapping="Wrap" />
+                      <!-- 마크다운 렌더링 — 제목·코드·리스트·체크리스트·표를 원문 손실 없이 보여준다. -->
+                      <local:MarkdownTextBlock Margin="0,12,0,0"
+                                               BaseFontSize="13"
+                                               Markdown="{Binding Text}" />
                     </StackPanel>
                   </Border>
                 </DataTemplate>
