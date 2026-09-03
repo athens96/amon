@@ -7,6 +7,7 @@ using AMon.App.Settings;
 using AMon.App.ViewModels;
 using AMon.ClaudeIntegration;
 using AMon.Collectors;
+using AMon.Core;
 using AMon.LocalData;
 using AMon.Quotas;
 using AMon.WindowsPlatform;
@@ -68,7 +69,10 @@ public partial class App : System.Windows.Application
             settingsViewModel);
         var petConfig = config.Pet;
         var petViewModel = new PetViewModel(
-            showsCurrentTask: petConfig.IsShowingCurrentTask);
+            showsCurrentTask: petConfig.IsShowingCurrentTask,
+            historyLoader: static (presentation, cancellationToken) => Task.Run(
+                () => PetSessionHistoryLoader.Load(presentation.Provider, presentation.TranscriptPath),
+                cancellationToken));
         petViewModel.ConfigureAppearance(
             petConfig.IsShowingCurrentTask,
             petConfig.SpritePath,
@@ -87,7 +91,13 @@ public partial class App : System.Windows.Application
         {
             DataContext = petViewModel,
         };
-        _petWindow.DashboardToggleRequested += (_, _) => ToggleDashboard();
+        _petWindow.DashboardToggleRequested += (_, _) =>
+        {
+            // Like macOS: the bubble jumps to the app hosting the session when one is known and
+            // still running; otherwise it opens the dashboard as before.
+            if (!TryJumpToSessionHost())
+                ToggleDashboard();
+        };
         _petWindow.ContextMenuRequested += (_, _) => _tray?.ShowContextMenu();
 
         using var iconStream = GetResourceStream(
@@ -160,6 +170,24 @@ public partial class App : System.Windows.Application
         {
             ShowDashboard();
         }
+    }
+
+    /// Bring the terminal/IDE that launched the current session to the front. The hook's recorded
+    /// host wins; if it is gone, live `claude`/`codex` processes are scanned for another host of the
+    /// same working directory (or the only host in use).
+    private bool TryJumpToSessionHost()
+    {
+        var current = _petViewModel?.Current;
+        if (current is null || current.SessionIdentity is null)
+            return false;
+        var activation = new WindowActivationService();
+        if (current.HostProcessId is { } recordedPid && activation.TryActivateProcessWindow(recordedPid))
+            return true;
+        if (current.Provider is not ("claude" or "codex"))
+            return false;
+        var candidates = HostProcessScanner.Candidates(ProcessTree.Snapshot(), current.Provider, HostProcessScanner.OwnsTopLevelWindow);
+        var pick = HostProcessScanner.Select(candidates, current.WorkingDirectory);
+        return pick is not null && activation.TryActivateProcessWindow(pick.HostProcessId);
     }
 
     private void ToggleDashboard()

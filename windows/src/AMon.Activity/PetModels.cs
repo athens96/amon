@@ -22,7 +22,11 @@ public sealed record PetPresentation(
     long? OutputTokens,
     long? TotalTokens,
     DateTimeOffset? UpdatedAt,
-    int ActiveCount)
+    int ActiveCount,
+    string? TranscriptPath = null,
+    string? WorkingDirectory = null,
+    string? HostApp = null,
+    int? HostProcessId = null)
 {
     public static PetPresentation Idle { get; } = new(
         PetActivityStatus.Idle,
@@ -59,4 +63,8 @@ public sealed record PetPresentation(
 
     public bool IsAttention =>
         Status is PetActivityStatus.NeedsInput or PetActivityStatus.Blocked;
+
+    /// Claude and Codex keep a local turn log the history stack can read; Cursor does not.
+    public bool HasHistorySource =>
+        !string.IsNullOrWhiteSpace(TranscriptPath) && Provider is "claude" or "codex";
 }

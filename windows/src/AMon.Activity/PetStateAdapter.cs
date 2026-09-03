@@ -119,7 +119,11 @@ public static class PetStateAdapter
             tokens.OutputTokens,
             tokens.TotalTokens,
             candidate.Session.UpdatedAt,
-            activeCount);
+            activeCount,
+            candidate.Session.TranscriptPath,
+            candidate.Session.WorkingDirectory,
+            candidate.Session.HostApp,
+            candidate.Session.HostProcessId);
     }
 
     private static int Priority(PetActivityStatus status) => status switch

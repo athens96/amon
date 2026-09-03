@@ -87,7 +87,7 @@
             CornerRadius="8"
             Cursor="Hand"
             MouseLeftButtonUp="OnBubbleClick"
-            ToolTip="클릭하여 현재 세션 열기">
+            ToolTip="{Binding BubbleToolTip}">
       <Border.Effect>
         <DropShadowEffect BlurRadius="16"
                           Direction="270"
@@ -130,22 +130,31 @@
                          Text="실시간 세션" />
             </StackPanel>
           </StackPanel>
-          <Border Grid.Column="1"
-                  Padding="9,4"
-                  Background="{DynamicResource PetBubbleSubtleBrush}"
-                  CornerRadius="4">
-            <StackPanel Orientation="Horizontal">
-              <Ellipse Width="6"
-                       Height="6"
-                       Margin="0,0,6,0"
-                       VerticalAlignment="Center"
-                       Fill="{DynamicResource PetBubbleAccentBrush}" />
-              <TextBlock Foreground="{DynamicResource PetBubbleMutedBrush}"
-                       FontSize="10"
-                       FontWeight="SemiBold"
-                       Text="{Binding Current.StatusText}" />
-            </StackPanel>
-          </Border>
+          <StackPanel Grid.Column="1" Orientation="Horizontal">
+            <Button Margin="0,0,6,0"
+                    AutomationProperties.Name="지난 턴 보기"
+                    Command="{Binding ToggleHistoryCommand}"
+                    Content="≡"
+                    PreviewMouseLeftButtonUp="OnHistoryToggleClick"
+                    Style="{StaticResource PetCarouselButtonStyle}"
+                    ToolTip="이 세션의 지난 턴"
+                    Visibility="{Binding HasHistorySource, Converter={StaticResource BooleanToVisibility}}" />
+            <Border Padding="9,4"
+                    Background="{DynamicResource PetBubbleSubtleBrush}"
+                    CornerRadius="4">
+              <StackPanel Orientation="Horizontal">
+                <Ellipse Width="6"
+                         Height="6"
+                         Margin="0,0,6,0"
+                         VerticalAlignment="Center"
+                         Fill="{DynamicResource PetBubbleAccentBrush}" />
+                <TextBlock Foreground="{DynamicResource PetBubbleMutedBrush}"
+                         FontSize="10"
+                         FontWeight="SemiBold"
+                         Text="{Binding Current.StatusText}" />
+              </StackPanel>
+            </Border>
+          </StackPanel>
         </Grid>
 
         <TextBlock Grid.Row="1"
@@ -158,10 +167,67 @@
                    TextTrimming="CharacterEllipsis"
                    Visibility="{Binding ShowsCurrentTask, Converter={StaticResource BooleanToVisibility}}" />
 
+        <!-- 지난 턴 스택 — 열리면 현재 입력/출력 대신 이 세션의 최근 턴 카드가 보인다. -->
         <ScrollViewer Grid.Row="2"
                       Margin="0,10,0,0"
                       HorizontalScrollBarVisibility="Disabled"
-                      VerticalScrollBarVisibility="Auto">
+                      VerticalScrollBarVisibility="Auto"
+                      Visibility="{Binding ShowsHistory, Converter={StaticResource BooleanToVisibility}}">
+          <StackPanel>
+            <TextBlock Margin="0,0,0,6"
+                       Foreground="{DynamicResource PetBubbleMutedBrush}"
+                       FontSize="9"
+                       FontWeight="Bold"
+                       Text="{Binding HistoryStatusText}" />
+            <ItemsControl ItemsSource="{Binding HistoryTurns}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Border Margin="0,0,0,8"
+                          Padding="11,9"
+                          Background="{DynamicResource PetBubbleSubtleBrush}"
+                          CornerRadius="6">
+                    <StackPanel>
+                      <Grid>
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="*" />
+                          <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Foreground="{DynamicResource PetBubbleAccentBrush}"
+                                   FontSize="9"
+                                   FontWeight="Bold"
+                                   Text="{Binding StatusText}" />
+                        <TextBlock Grid.Column="1"
+                                   Foreground="{DynamicResource PetBubbleMutedBrush}"
+                                   FontSize="9"
+                                   Text="{Binding Time}" />
+                      </Grid>
+                      <TextBlock Margin="0,5,0,0"
+                                 Foreground="{DynamicResource PetBubbleTextBrush}"
+                                 FontSize="12"
+                                 Text="{Binding Prompt}"
+                                 TextTrimming="CharacterEllipsis" />
+                      <TextBlock Margin="0,3,0,0"
+                                 Foreground="{DynamicResource PetBubbleTextBrush}"
+                                 FontSize="11"
+                                 Text="{Binding Reply}"
+                                 TextTrimming="CharacterEllipsis" />
+                      <TextBlock Margin="0,4,0,0"
+                                 Foreground="{DynamicResource PetBubbleMutedBrush}"
+                                 FontSize="9"
+                                 Text="{Binding TokenText}" />
+                    </StackPanel>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </ScrollViewer>
+
+        <ScrollViewer Grid.Row="2"
+                      Margin="0,10,0,0"
+                      HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Auto"
+                      Visibility="{Binding ShowsHistory, Converter={StaticResource InverseBooleanToVisibility}}">
           <StackPanel>
             <Border Padding="11,9"
                     Background="{DynamicResource PetBubbleSubtleBrush}"

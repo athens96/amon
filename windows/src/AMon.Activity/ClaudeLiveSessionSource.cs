@@ -218,7 +218,11 @@ public sealed class ClaudeLiveSessionSource : ILiveSessionSource
                 : LiveTokenSnapshot.Unavailable,
             startedAt,
             updatedAt,
-            LiveText.FirstLine(Text(root, "notice"), 200));
+            LiveText.FirstLine(Text(root, "notice"), 200),
+            TranscriptPath: LiveText.FirstLine(transcriptPath, 1024),
+            WorkingDirectory: LiveText.FirstLine(Text(root, "cwd"), 1024),
+            HostApp: LiveText.FirstLine(Text(root, "host_app"), 64),
+            HostProcessId: root.TryGetProperty("host_pid", out var hostPid) && hostPid.ValueKind == JsonValueKind.Number && hostPid.TryGetInt32(out var pid) && pid > 0 ? pid : null);
         return true;
     }
 
