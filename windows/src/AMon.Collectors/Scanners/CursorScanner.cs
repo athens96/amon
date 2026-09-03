@@ -25,6 +25,7 @@ public sealed class CursorScanner : IUsageScanner
     };
 
     private readonly string? _explicitPath;
+    private readonly string _eventCachePath;
     private readonly Func<string, string?> _getEnvironmentVariable;
     private readonly CursorUsageEventsClient _usageEvents;
     private readonly IncrementalSourceMemo<CursorDatabaseSnapshot> _databaseMemo = new();
@@ -34,9 +35,11 @@ public sealed class CursorScanner : IUsageScanner
     public CursorScanner(
         string? databasePath = null,
         Func<string, string?>? getEnvironmentVariable = null,
-        HttpClient? httpClient = null)
+        HttpClient? httpClient = null,
+        string? eventCachePath = null)
     {
         _explicitPath = databasePath;
+        _eventCachePath = eventCachePath ?? CursorUsageEventCache.DefaultPath();
         _getEnvironmentVariable = getEnvironmentVariable ?? Environment.GetEnvironmentVariable;
         _usageEvents = new CursorUsageEventsClient(httpClient ?? DefaultHttpClient);
     }
@@ -111,6 +114,23 @@ public sealed class CursorScanner : IUsageScanner
                         context,
                         fetchCancellationToken),
                     cancellationToken);
+
+            // The session history estimates per-composer tokens from these same events; keep the
+            // latest fetch on disk so the estimate survives an offline restart (stale-while-revalidate).
+            if (csv is { Events.Count: > 0 })
+            {
+                CursorUsageEventCache.Store(
+                    _eventCachePath,
+                    context.Now,
+                    csv.Events.Select(static item => new CursorUsageEvent(
+                        item.Timestamp,
+                        item.Model,
+                        item.Usage.InputTokens,
+                        item.Usage.OutputTokens,
+                        item.Usage.CacheReadTokens,
+                        item.Usage.CacheWriteTokens,
+                        item.Usage.ReportedTotalTokens)).ToArray());
+            }
 
             var result = csv is { Events.Count: > 0 }
                 ? BuildWithCsv(

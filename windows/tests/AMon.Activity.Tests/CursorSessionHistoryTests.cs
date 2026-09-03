@@ -109,6 +109,8 @@ public sealed class CursorSessionHistoryTests
         Assert.Equal(Now.AddHours(-2), summary.EndedAt);
         Assert.Equal(Now.AddHours(-2).AddMinutes(-30), summary.StartedAt);
         Assert.Null(summary.ProjectLabel);
+        Assert.Equal(5, summary.BubbleTimes.Count);
+        Assert.Equal(summary.StartedAt, summary.BubbleTimes[0]);
     }
 
     [Fact]

@@ -13,7 +13,8 @@ public sealed record CursorSessionSummary(
     int PromptCount,
     string? LastResult,
     string? Model,
-    int AgentCount);
+    int AgentCount,
+    IReadOnlyList<DateTimeOffset> BubbleTimes);
 
 public sealed record CursorTurn(bool IsUser, string Text, DateTimeOffset? Timestamp);
 
@@ -324,7 +325,8 @@ public static class CursorSessionHistory
             promptCount,
             LatestText(connection, composer with { Id = meta.Id }, type: 2, limit: 200),
             composer.ModelName,
-            composer.SubagentCount);
+            composer.SubagentCount,
+            composer.Headers.Where(static header => header.CreatedAt is not null).Select(static header => header.CreatedAt!.Value).ToArray());
     }
 
     /// The newest non-empty bubble of `type`, scanning from the end with a point-lookup cap since

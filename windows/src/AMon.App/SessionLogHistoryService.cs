@@ -3,6 +3,7 @@ using System.IO;
 using System.Text.RegularExpressions;
 using AMon.Activity;
 using AMon.App.ViewModels;
+using AMon.Core;
 
 namespace AMon.App;
 
@@ -97,12 +98,14 @@ public sealed class SessionLogHistoryService
     }
 
     /// Ended Cursor conversations from the global state database. Cursor keeps no per-session
-    /// token counts locally, so the token columns stay zero (the macOS client fills them with an
-    /// estimate attributed from dashboard usage events; that estimate is not ported).
+    /// token counts locally, so tokens are an estimate: the scanner's cached dashboard usage
+    /// events attributed to the composer with the nearest bubble (`CursorSessionTokenEstimator`),
+    /// re-applied on every scan so late-arriving events show up next time.
     private static void AddCursorSessions(
         ICollection<SessionRecord> records,
         string? cursorRoot,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? eventCachePath = null)
     {
         var databasePath = CursorSessionHistory.ResolveDatabasePath(cursorRoot);
         if (databasePath is null)
@@ -117,8 +120,13 @@ public sealed class SessionLogHistoryService
         {
             return;
         }
+        var estimates = CursorSessionTokenEstimator.Attribute(
+            CursorUsageEventCache.Load(eventCachePath ?? CursorUsageEventCache.DefaultPath())?.Events ?? [],
+            summaries.Select(static summary => new CursorSessionTokenEstimator.SessionBubbles(summary.Id, summary.BubbleTimes)).ToArray());
         foreach (var summary in summaries)
         {
+            estimates.TryGetValue(summary.Id, out var estimate);
+            var usage = estimate?.Usage ?? default;
             records.Add(new SessionRecord(
                 "cursor",
                 summary.Id,
@@ -127,11 +135,11 @@ public sealed class SessionLogHistoryService
                 "completed",
                 Trim(summary.Prompts.LastOrDefault(), 180),
                 Trim(summary.LastResult, 240),
-                summary.Model,
-                0,
-                0,
-                0,
-                0,
+                estimate?.TopModel ?? summary.Model,
+                usage.InputTokens,
+                usage.OutputTokens,
+                checked(usage.CacheReadTokens + usage.CacheWriteTokens),
+                estimate is null ? 0 : usage.TotalTokens,
                 summary.AgentCount,
                 summary.StartedAt,
                 summary.EndedAt,
