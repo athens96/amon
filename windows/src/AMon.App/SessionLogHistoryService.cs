@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.IO;
 using System.Text.RegularExpressions;
+using AMon.Activity;
 using AMon.App.ViewModels;
 
 namespace AMon.App;
@@ -11,10 +12,14 @@ public sealed class SessionLogHistoryService
         string provider,
         string sessionId,
         string? claudeRoot = null,
-        string? codexRoot = null)
+        string? codexRoot = null,
+        string? cursorRoot = null)
     {
         if (string.IsNullOrWhiteSpace(sessionId))
             return null;
+        // Cursor's "log" is the global state.vscdb; the session is a row inside it.
+        if (string.Equals(provider, "cursor", StringComparison.OrdinalIgnoreCase))
+            return CursorSessionHistory.ResolveDatabasePath(cursorRoot);
         var isCodex = string.Equals(provider, "codex", StringComparison.OrdinalIgnoreCase);
         var root = isCodex
             ? ResolveCodexRoot(codexRoot)
@@ -38,19 +43,22 @@ public sealed class SessionLogHistoryService
     public Task<IReadOnlyList<SessionRecord>> ScanAsync(
         string? claudeRoot,
         string? codexRoot,
+        string? cursorRoot = null,
         CancellationToken cancellationToken = default) =>
         Task.Run(
-            () => Scan(claudeRoot, codexRoot, cancellationToken),
+            () => Scan(claudeRoot, codexRoot, cursorRoot, cancellationToken),
             cancellationToken);
 
     private static IReadOnlyList<SessionRecord> Scan(
         string? claudeRoot,
         string? codexRoot,
+        string? cursorRoot,
         CancellationToken cancellationToken)
     {
         var records = new List<SessionRecord>();
         AddRecentFiles(records, ResolveClaudeRoot(claudeRoot), "*.jsonl", "claude", cancellationToken);
         AddRecentFiles(records, ResolveCodexRoot(codexRoot), "rollout-*.jsonl", "codex", cancellationToken);
+        AddCursorSessions(records, cursorRoot, cancellationToken);
         return records
             .OrderByDescending(static record => record.EndedAt)
             .Take(200)
@@ -85,6 +93,49 @@ public sealed class SessionLogHistoryService
             var record = ReadRecord(file, provider);
             if (record is not null)
                 records.Add(record);
+        }
+    }
+
+    /// Ended Cursor conversations from the global state database. Cursor keeps no per-session
+    /// token counts locally, so the token columns stay zero (the macOS client fills them with an
+    /// estimate attributed from dashboard usage events; that estimate is not ported).
+    private static void AddCursorSessions(
+        ICollection<SessionRecord> records,
+        string? cursorRoot,
+        CancellationToken cancellationToken)
+    {
+        var databasePath = CursorSessionHistory.ResolveDatabasePath(cursorRoot);
+        if (databasePath is null)
+            return;
+        cancellationToken.ThrowIfCancellationRequested();
+        IReadOnlyList<CursorSessionSummary> summaries;
+        try
+        {
+            summaries = CursorSessionHistory.Scan(databasePath, DateTimeOffset.UtcNow);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException)
+        {
+            return;
+        }
+        foreach (var summary in summaries)
+        {
+            records.Add(new SessionRecord(
+                "cursor",
+                summary.Id,
+                summary.ProjectLabel ?? "Cursor",
+                null,
+                "completed",
+                Trim(summary.Prompts.LastOrDefault(), 180),
+                Trim(summary.LastResult, 240),
+                summary.Model,
+                0,
+                0,
+                0,
+                0,
+                summary.AgentCount,
+                summary.StartedAt,
+                summary.EndedAt,
+                databasePath));
         }
     }
 
@@ -174,70 +225,167 @@ public sealed class SessionLogHistoryService
 
 public static class SessionTranscriptParser
 {
-    public static IReadOnlyList<SessionTurnViewModel> Parse(string path, string provider)
+    public static IReadOnlyList<SessionTurnViewModel> Parse(string path, string provider, string? sessionId = null)
     {
         if (!File.Exists(path))
             return [];
         try
         {
-            return provider == "codex" ? ParseCodex(path) : ParseClaude(path);
+            return provider switch
+            {
+                "codex" => ParseCodex(path),
+                "cursor" => ParseCursor(path, sessionId),
+                _ => ParseClaude(path),
+            };
         }
         catch (Exception exception) when (
-            exception is IOException or UnauthorizedAccessException or JsonException)
+            exception is IOException or UnauthorizedAccessException or JsonException or Microsoft.Data.Sqlite.SqliteException)
         {
             return [];
         }
     }
 
-    public static SessionAuditViewModel Audit(string path, string provider)
+    public static SessionAuditViewModel Audit(string path, string provider, string? sessionId = null)
     {
         if (!File.Exists(path))
             return SessionAuditViewModel.Empty;
-        var commands = new List<string>();
-        var files = new Dictionary<string, SessionFileAccessViewModel>(
-            StringComparer.OrdinalIgnoreCase);
+        var builder = new AuditBuilder();
         try
         {
-            foreach (var line in ReadSharedLines(path))
+            if (provider == "cursor")
             {
-                using var document = TryDocument(line);
-                if (document is null)
-                    continue;
-                if (provider == "codex")
-                    CollectCodexAudit(document.RootElement, commands, files);
-                else
-                    CollectClaudeAudit(document.RootElement, commands, files);
+                if (!string.IsNullOrWhiteSpace(sessionId))
+                {
+                    foreach (var call in CursorSessionHistory.ReadToolCalls(path, sessionId))
+                        CollectCursorAudit(call, builder);
+                }
+            }
+            else
+            {
+                foreach (var line in ReadSharedLines(path))
+                {
+                    using var document = TryDocument(line);
+                    if (document is null)
+                        continue;
+                    if (provider == "codex")
+                        CollectCodexAudit(document.RootElement, builder);
+                    else
+                        CollectClaudeAudit(document.RootElement, builder);
+                }
             }
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (
+            exception is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException)
         {
             return SessionAuditViewModel.Empty;
         }
-
-        var findings = commands
-            .SelectMany(RiskFindings)
-            .Concat(files.Values.SelectMany(FileRiskFindings))
-            .DistinctBy(static finding => $"{finding.Severity}|{finding.Title}|{finding.Evidence}")
-            .ToArray();
-        var commandCounts = commands
-            .Select(CommandName)
-            .Where(static name => !string.IsNullOrWhiteSpace(name))
-            .GroupBy(static name => name!, StringComparer.OrdinalIgnoreCase)
-            .OrderByDescending(static group => group.Count())
-            .Take(10)
-            .Select(group => $"{group.Key} ×{group.Count():N0}")
-            .ToArray();
-        return new SessionAuditViewModel(
-            commands,
-            files.Values.OrderByDescending(static file => file.Reads + file.Writes).ToArray(),
-            findings,
-            commandCounts);
+        return builder.Finish();
     }
 
-    private static void CollectClaudeAudit(
-        JsonElement root,
-        ICollection<string> commands,
-        IDictionary<string, SessionFileAccessViewModel> files)
+    /// Collects one session's tool activity into the audit vocabulary: shell commands, file
+    /// reads/writes, skill invocations, and MCP plugin (server) calls. Ported from the macOS
+    /// `SessionAuditor.Builder`.
+    internal sealed class AuditBuilder
+    {
+        private readonly List<string> _commands = [];
+        private readonly Dictionary<string, SessionFileAccessViewModel> _files = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, int> _skills = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, int> _plugins = new(StringComparer.Ordinal);
+
+        public void Shell(string? command)
+        {
+            if (!string.IsNullOrWhiteSpace(command))
+                _commands.Add(command);
+        }
+
+        public void File(string? path, bool write)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return;
+            _files.TryGetValue(path, out var existing);
+            existing ??= new SessionFileAccessViewModel(path, 0, 0);
+            _files[path] = write
+                ? existing with { Writes = existing.Writes + 1 }
+                : existing with { Reads = existing.Reads + 1 };
+        }
+
+        /// One skill use (the `skill` argument of Claude's `Skill` tool).
+        public void Skill(string? name)
+        {
+            var trimmed = name?.Trim();
+            if (!string.IsNullOrEmpty(trimmed))
+                _skills[trimmed] = _skills.GetValueOrDefault(trimmed) + 1;
+        }
+
+        /// One tool call; counted as a plugin call only when the name is an MCP tool.
+        public void McpTool(string? toolName)
+        {
+            if (McpServerName(toolName) is { } server)
+                _plugins[server] = _plugins.GetValueOrDefault(server) + 1;
+        }
+
+        public SessionAuditViewModel Finish()
+        {
+            var files = _files.Values.OrderByDescending(static file => file.Reads + file.Writes).ToArray();
+            var findings = _commands
+                .SelectMany(RiskFindings)
+                .Concat(files.SelectMany(FileRiskFindings))
+                .DistinctBy(static finding => $"{finding.Severity}|{finding.Title}|{finding.Evidence}")
+                .ToArray();
+            var commandCounts = _commands
+                .Select(CommandName)
+                .Where(static name => !string.IsNullOrWhiteSpace(name))
+                .GroupBy(static name => name!, StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(static group => group.Count())
+                .Take(10)
+                .Select(group => $"{group.Key} ×{group.Count():N0}")
+                .ToArray();
+            return new SessionAuditViewModel(_commands, files, findings, commandCounts, Ranked(_skills), Ranked(_plugins));
+        }
+
+        private static IReadOnlyList<string> Ranked(Dictionary<string, int> counts) =>
+            counts
+                .OrderByDescending(static pair => pair.Value)
+                .ThenBy(static pair => pair.Key, StringComparer.Ordinal)
+                .Select(static pair => $"{pair.Key} ×{pair.Value:N0}")
+                .ToArray();
+    }
+
+    /// The MCP server (plugin) name behind a tool name, or `null` when the tool is not MCP.
+    /// Claude = `mcp__<server>__<tool>`; Cursor uses single underscores (`mcp_<server>_<tool>`),
+    /// where the server boundary is unknown so only the first segment is taken (best effort).
+    public static string? McpServerName(string? toolName)
+    {
+        if (string.IsNullOrEmpty(toolName))
+            return null;
+        if (toolName.StartsWith("mcp__", StringComparison.Ordinal))
+        {
+            var rest = toolName[5..];
+            var separator = rest.IndexOf("__", StringComparison.Ordinal);
+            return CleanPluginName(separator >= 0 ? rest[..separator] : rest);
+        }
+        if (toolName.StartsWith("mcp_", StringComparison.Ordinal))
+        {
+            var rest = toolName[4..];
+            var separator = rest.IndexOf('_');
+            var server = separator >= 0 ? rest[..separator] : rest;
+            return server.Length == 0 ? null : server;
+        }
+        return null;
+    }
+
+    /// Claude Code plugin MCP naming (`plugin_<name>_t`) → the human-readable plugin name.
+    private static string CleanPluginName(string raw)
+    {
+        var name = raw;
+        if (name.StartsWith("plugin_", StringComparison.Ordinal))
+            name = name["plugin_".Length..];
+        if (name.EndsWith("_t", StringComparison.Ordinal))
+            name = name[..^2];
+        return name.Length == 0 ? raw : name;
+    }
+
+    private static void CollectClaudeAudit(JsonElement root, AuditBuilder builder)
     {
         if (String(root, "type") != "assistant"
             || !Property(root, "message", out var message)
@@ -250,34 +398,44 @@ public static class SessionTranscriptParser
                 || !Property(block, "input", out var input))
                 continue;
             var name = String(block, "name") ?? string.Empty;
-            if (name is "Bash" or "Shell" or "exec_command"
-                && String(input, "command") is { Length: > 0 } command)
-                commands.Add(command);
-            var path = String(input, "file_path") ?? String(input, "notebook_path");
-            if (string.IsNullOrWhiteSpace(path))
-                continue;
-            var write = name is "Write" or "Edit" or "MultiEdit" or "NotebookEdit";
-            AddFile(files, path, write);
+            switch (name)
+            {
+                case "Bash" or "Shell" or "exec_command":
+                    builder.Shell(String(input, "command"));
+                    break;
+                case "Read":
+                    builder.File(String(input, "file_path"), write: false);
+                    break;
+                case "Write" or "Edit" or "MultiEdit":
+                    builder.File(String(input, "file_path"), write: true);
+                    break;
+                case "NotebookEdit":
+                    builder.File(String(input, "notebook_path"), write: true);
+                    break;
+                case "Skill":
+                    builder.Skill(String(input, "skill"));
+                    break;
+                default:
+                    builder.McpTool(name);
+                    break;
+            }
         }
     }
 
-    private static void CollectCodexAudit(
-        JsonElement root,
-        ICollection<string> commands,
-        IDictionary<string, SessionFileAccessViewModel> files)
+    private static void CollectCodexAudit(JsonElement root, AuditBuilder builder)
     {
         if (!Property(root, "payload", out var payload))
             return;
+        // MCP tool calls can arrive under either function_call or custom_tool_call names.
+        builder.McpTool(String(payload, "name"));
         var type = String(payload, "type");
         if (type == "local_shell_call"
             && Property(payload, "action", out var action)
             && Property(action, "command", out var commandValue))
         {
-            var command = commandValue.ValueKind == JsonValueKind.Array
+            builder.Shell(commandValue.ValueKind == JsonValueKind.Array
                 ? string.Join(' ', commandValue.EnumerateArray().Select(static item => item.GetString()))
-                : commandValue.GetString();
-            if (!string.IsNullOrWhiteSpace(command))
-                commands.Add(command);
+                : commandValue.GetString());
             return;
         }
         if (type != "function_call" && type != "custom_tool_call")
@@ -293,26 +451,50 @@ public static class SessionTranscriptParser
             if (arguments is null)
                 return;
             var input = arguments.RootElement;
-            if (name is "exec_command" or "shell"
-                && (String(input, "cmd") ?? String(input, "command")) is { Length: > 0 } command)
-                commands.Add(command);
+            if (name is "exec_command" or "shell")
+                builder.Shell(String(input, "cmd") ?? String(input, "command"));
             var path = String(input, "path") ?? String(input, "file_path");
             if (!string.IsNullOrWhiteSpace(path))
-                AddFile(files, path, name.Contains("write", StringComparison.OrdinalIgnoreCase)
+                builder.File(path, name.Contains("write", StringComparison.OrdinalIgnoreCase)
                     || name.Contains("patch", StringComparison.OrdinalIgnoreCase));
         }
     }
 
-    private static void AddFile(
-        IDictionary<string, SessionFileAccessViewModel> files,
-        string path,
-        bool write)
+    /// `toolFormerData` on Cursor bubbles (measured: `read_file_v2`, `edit_file_v2`,
+    /// `run_terminal_cmd`, `mcp_<server>_<tool>`, with paths and commands in `params`/`rawArgs`).
+    private static void CollectCursorAudit(CursorToolCall call, AuditBuilder builder)
     {
-        files.TryGetValue(path, out var existing);
-        existing ??= new SessionFileAccessViewModel(path, 0, 0);
-        files[path] = write
-            ? existing with { Writes = existing.Writes + 1 }
-            : existing with { Reads = existing.Reads + 1 };
+        var name = call.Name.ToLowerInvariant();
+        builder.McpTool(call.Name);
+        var parameters = call.Parameters;
+        string? First(params string[] keys)
+        {
+            if (parameters is not { } element)
+                return null;
+            foreach (var key in keys)
+            {
+                if (String(element, key) is { Length: > 0 } value)
+                    return value;
+            }
+            return null;
+        }
+        var path = First("relativeWorkspacePath", "targetFile", "path", "effectiveUri", "file_path");
+        if (name.Contains("terminal") || name.Contains("shell") || name == "run_command")
+            builder.Shell(First("command", "cmd", "commandLine"));
+        else if (name.StartsWith("read_file") || name.StartsWith("list_dir"))
+            builder.File(path, write: false);
+        else if (name.StartsWith("edit_file") || name.StartsWith("write") || name.StartsWith("create_file")
+            || name.StartsWith("delete_file") || name.StartsWith("search_replace") || name.StartsWith("apply"))
+            builder.File(path, write: true);
+    }
+
+    private static IReadOnlyList<SessionTurnViewModel> ParseCursor(string databasePath, string? sessionId)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+            return [];
+        return CursorSessionHistory.ReadTurns(databasePath, sessionId)
+            .Select(static turn => new SessionTurnViewModel(turn.IsUser ? "사용자" : "AI", turn.Text, turn.Timestamp, null, null))
+            .ToArray();
     }
 
     private static IEnumerable<SessionFindingViewModel> RiskFindings(string command)
@@ -582,11 +764,18 @@ public sealed record SessionAuditViewModel(
     IReadOnlyList<string> ShellCommands,
     IReadOnlyList<SessionFileAccessViewModel> FileAccesses,
     IReadOnlyList<SessionFindingViewModel> Findings,
-    IReadOnlyList<string> CommandCounts)
+    IReadOnlyList<string> CommandCounts,
+    IReadOnlyList<string> Skills,
+    IReadOnlyList<string> Plugins)
 {
-    public static SessionAuditViewModel Empty { get; } = new([], [], [], []);
+    public static SessionAuditViewModel Empty { get; } = new([], [], [], [], [], []);
+
+    /// Skills and MCP plugins as one list for the detail panel ("skill:name ×N", "mcp:server ×N").
+    public IReadOnlyList<string> Extensions =>
+        [.. Skills.Select(static skill => $"스킬 {skill}"), .. Plugins.Select(static plugin => $"MCP {plugin}")];
+
     public string Summary =>
-        $"쉘 {ShellCommands.Count:N0} · 파일 {FileAccesses.Count:N0} · 위험 신호 {Findings.Count:N0}";
+        $"쉘 {ShellCommands.Count:N0} · 파일 {FileAccesses.Count:N0} · 위험 신호 {Findings.Count:N0} · 스킬 {Skills.Count:N0} · MCP {Plugins.Count:N0}";
 }
 
 public sealed record SessionFileAccessViewModel(string Path, int Reads, int Writes)

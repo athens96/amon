@@ -109,14 +109,15 @@ public partial class App : System.Windows.Application
             _petWindow.ShowNearWorkingArea();
 
         var paths = config.Paths;
-        sessionHistoryViewModel.ConfigureLogRoots(paths.Claude, paths.Codex);
+        sessionHistoryViewModel.ConfigureLogRoots(paths.Claude, paths.Codex, paths.Cursor);
         _claudeActivityPath = paths.Claude;
         _codexActivityPath = paths.Codex;
         _cursorActivityPath = paths.Cursor;
         _ = LoadSessionHistoryAsync(
             sessionHistoryViewModel,
             paths.Claude,
-            paths.Codex);
+            paths.Codex,
+            paths.Cursor);
         var scanners = UsageScannerFactory.Create(new UsageScannerPaths(
             paths.Claude,
             paths.Codex,
@@ -234,13 +235,15 @@ public partial class App : System.Windows.Application
     private async Task LoadSessionHistoryAsync(
         SessionHistoryViewModel viewModel,
         string? claudePath,
-        string? codexPath)
+        string? codexPath,
+        string? cursorPath)
     {
         try
         {
             var records = await new SessionLogHistoryService().ScanAsync(
                 claudePath,
-                codexPath);
+                codexPath,
+                cursorPath);
             await Dispatcher.InvokeAsync(() => viewModel.ApplyScannedHistory(records));
         }
         catch (Exception exception)
@@ -300,7 +303,8 @@ public partial class App : System.Windows.Application
             _usageCollectionService?.UpdatePaths(settings);
             _sessionHistoryViewModel?.ConfigureLogRoots(
                 settings.ClaudePath,
-                settings.CodexPath);
+                settings.CodexPath,
+                settings.CursorPath);
             _claudeActivityPath = settings.ClaudePath;
             _codexActivityPath = settings.CodexPath;
             _cursorActivityPath = settings.CursorPath;
@@ -312,7 +316,8 @@ public partial class App : System.Windows.Application
                 _ = LoadSessionHistoryAsync(
                     _sessionHistoryViewModel,
                     settings.ClaudePath,
-                    settings.CodexPath);
+                    settings.CodexPath,
+                    settings.CursorPath);
             }
         }
     }

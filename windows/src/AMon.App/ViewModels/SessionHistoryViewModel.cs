@@ -20,6 +20,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
     private string _detailStatus = string.Empty;
     private string? _claudeRoot;
     private string? _codexRoot;
+    private string? _cursorRoot;
 
     public SessionHistoryViewModel(string historyPath)
     {
@@ -36,6 +37,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
     public ObservableCollection<SessionFindingViewModel> Findings { get; } = [];
     public ObservableCollection<string> ShellCommands { get; } = [];
     public ObservableCollection<SessionFileAccessViewModel> FileAccesses { get; } = [];
+    public ObservableCollection<string> Extensions { get; } = [];
     public ICommand OpenSessionCommand { get; }
     public ICommand CloseSessionCommand { get; }
 
@@ -69,10 +71,11 @@ public sealed class SessionHistoryViewModel : ObservableObject
     public bool HasActiveSessions => ActiveSessions.Count > 0;
     public bool HasCompletedSessions => CompletedSessions.Count > 0;
 
-    public void ConfigureLogRoots(string? claudeRoot, string? codexRoot)
+    public void ConfigureLogRoots(string? claudeRoot, string? codexRoot, string? cursorRoot = null)
     {
         _claudeRoot = claudeRoot;
         _codexRoot = codexRoot;
+        _cursorRoot = cursorRoot;
     }
 
     public void ApplySessions(IReadOnlyList<LiveSession> sessions)
@@ -119,6 +122,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
         Findings.Clear();
         ShellCommands.Clear();
         FileAccesses.Clear();
+        Extensions.Clear();
         DetailStatus = "원본 세션 로그를 분석하는 중입니다…";
         var result = await Task.Run(() =>
         {
@@ -127,16 +131,19 @@ public sealed class SessionHistoryViewModel : ObservableObject
                     session.Record.Provider,
                     session.Record.SessionId,
                     _claudeRoot,
-                    _codexRoot);
+                    _codexRoot,
+                    _cursorRoot);
             if (string.IsNullOrWhiteSpace(sourcePath))
                 return (Turns: (IReadOnlyList<SessionTurnViewModel>)[], Audit: SessionAuditViewModel.Empty);
             return (
                 Turns: SessionTranscriptParser.Parse(
                     sourcePath,
-                    session.Record.Provider),
+                    session.Record.Provider,
+                    session.Record.SessionId),
                 Audit: SessionTranscriptParser.Audit(
                     sourcePath,
-                    session.Record.Provider));
+                    session.Record.Provider,
+                    session.Record.SessionId));
         });
         var turns = result.Turns;
         foreach (var turn in turns)
@@ -147,6 +154,8 @@ public sealed class SessionHistoryViewModel : ObservableObject
             ShellCommands.Add(command);
         foreach (var file in result.Audit.FileAccesses.Take(50))
             FileAccesses.Add(file);
+        foreach (var extension in result.Audit.Extensions)
+            Extensions.Add(extension);
         var userTurns = turns.Count(static turn => turn.Role == "사용자");
         var assistantTurns = turns.Count(static turn => turn.Role == "AI");
         var tokens = turns
@@ -169,6 +178,7 @@ public sealed class SessionHistoryViewModel : ObservableObject
         Findings.Clear();
         ShellCommands.Clear();
         FileAccesses.Clear();
+        Extensions.Clear();
         DetailStatus = string.Empty;
         AnalysisSummary = string.Empty;
         OnPropertyChanged(nameof(AnalysisSummary));
