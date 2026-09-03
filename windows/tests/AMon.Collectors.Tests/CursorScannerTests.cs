@@ -47,6 +47,32 @@ public sealed class CursorScannerTests
     }
 
     [Fact]
+    public async Task Csv_events_are_cached_for_session_token_estimates()
+    {
+        var databasePath = Path.Combine(Path.GetTempPath(), $"amon-cursor-cache-{Guid.NewGuid():N}.vscdb");
+        var cachePath = Path.Combine(Path.GetTempPath(), $"amon-cursor-cache-{Guid.NewGuid():N}", "cursor-events.json");
+        await CreateCsvDatabaseAsync(databasePath, CreateJwt("auth0|user_123"));
+        var csv = """
+            Date,Model,Input (w/ Cache Write),Input (w/o Cache Write),Cache Read,Output Tokens,Total Tokens,Cost
+            2026-07-25T10:00:00.000Z,claude,2,5,3,4,14,1.25
+            """;
+        var httpClient = new HttpClient(new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(csv, Encoding.UTF8, "text/csv")
+        }));
+
+        await new CursorScanner(databasePath, httpClient: httpClient, eventCachePath: cachePath).ScanAsync(Context());
+
+        var cached = AMon.Core.CursorUsageEventCache.Load(cachePath);
+        Assert.NotNull(cached);
+        var cachedEvent = Assert.Single(cached!.Events);
+        Assert.Equal("claude", cachedEvent.Model);
+        Assert.Equal(DateTimeOffset.Parse("2026-07-25T10:00:00Z"), cachedEvent.Timestamp);
+        Assert.Equal(4, cachedEvent.OutputTokens);
+        Directory.Delete(Path.GetDirectoryName(cachePath)!, recursive: true);
+    }
+
+    [Fact]
     public async Task Csv_success_replaces_database_window_and_maps_named_columns()
     {
         var databasePath = Path.Combine(
