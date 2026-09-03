@@ -75,6 +75,14 @@ public sealed record ClaudeLiveSession
     [JsonPropertyName("transcript_path")]
     public string? TranscriptPath { get; set; }
 
+    // The GUI app that launched this CLI (Windows Terminal, VS Code, …) and its process id, so the
+    // pet bubble can bring it forward. Local display only — never part of an upload payload.
+    [JsonPropertyName("host_app")]
+    public string? HostApp { get; set; }
+
+    [JsonPropertyName("host_pid")]
+    public int? HostProcessId { get; set; }
+
     [JsonPropertyName("started_at")]
     public required DateTimeOffset StartedAt { get; init; }
 

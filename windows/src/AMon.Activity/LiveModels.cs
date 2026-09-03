@@ -43,7 +43,14 @@ public sealed record LiveSession(
     // Why the session is waiting (a tool permission prompt, for example). Only set when
     // Status is "needs_input". Claude writes this text, so it is never the user's prompt.
     // Local display only — it is not part of any upload payload.
-    string? Notice = null)
+    string? Notice = null,
+    // The session's transcript/rollout file, for the pet's recent-turn history. Local only.
+    string? TranscriptPath = null,
+    // The CLI's working directory, used to re-detect the host app. Local only.
+    string? WorkingDirectory = null,
+    // The GUI app that launched the CLI (recorded by the hook), for the bubble's host jump.
+    string? HostApp = null,
+    int? HostProcessId = null)
 {
     public string Identity => $"{Provider}:{SessionId}";
 }

@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using AMon.Core;
 
 namespace AMon.ClaudeIntegration;
 
@@ -35,11 +36,29 @@ public sealed class ClaudeHookProcessor
 
     private readonly string liveDirectory;
     private readonly TimeProvider timeProvider;
+    private readonly Func<HostProcessScanner.Candidate?> hostDetector;
 
-    public ClaudeHookProcessor(string? liveDirectory = null, TimeProvider? timeProvider = null)
+    public ClaudeHookProcessor(string? liveDirectory = null, TimeProvider? timeProvider = null, Func<HostProcessScanner.Candidate?>? hostDetector = null)
     {
         this.liveDirectory = liveDirectory ?? ResolveDefaultLiveDirectory();
         this.timeProvider = timeProvider ?? TimeProvider.System;
+        this.hostDetector = hostDetector ?? DetectHost;
+    }
+
+    /// The GUI app that owns this hook's process chain (hook → claude → shell → terminal/IDE):
+    /// the nearest ancestor with a top-level window. Same idea as the macOS hook's `detect_host`.
+    public static HostProcessScanner.Candidate? DetectHost()
+    {
+        if (!OperatingSystem.IsWindows())
+            return null;
+        try
+        {
+            return HostProcessScanner.HostOf(ProcessTree.Snapshot(), Environment.ProcessId, HostProcessScanner.OwnsTopLevelWindow);
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            return null;
+        }
     }
 
     public void Process(string json)
@@ -129,8 +148,8 @@ public sealed class ClaudeHookProcessor
             }
             else
             {
-            // Older amon versions registered async hooks. A queued event can therefore
-            // arrive after SessionEnd; never let it resurrect the completed session.
+                // Older amon versions registered async hooks. A queued event can therefore
+                // arrive after SessionEnd; never let it resurrect the completed session.
                 return;
             }
         }
@@ -148,6 +167,7 @@ public sealed class ClaudeHookProcessor
         {
             session.TranscriptPath = payload.TranscriptPath;
         }
+        EnsureHost(session);
 
         switch (payload.EventName)
         {
@@ -845,6 +865,17 @@ public sealed class ClaudeHookProcessor
 
         // Keep reading the legacy path written by existing hook installations.
         return Path.Combine(appData, "A-mon", "live");
+    }
+
+    /// Record the host app once per session; a later hook whose chain differs (the session was
+    /// resumed from another terminal) replaces it, so the bubble jumps to where the CLI lives now.
+    private void EnsureHost(ClaudeLiveSession session)
+    {
+        var host = hostDetector();
+        if (host is null)
+            return;
+        session.HostApp = host.HostApp;
+        session.HostProcessId = host.HostProcessId;
     }
 
     private sealed class HookPayload

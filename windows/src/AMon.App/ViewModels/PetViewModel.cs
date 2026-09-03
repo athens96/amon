@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.IO;
 using System.Windows.Input;
 using AMon.Activity;
 
@@ -7,9 +8,17 @@ namespace AMon.App.ViewModels;
 
 public sealed class PetViewModel : ObservableObject
 {
+    /// Reads the recent turns of a presentation's session; injected so tests need no files.
+    public delegate Task<IReadOnlyList<PetHistoryTurn>> HistoryLoader(PetPresentation presentation, CancellationToken cancellationToken);
+
     private readonly ObservableCollection<PetPresentation> _presentations = [];
     private readonly RelayCommand _previousCommand;
     private readonly RelayCommand _nextCommand;
+    private readonly RelayCommand _toggleHistoryCommand;
+    private readonly HistoryLoader? _historyLoader;
+    private CancellationTokenSource? _historyLoad;
+    private bool _showsHistory;
+    private bool _isHistoryLoading;
     private int _currentIndex;
     private bool _showsCurrentTask;
     private string _spritePath = string.Empty;
@@ -21,14 +30,123 @@ public sealed class PetViewModel : ObservableObject
 
     public PetViewModel(
         IEnumerable<PetPresentation>? presentations = null,
-        bool showsCurrentTask = true)
+        bool showsCurrentTask = true,
+        HistoryLoader? historyLoader = null)
     {
         _showsCurrentTask = showsCurrentTask;
+        _historyLoader = historyLoader;
         _previousCommand = new RelayCommand(Previous, () => HasRunningCarousel);
         _nextCommand = new RelayCommand(Next, () => HasRunningCarousel);
+        _toggleHistoryCommand = new RelayCommand(ToggleHistory, () => HasHistorySource);
         PreviousCommand = _previousCommand;
         NextCommand = _nextCommand;
+        ToggleHistoryCommand = _toggleHistoryCommand;
         UpdatePresentations(presentations?.ToArray() ?? []);
+    }
+
+    /// Past turns of the current session, newest last; filled while `ShowsHistory`.
+    public ObservableCollection<PetHistoryTurnViewModel> HistoryTurns { get; } = [];
+
+    public ICommand ToggleHistoryCommand { get; }
+
+    public bool ShowsHistory
+    {
+        get => _showsHistory;
+        private set
+        {
+            if (SetProperty(ref _showsHistory, value))
+                OnPropertyChanged(nameof(HistoryStatusText));
+        }
+    }
+
+    public bool IsHistoryLoading
+    {
+        get => _isHistoryLoading;
+        private set
+        {
+            if (SetProperty(ref _isHistoryLoading, value))
+                OnPropertyChanged(nameof(HistoryStatusText));
+        }
+    }
+
+    /// Claude and Codex sessions have a local turn log to show; Cursor and idle do not.
+    public bool HasHistorySource => _historyLoader is not null && Current.HasHistorySource;
+
+    public string HistoryStatusText =>
+        IsHistoryLoading ? "지난 턴을 읽는 중…"
+        : HistoryTurns.Count == 0 ? "표시할 지난 턴이 없습니다."
+        : $"최근 {HistoryTurns.Count:N0}턴";
+
+    /// The host app that launched the current session, when the hook recorded one.
+    public bool HasHostJump => Current.HostProcessId is not null || !string.IsNullOrWhiteSpace(Current.HostApp);
+
+    public string BubbleToolTip => Current.HostApp is { Length: > 0 } host
+        ? $"클릭하여 {host} 로 이동"
+        : "클릭하여 현재 세션 열기";
+
+    private void ToggleHistory()
+    {
+        if (ShowsHistory)
+        {
+            CloseHistory();
+            return;
+        }
+        ShowsHistory = true;
+        ReloadHistory();
+    }
+
+    public void CloseHistory()
+    {
+        _historyLoad?.Cancel();
+        _historyLoad = null;
+        ShowsHistory = false;
+        IsHistoryLoading = false;
+        HistoryTurns.Clear();
+        OnPropertyChanged(nameof(HistoryStatusText));
+    }
+
+    private void ReloadHistory()
+    {
+        if (!ShowsHistory || _historyLoader is null)
+            return;
+        var presentation = Current;
+        if (!presentation.HasHistorySource)
+        {
+            HistoryTurns.Clear();
+            IsHistoryLoading = false;
+            OnPropertyChanged(nameof(HistoryStatusText));
+            return;
+        }
+        _historyLoad?.Cancel();
+        var load = new CancellationTokenSource();
+        _historyLoad = load;
+        IsHistoryLoading = true;
+        _ = LoadHistoryAsync(presentation, load);
+    }
+
+    private async Task LoadHistoryAsync(PetPresentation presentation, CancellationTokenSource load)
+    {
+        IReadOnlyList<PetHistoryTurn> turns;
+        try
+        {
+            turns = await _historyLoader!(presentation, load.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            turns = [];
+        }
+        if (load.IsCancellationRequested || !ReferenceEquals(_historyLoad, load))
+            return;
+        HistoryTurns.Clear();
+        // Newest first: the card the user most likely wants is the latest exchange.
+        foreach (var turn in turns.Reverse())
+            HistoryTurns.Add(new PetHistoryTurnViewModel(turn, presentation.Provider));
+        IsHistoryLoading = false;
+        OnPropertyChanged(nameof(HistoryStatusText));
     }
 
     public IReadOnlyList<PetPresentation> Presentations => _presentations;
@@ -189,6 +307,10 @@ public sealed class PetViewModel : ObservableObject
         RaiseCurrentProperties();
         _previousCommand.NotifyCanExecuteChanged();
         _nextCommand.NotifyCanExecuteChanged();
+        _toggleHistoryCommand.NotifyCanExecuteChanged();
+        // The session behind the open history changed (or vanished): follow it.
+        if (ShowsHistory && !string.Equals(previousIdentity, Current.SessionIdentity, StringComparison.Ordinal))
+            ReloadHistory();
     }
 
     public void ConfigureAppearance(
@@ -221,9 +343,21 @@ public sealed class PetViewModel : ObservableObject
     /// <summary>Reload a sprite that was replaced in place at the same installed path.</summary>
     public void ReloadSprite() => SpriteRevision = unchecked(SpriteRevision + 1);
 
-    private void Previous() => CurrentIndex--;
+    private void Previous()
+    {
+        CurrentIndex--;
+        _toggleHistoryCommand.NotifyCanExecuteChanged();
+        if (ShowsHistory)
+            ReloadHistory();
+    }
 
-    private void Next() => CurrentIndex++;
+    private void Next()
+    {
+        CurrentIndex++;
+        _toggleHistoryCommand.NotifyCanExecuteChanged();
+        if (ShowsHistory)
+            ReloadHistory();
+    }
 
     private PetPresentation? CurrentOrNull() =>
         _presentations.Count == 0 ? null : _presentations[_currentIndex];
@@ -253,6 +387,9 @@ public sealed class PetViewModel : ObservableObject
         OnPropertyChanged(nameof(InputFraction));
         OnPropertyChanged(nameof(OutputFraction));
         OnPropertyChanged(nameof(RemainderFraction));
+        OnPropertyChanged(nameof(HasHistorySource));
+        OnPropertyChanged(nameof(HasHostJump));
+        OnPropertyChanged(nameof(BubbleToolTip));
     }
 
     private (double Input, double Output, double Remainder) TokenFractions()
@@ -288,5 +425,36 @@ public sealed class PetViewModel : ObservableObject
         return normalized.Length <= maximumLength
             ? normalized
             : $"{normalized[..(maximumLength - 1)]}…";
+    }
+}
+
+/// One history card: prompt, reply (or "still generating"), time, and the turn's tokens.
+public sealed class PetHistoryTurnViewModel(PetHistoryTurn turn, string? provider)
+{
+    public PetHistoryTurn Turn { get; } = turn;
+    public string Prompt { get; } = turn.Prompt;
+    public string Reply { get; } = turn.Reply ?? "응답 생성 중…";
+    public bool IsComplete { get; } = turn.Reply is not null;
+    public string StatusText => IsComplete ? "완료" : "작업 중";
+    public string Provider { get; } = provider ?? string.Empty;
+    public string Time { get; } = turn.Timestamp?.ToLocalTime().ToString("HH:mm", CultureInfo.CurrentCulture) ?? string.Empty;
+    public string TokenText { get; } = FormatTokens(turn.InputTokens, turn.OutputTokens);
+
+    private static string FormatTokens(long? input, long? output)
+    {
+        if (input is null && output is null)
+            return string.Empty;
+        static string Compact(long value) => value switch
+        {
+            >= 1_000_000 => $"{value / 1_000_000d:0.#}M",
+            >= 1_000 => $"{value / 1_000d:0.#}K",
+            _ => value.ToString("N0", CultureInfo.CurrentCulture),
+        };
+        var parts = new List<string>(2);
+        if (input is { } inputValue)
+            parts.Add($"IN {Compact(inputValue)}");
+        if (output is { } outputValue)
+            parts.Add($"OUT {Compact(outputValue)}");
+        return string.Join(" · ", parts);
     }
 }

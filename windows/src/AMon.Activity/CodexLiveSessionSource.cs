@@ -234,7 +234,9 @@ public sealed class CodexLiveSessionSource : ILiveSessionSource
             hasLifecycle,
             lifecycleActive,
             attentionStatus,
-            modifiedAt);
+            modifiedAt,
+            path,
+            cwd);
     }
 
     private static LiveSession Materialize(
@@ -255,7 +257,9 @@ public sealed class CodexLiveSessionSource : ILiveSessionSource
             parsed.Model,
             parsed.Tokens,
             parsed.StartedAt,
-            parsed.UpdatedAt);
+            parsed.UpdatedAt,
+            TranscriptPath: parsed.Path,
+            WorkingDirectory: parsed.WorkingDirectory);
 
     private static void ParseEvent(
         JsonElement payload,
@@ -468,5 +472,7 @@ public sealed class CodexLiveSessionSource : ILiveSessionSource
         bool HasLifecycle,
         bool LifecycleActive,
         string? AttentionStatus,
-        DateTimeOffset ModifiedAt);
+        DateTimeOffset ModifiedAt,
+        string? Path = null,
+        string? WorkingDirectory = null);
 }
