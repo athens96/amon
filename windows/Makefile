@@ -1,5 +1,5 @@
 APP := amon
-VERSION := 0.4.0
+VERSION := 0.4.1
 CONFIGURATION := Release
 
 .PHONY: restore build test scan publish publish-x64 publish-arm64 dist clean
