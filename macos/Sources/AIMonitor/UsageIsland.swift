@@ -5,11 +5,32 @@ import CoreText
 struct UsageIslandGeometry: Equatable {
     let frame: CGRect
     let gap: CGFloat
-    let wingWidth: CGFloat
+    let leftWing: CGFloat
+    let rightWing: CGFloat
+    var wingWidth: CGFloat { leftWing }
 
-    static func make(screen: CGRect, safeTop: CGFloat, left: CGRect?, right: CGRect?) -> Self {
+    static let minimumWing: CGFloat = 44
+    static let pillCenterGap: CGFloat = 28
+    static let maximumScale: CGFloat = 1.07
+    /// Two blur radii plus the outer stroke; transparent pixels never receive hits.
+    static let glowOutset: CGFloat = 29
+    static func cornerRadius(forHeight height: CGFloat) -> CGFloat {
+        height.isFinite ? max(0, height / 2) : 0
+    }
+    var horizontalOutset: CGFloat { ceil(frame.width * (Self.maximumScale - 1) / 2 + Self.glowOutset) }
+    var verticalOutset: CGFloat { ceil(frame.height * (Self.maximumScale - 1) + Self.glowOutset) }
+    var panelFrame: CGRect {
+        frame.isEmpty ? .zero : frame.insetBy(dx: -horizontalOutset, dy: -verticalOutset)
+    }
+    /// Base visible shape in panel-local coordinates, stable while pressing.
+    var islandRect: CGRect {
+        frame.isEmpty ? .zero : CGRect(x: horizontalOutset, y: verticalOutset, width: frame.width, height: frame.height)
+    }
+
+    static func make(screen: CGRect, safeTop: CGFloat, left: CGRect?, right: CGRect?,
+                     wings: (left: CGFloat, right: CGFloat)? = nil) -> Self {
         guard isFinite(screen), !screen.isEmpty else {
-            return Self(frame: .zero, gap: 0, wingWidth: 0)
+            return Self(frame: .zero, gap: 0, leftWing: 0, rightWing: 0)
         }
         let safeTop = safeTop.isFinite ? min(screen.height, max(0, safeTop)) : 0
         let notch = safeTop > 0
@@ -22,20 +43,43 @@ struct UsageIslandGeometry: Equatable {
         } else { validAreas = false }
         // macOS may temporarily omit auxiliary areas during a display transition.
         // Reserve a conservative camera gap until the next screen notification.
-        let gap = notch ? (validAreas ? right!.minX - left!.maxX : min(200, max(0, screen.width - 16))) : 0
+        let gap = notch ? (validAreas ? right!.minX - left!.maxX : min(200, max(0, screen.width - 16)))
+            : min(Self.pillCenterGap, max(0, screen.width - 16))
         let center = notch && validAreas ? (left!.maxX + right!.minX) / 2 : screen.midX
         // Auxiliary regions can be asymmetric. Keep both wings on this display,
         // including narrow virtual displays, without moving text under the camera.
-        let room = min(center - gap / 2 - screen.minX, screen.maxX - center - gap / 2)
-        let wing = min(144, max(0, room - 8))
+        let leftRoom = max(0, center - gap / 2 - screen.minX - 8)
+        let rightRoom = max(0, screen.maxX - center - gap / 2 - 8)
+        let room = min(leftRoom, rightRoom)
+        let fallback = min(144, room)
+        func finiteWidth(_ requested: CGFloat) -> CGFloat {
+            requested.isFinite ? ceil(requested) : fallback
+        }
+        // Match the wider measured slot while preserving camera-centered symmetry.
+        // The more constrained physical side bounds both wings on asymmetric displays.
+        let wing = wings.map { min(room, max(Self.minimumWing, finiteWidth($0.left), finiteWidth($0.right))) } ?? fallback
         let height = min(screen.height, max(32, safeTop))
         return Self(frame: CGRect(x: center - gap / 2 - wing, y: screen.maxY - height,
-                                  width: wing * 2 + gap, height: height), gap: gap, wingWidth: wing)
+                                  width: wing * 2 + gap, height: height),
+                    gap: gap, leftWing: wing, rightWing: wing)
     }
 
     private static func isFinite(_ rect: CGRect) -> Bool {
         rect.origin.x.isFinite && rect.origin.y.isFinite && rect.width.isFinite && rect.height.isFinite
             && rect.maxX.isFinite && rect.maxY.isFinite
+    }
+}
+
+/// Snapshot of existing display geometry; injectable for deterministic layout checks.
+struct UsageIslandScreen: Equatable {
+    let frame: CGRect
+    let safeTop: CGFloat
+    var left: CGRect? = nil
+    var right: CGRect? = nil
+
+    static func preferred(in screens: [Self], mainFrame: CGRect?) -> Self? {
+        if let mainFrame, let screen = screens.first(where: { $0.frame == mainFrame }) { return screen }
+        return screens.first(where: { $0.safeTop.isFinite && $0.safeTop > 0 }) ?? screens.first
     }
 }
 
@@ -88,11 +132,15 @@ struct UsageIslandSummary: Equatable {
     }
     @MainActor
     static func line(for usage: LiveProvidersManager.MenuBarUsage, showingRemaining: Bool) -> String {
+        usage.menuBarText(showingRemaining: showingRemaining)
+    }
+    /// Semantic labels stay in the tooltip; unbounded amounts always mean usage.
+    @MainActor
+    static func modeLabel(for usage: LiveProvidersManager.MenuBarUsage, showingRemaining: Bool) -> String {
         let canShowRemaining: Bool
         if case .percent = usage.format { canShowRemaining = true }
         else { canShowRemaining = usage.limit > 0 }
-        let mode = showingRemaining && canShowRemaining ? "남음" : "사용"
-        return usage.menuBarText(showingRemaining: showingRemaining) + " " + mode
+        return showingRemaining && canShowRemaining ? "남음" : "사용"
     }
     var tooltip: String {
         let detail = items.map(\.detail).joined(separator: "\n")
@@ -154,13 +202,34 @@ enum UsageIslandFonts {
 private final class IslandPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+    // The transparent top margin belongs above the screen edge.
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 }
 
 /// One opaque hit region. Transparent rounded corners pass through to underlying apps.
 @MainActor
 final class UsageIslandView: NSView {
     var summary = UsageIslandSummary(items: [], mode: "사용") { didSet { refreshAccessibility(); needsDisplay = true } }
-    var geometry = UsageIslandGeometry.make(screen: .zero, safeTop: 0, left: nil, right: nil)
+    var geometry = UsageIslandGeometry.make(screen: .zero, safeTop: 0, left: nil, right: nil) { didSet { needsDisplay = true } }
+    var hovered = false {
+        didSet {
+            guard hovered != oldValue else { return }
+            needsDisplay = true
+            if !hovered { cancelScaleAnimation() }
+        }
+    }
+    var reduceMotion = false {
+        didSet { if reduceMotion { cancelScaleAnimation() } }
+    }
+    private(set) var scale: CGFloat = 1 { didSet { if scale != oldValue { needsDisplay = true } } }
+    private var scaleTimer: Timer?
+    var isAnimatingScale: Bool { scaleTimer?.isValid == true }
+    static let horizontalPadding: CGFloat = 8
+    static let pressedScale = UsageIslandGeometry.maximumScale
+    static let animationDuration: TimeInterval = 0.15
+    static let neonBlurRadius: CGFloat = 14
+    static let neon = Palette.nsColor(fromHex: Palette.accentHex) ?? .systemPink
+    var popoverAnchorRect: CGRect { geometry.frame.isEmpty ? bounds : geometry.islandRect }
     var onOpen: ((NSView) -> Void)?
     var onClose: (() -> Void)?
     var makeMenu: (() -> NSMenu)?
@@ -180,17 +249,98 @@ final class UsageIslandView: NSView {
     }
 
     private var shape: NSBezierPath {
-        Self.shape(in: bounds, notched: geometry.gap > 0)
+        Self.shape(in: Self.visualRect(islandRect: popoverAnchorRect, scale: scale))
     }
-    static func shape(in bounds: CGRect, notched: Bool) -> NSBezierPath {
-        let radius = min(14, max(0, min(bounds.width, bounds.height) / 2))
-        let path = NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius)
-        if notched {
-            // Flat screen edge, rounded lower corners; the physical camera is in the gap.
-            path.appendRect(CGRect(x: bounds.minX, y: bounds.maxY - radius, width: bounds.width, height: radius))
-        }
+    /// One contour avoids an internal horizontal stroke under hover/focus effects.
+    /// Both display types attach a flat top edge to the screen edge.
+    static func shape(in rect: CGRect) -> NSBezierPath {
+        let path = NSBezierPath()
+        guard !rect.isEmpty else { return path }
+        let radius = min(UsageIslandGeometry.cornerRadius(forHeight: rect.height), rect.width / 2)
+        path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
+        path.line(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.line(to: CGPoint(x: rect.maxX, y: rect.minY + radius))
+        path.appendArc(withCenter: CGPoint(x: rect.maxX - radius, y: rect.minY + radius), radius: radius,
+                       startAngle: 0, endAngle: -90, clockwise: true)
+        path.line(to: CGPoint(x: rect.minX + radius, y: rect.minY))
+        path.appendArc(withCenter: CGPoint(x: rect.minX + radius, y: rect.minY + radius), radius: radius,
+                       startAngle: -90, endAngle: -180, clockwise: true)
+        path.close()
         return path
     }
+    static func shape(in bounds: CGRect, notched: Bool) -> NSBezierPath { shape(in: bounds) }
+
+    static func visualTransform(islandRect rect: CGRect, scale: CGFloat) -> AffineTransform {
+        let scale = scale.isFinite ? max(1, min(pressedScale, scale)) : 1
+        var transform = AffineTransform(translationByX: rect.midX, byY: rect.maxY)
+        transform.scale(scale)
+        transform.translate(x: -rect.midX, y: -rect.maxY)
+        return transform
+    }
+    static func visualRect(islandRect rect: CGRect, scale: CGFloat) -> CGRect {
+        let transform = visualTransform(islandRect: rect, scale: scale)
+        let origin = transform.transform(rect.origin)
+        let corner = transform.transform(CGPoint(x: rect.maxX, y: rect.maxY))
+        return CGRect(x: origin.x, y: origin.y, width: corner.x - origin.x, height: corner.y - origin.y)
+    }
+    static func contentWidth(lines: [String], hasIcon: Bool, size: CGFloat) -> CGFloat {
+        let widest = lines.map { ($0 as NSString).size(withAttributes: [.font: UsageIslandFonts.font(size)]).width }.max() ?? 0
+        return ceil(widest + (hasIcon ? iconSize + iconTextGap : 0) + horizontalPadding * 2)
+    }
+    func fittedWings() -> (left: CGFloat, right: CGFloat) {
+        let visible = summary.visible
+        func width(slot: Int) -> CGFloat {
+            guard slot < visible.count else {
+                let placeholder = slot == 0 ? "amon" : (visible.isEmpty ? "사용량 대기" : "")
+                return Self.contentWidth(lines: [placeholder], hasIcon: false, size: 11)
+            }
+            var lines = Array(visible[slot].lines.prefix(2))
+            if lines.isEmpty { lines = ["—"] }
+            if slot == 1, summary.overflow > 0 { lines[0] += " +\(summary.overflow)" }
+            return Self.contentWidth(lines: lines, hasIcon: true, size: lines.count > 1 ? 10 : 12)
+        }
+        return (width(slot: 0), width(slot: 1))
+    }
+    static func animationScale(from start: CGFloat, to target: CGFloat, elapsed: TimeInterval) -> CGFloat {
+        let progress = elapsed.isFinite ? max(0, min(1, elapsed / animationDuration)) : 1
+        let eased = 1 - pow(1 - progress, 3)
+        return start + (target - start) * eased
+    }
+    func setScaleForPreview(_ value: CGFloat) {
+        cancelScaleAnimation()
+        scale = reduceMotion || !value.isFinite ? 1 : min(Self.pressedScale, max(1, value))
+    }
+    private func animateScale(to target: CGFloat) {
+        scaleTimer?.invalidate(); scaleTimer = nil
+        guard !reduceMotion else { scale = 1; return }
+        guard abs(scale - target) > 0.00001 else { scale = target; return }
+        let start = scale
+        let began = ProcessInfo.processInfo.systemUptime
+        let timer = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] timer in
+            MainActor.assumeIsolated {
+                guard let self, self.scaleTimer === timer else { timer.invalidate(); return }
+                let elapsed = ProcessInfo.processInfo.systemUptime - began
+                self.scale = Self.animationScale(from: start, to: target, elapsed: elapsed)
+                if elapsed >= Self.animationDuration { timer.invalidate(); self.scaleTimer = nil }
+            }
+        }
+        scaleTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+    private func cancelScaleAnimation() {
+        scaleTimer?.invalidate(); scaleTimer = nil
+        scale = 1
+    }
+    func resetInteraction() {
+        cancelMousePress()
+        cancelScaleAnimation()
+        hovered = false
+    }
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil { resetInteraction() }
+        super.viewWillMove(toWindow: newWindow)
+    }
+    deinit { scaleTimer?.invalidate() }
     func containsScreenPoint(_ point: NSPoint) -> Bool {
         guard let window else { return false }
         return shape.contains(convert(window.convertPoint(fromScreen: point), from: nil))
@@ -213,18 +363,22 @@ final class UsageIslandView: NSView {
     }
     override func accessibilityPerformShowMenu() -> Bool {
         guard let menu = makeMenu?() else { return false }
-        return menu.popUp(positioning: nil, at: NSPoint(x: bounds.midX, y: bounds.minY), in: self)
+        return menu.popUp(positioning: nil, at: NSPoint(x: popoverAnchorRect.midX, y: popoverAnchorRect.minY), in: self)
     }
     override func mouseUp(with event: NSEvent) {
-        let shouldOpen = mouseShouldOpen ?? !isOpen()
+        let shouldOpen = mouseShouldOpen
         mouseShouldOpen = nil
-        guard shape.contains(convert(event.locationInWindow, from: nil)) else { return }
+        let inside = shape.contains(convert(event.locationInWindow, from: nil))
+        animateScale(to: 1)
+        guard inside, let shouldOpen else { return }
         if let onSetOpen { onSetOpen(shouldOpen, self) }
         else { onOpen?(self) }
     }
     override func mouseDown(with event: NSEvent) {
         prepareMousePress()
+        animateScale(to: Self.pressedScale)
     }
+    override func mouseExited(with event: NSEvent) { hovered = false; cancelScaleAnimation() }
     // The controller also captures at the local event monitor, before native
     // transient-popover dismissal changes isOpen during mouseDown delivery.
     func prepareMousePress() {
@@ -241,7 +395,7 @@ final class UsageIslandView: NSView {
         switch event.keyCode {
         case 36, 49, 76:
             if !event.isARepeat { _ = accessibilityPerformPress() }
-        case 53: cancelMousePress(); onClose?()
+        case 53: resetInteraction(); onClose?()
         case 109 where event.modifierFlags.contains(.shift): _ = accessibilityPerformShowMenu()
         default: super.keyDown(with: event)
         }
@@ -272,23 +426,49 @@ final class UsageIslandView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard bounds.width > 0, bounds.height > 0 else { return }
+        let island = popoverAnchorRect
+        let outline = shape
+        if hovered {
+            NSGraphicsContext.saveGraphicsState()
+            for (blur, alpha) in [(Self.neonBlurRadius, CGFloat(0.9)), (CGFloat(5), CGFloat(1))] {
+                let glow = NSShadow()
+                glow.shadowBlurRadius = blur
+                glow.shadowOffset = .zero
+                glow.shadowColor = Self.neon.withAlphaComponent(alpha)
+                glow.set()
+                Self.neon.setStroke()
+                outline.lineWidth = 1.5
+                outline.stroke()
+            }
+            NSGraphicsContext.restoreGraphicsState()
+        }
         NSColor.black.setFill()
-        shape.fill()
+        outline.fill()
+        if hovered {
+            (Self.neon.blended(withFraction: 0.55, of: .white) ?? Self.neon).setStroke()
+            outline.lineWidth = 1
+            outline.stroke()
+        }
+        NSGraphicsContext.saveGraphicsState()
+        (Self.visualTransform(islandRect: island, scale: scale) as NSAffineTransform).concat()
         let visible = summary.visible
         for slot in 0..<2 {
-            let x = slot == 0 ? CGFloat(0) : geometry.wingWidth + geometry.gap
-            let inset = min(12, geometry.wingWidth / 2)
-            let rect = CGRect(x: x + inset, y: 0, width: max(0, geometry.wingWidth - inset * 2), height: bounds.height)
+            let x = island.minX + (slot == 0 ? CGFloat(0) : geometry.leftWing + geometry.gap)
+            let wing = slot == 0 ? geometry.leftWing : geometry.rightWing
+            let inset = min(Self.horizontalPadding, wing / 2)
+            let rect = CGRect(x: x + inset, y: island.minY, width: max(0, wing - inset * 2), height: island.height)
             if slot < visible.count {
                 draw(visible[slot], in: rect, slot: slot, overflow: slot == 1 ? summary.overflow : 0)
             } else {
-                drawText(slot == 0 ? "amon" : (visible.isEmpty ? "사용량 대기" : summary.mode),
+                drawText(slot == 0 ? "amon" : (visible.isEmpty ? "사용량 대기" : ""),
                          in: rect, size: 11, color: .white, alignment: slot == 0 ? .right : .left)
             }
         }
+        NSGraphicsContext.restoreGraphicsState()
         if window?.firstResponder === self, window?.isKeyWindow == true {
             NSColor.keyboardFocusIndicatorColor.setStroke()
-            let ring = Self.shape(in: bounds.insetBy(dx: 1, dy: 1), notched: geometry.gap > 0)
+            let visual = Self.visualRect(islandRect: island, scale: scale)
+            let ring = Self.shape(in: visual.insetBy(dx: 1, dy: 1))
             ring.lineWidth = 2
             ring.stroke()
         }
@@ -305,7 +485,7 @@ final class UsageIslandView: NSView {
         let textRect = layout.text
         let lines = Array(item.lines.prefix(2))
         if lines.count > 1 {
-            let blockY = max(0, (rect.height - 32) / 2)
+            let blockY = rect.minY + max(0, (rect.height - 32) / 2)
             for (index, line) in lines.enumerated() {
                 let suffix = index == 0 && overflow > 0 ? " +\(overflow)" : ""
                 drawText(line + suffix, in: CGRect(x: textRect.minX, y: blockY + (index == 0 ? 14 : 0),
@@ -338,6 +518,7 @@ final class UsageIslandController {
     let view = UsageIslandView()
     private let panel: IslandPanel
     private let workspaceCenter = NSWorkspace.shared.notificationCenter
+    private let screenProvider: () -> UsageIslandScreen?
     private var observers: [NSObjectProtocol] = []
     private var workspaceObservers: [NSObjectProtocol] = []
     private var localMouseMonitor: Any?
@@ -345,11 +526,19 @@ final class UsageIslandController {
     private var enabled = false
     private var sleeping = false
     private var stopped = false
+    private var lastScreenFrame: CGRect?
+    private var screenWatch: Timer?
+    private var pendingScreenCheck: DispatchWorkItem?
+    private var screenCheckGeneration = 0
+    var isWatchingScreen: Bool { screenWatch?.isValid == true }
+    var hasPendingScreenCheck: Bool { pendingScreenCheck != nil && pendingScreenCheck?.isCancelled == false }
     var onGeometryChange: (() -> Void)?
     var anchor: NSView? { !stopped && enabled && panel.isVisible ? view : nil }
 
     init(onOpen: @escaping (NSView) -> Void, onClose: @escaping () -> Void, makeMenu: @escaping () -> NSMenu,
-         isOpen: @escaping () -> Bool = { false }, onSetOpen: ((Bool, NSView) -> Void)? = nil) {
+         isOpen: @escaping () -> Bool = { false }, onSetOpen: ((Bool, NSView) -> Void)? = nil,
+         screenProvider: (() -> UsageIslandScreen?)? = nil) {
+        self.screenProvider = screenProvider ?? { Self.targetScreen() }
         panel = IslandPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
                             backing: .buffered, defer: false)
         panel.isOpaque = false
@@ -366,16 +555,27 @@ final class UsageIslandController {
         view.makeMenu = makeMenu
         view.isOpen = isOpen
         view.onSetOpen = onSetOpen
+        view.reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
             object: nil, queue: .main) { [weak self] _ in Task { @MainActor in self?.reposition() } })
         for name in [NSWorkspace.didWakeNotification, NSWorkspace.willSleepNotification,
-                     NSWorkspace.activeSpaceDidChangeNotification] {
+                     NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.didActivateApplicationNotification,
+                     NSWorkspace.accessibilityDisplayOptionsDidChangeNotification] {
             workspaceObservers.append(workspaceCenter.addObserver(forName: name,
                 object: nil, queue: .main) { [weak self] note in
                     Task { @MainActor in
                         guard let self, !self.stopped else { return }
-                        if note.name == NSWorkspace.willSleepNotification { self.sleeping = true }
-                        if note.name == NSWorkspace.didWakeNotification { self.sleeping = false }
+                        if note.name == NSWorkspace.accessibilityDisplayOptionsDidChangeNotification {
+                            self.view.reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+                            return
+                        }
+                        if note.name == NSWorkspace.didActivateApplicationNotification,
+                           let application = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                           application.processIdentifier == ProcessInfo.processInfo.processIdentifier {
+                            return // Opening our native popover must not retarget its own anchor.
+                        }
+                        if note.name == NSWorkspace.willSleepNotification { self.setSleeping(true); return }
+                        if note.name == NSWorkspace.didWakeNotification { self.setSleeping(false); return }
                         self.reposition()
                     }
                 })
@@ -383,8 +583,11 @@ final class UsageIslandController {
     }
     private func startMouseMonitors() {
         guard localMouseMonitor == nil else { return }
-        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged]) { [weak self] _ in
-            MainActor.assumeIsolated { self?.updateMousePassthrough() }
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .leftMouseDown]) { [weak self] event in
+            MainActor.assumeIsolated {
+                self?.updateMousePassthrough()
+                if event.type == .leftMouseDown { self?.scheduleScreenCheck() }
+            }
         }
         localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .rightMouseDown, .leftMouseDragged, .rightMouseDragged]) { [weak self] event in
             MainActor.assumeIsolated {
@@ -402,32 +605,107 @@ final class UsageIslandController {
         if let localMouseMonitor { NSEvent.removeMonitor(localMouseMonitor) }
         if let globalMouseMonitor { NSEvent.removeMonitor(globalMouseMonitor) }
         localMouseMonitor = nil; globalMouseMonitor = nil
-        view.cancelMousePress()
+        stopScreenWatcher()
+        view.resetInteraction()
+    }
+    private func startScreenWatcher() {
+        guard enabled, !sleeping, !stopped, !isWatchingScreen else { return }
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] timer in
+            MainActor.assumeIsolated {
+                guard let self, self.screenWatch === timer else { timer.invalidate(); return }
+                self.checkScreen()
+            }
+        }
+        screenWatch = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+    private func stopScreenWatcher() {
+        screenWatch?.invalidate(); screenWatch = nil
+        cancelPendingScreenCheck()
+        lastScreenFrame = nil
+    }
+    private func cancelPendingScreenCheck() {
+        screenCheckGeneration &+= 1
+        pendingScreenCheck?.cancel(); pendingScreenCheck = nil
+    }
+    /// A short delay lets the system update its keyboard-focus display after an
+    /// external click. Generation checks invalidate stale disable/re-enable work.
+    func scheduleScreenCheck() {
+        cancelPendingScreenCheck()
+        guard enabled, !sleeping, !stopped else { return }
+        let generation = screenCheckGeneration
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.screenCheckGeneration == generation else { return }
+                self.pendingScreenCheck = nil
+                self.checkScreen()
+            }
+        }
+        pendingScreenCheck = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: work)
+    }
+    /// Cheap focused-display comparison, also used by the 1-second watch timer.
+    /// Our popover becoming key must not move the anchor underneath itself.
+    func checkScreen() {
+        guard enabled, !sleeping, !stopped, !view.isOpen() else { return }
+        let screen = screenProvider()
+        if screen?.frame != lastScreenFrame { reposition(using: screen) }
+    }
+    func setSleeping(_ sleeping: Bool) {
+        guard !stopped else { return }
+        self.sleeping = sleeping
+        reposition()
     }
     func update(summary: UsageIslandSummary, enabled: Bool) {
         guard !stopped else { return }
         // 세션 폴링마다 불리므로 내용이 같으면 다시 그리지 않는다.
-        if view.summary != summary { view.summary = summary }
+        let contentChanged = view.summary != summary
+        if contentChanged { view.summary = summary }
         if self.enabled != enabled { self.enabled = enabled; reposition() }
+        else if contentChanged, enabled { reposition() }
     }
     private func updateMousePassthrough() {
-        panel.ignoresMouseEvents = !containsScreenPoint(NSEvent.mouseLocation)
+        let inside = containsScreenPoint(NSEvent.mouseLocation)
+        panel.ignoresMouseEvents = !inside
+        view.hovered = inside
     }
     func containsScreenPoint(_ point: NSPoint) -> Bool {
         anchor != nil && view.containsScreenPoint(point)
     }
+    static func targetScreen() -> UsageIslandScreen? {
+        let screens = NSScreen.screens.map {
+            UsageIslandScreen(frame: $0.frame, safeTop: $0.safeAreaInsets.top,
+                              left: $0.auxiliaryTopLeftArea, right: $0.auxiliaryTopRightArea)
+        }
+        return UsageIslandScreen.preferred(in: screens, mainFrame: NSScreen.main?.frame)
+    }
     private func reposition() {
         guard !stopped else { return }
-        onGeometryChange?()
-        guard enabled, !sleeping,
-              let screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.screens.first
-        else { panel.orderOut(nil); stopMouseMonitors(); return }
-        view.geometry = .make(screen: screen.frame, safeTop: screen.safeAreaInsets.top,
-                              left: screen.auxiliaryTopLeftArea, right: screen.auxiliaryTopRightArea)
-        panel.setFrame(view.geometry.frame, display: true)
-        view.frame = CGRect(origin: .zero, size: view.geometry.frame.size)
-        panel.orderFrontRegardless()
+        reposition(using: enabled && !sleeping ? screenProvider() : nil)
+    }
+    private func reposition(using screen: UsageIslandScreen?) {
+        guard !stopped else { return }
+        guard enabled, !sleeping, let screen else {
+            if panel.isVisible { onGeometryChange?() }
+            panel.orderOut(nil); stopMouseMonitors(); return
+        }
+        let next = UsageIslandGeometry.make(screen: screen.frame, safeTop: screen.safeTop,
+            left: screen.left, right: screen.right, wings: view.fittedWings())
+        guard !next.frame.isEmpty else {
+            if panel.isVisible { onGeometryChange?() }
+            panel.orderOut(nil); stopMouseMonitors(); return
+        }
+        lastScreenFrame = screen.frame
+        let frameChanged = next.frame != view.geometry.frame || next.panelFrame != panel.frame
+        if frameChanged { onGeometryChange?(); view.resetInteraction() }
+        if next != view.geometry { view.geometry = next }
+        if frameChanged {
+            panel.setFrame(next.panelFrame, display: true)
+            view.frame = CGRect(origin: .zero, size: next.panelFrame.size)
+        }
+        if !panel.isVisible { panel.orderFrontRegardless() }
         startMouseMonitors()
+        startScreenWatcher()
         updateMousePassthrough()
     }
     func stop() {
@@ -445,6 +723,8 @@ final class UsageIslandController {
         view.isOpen = { false }
     }
     deinit {
+        screenWatch?.invalidate()
+        pendingScreenCheck?.cancel()
         observers.forEach(NotificationCenter.default.removeObserver)
         workspaceObservers.forEach(workspaceCenter.removeObserver)
         let panel = panel
@@ -474,11 +754,11 @@ enum UsageIslandPreview {
     }
     private enum RenderError: Error { case bitmapUnavailable, pngUnavailable }
     static let sample = UsageIslandSummary(items: [
-        .init(providerID: "claude", name: "Claude", lines: ["42% 사용"], detail: "Claude Session · 42% 사용",
+        .init(providerID: "claude", name: "Claude", lines: ["42%"], detail: "Claude Session · 42% 사용",
               accentHex: Palette.hexClaude, lastUsedAt: Date(timeIntervalSince1970: 1_000)),
-        .init(providerID: "codex", name: "Codex", lines: ["18% 사용"], detail: "Codex Session · 18% 사용",
+        .init(providerID: "codex", name: "Codex", lines: ["18%"], detail: "Codex Session · 18% 사용",
               accentHex: Palette.hexCodex, lastUsedAt: Date(timeIntervalSince1970: 2_000)),
-        .init(providerID: "grok", name: "Grok", lines: ["5% 사용"], detail: "Grok Session · 5% 사용",
+        .init(providerID: "grok", name: "Grok", lines: ["5%"], detail: "Grok Session · 5% 사용",
               accentHex: Palette.hexGrok, lastUsedAt: nil)
     ], mode: "사용")
 
@@ -489,27 +769,40 @@ enum UsageIslandPreview {
         let destination = URL(fileURLWithPath: directory, isDirectory: true)
         try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
         let twoLines = UsageIslandSummary(items: [
-            .init(providerID: "claude", name: "Claude", lines: ["58% 남음", "82% 남음"],
+            .init(providerID: "claude", name: "Claude", lines: ["58%", "82%"],
                   detail: "Claude · Session 58% 남음 · Week 82% 남음", accentHex: Palette.hexClaude),
-            .init(providerID: "openrouter", name: "OpenRouter", lines: ["$4.20 사용"],
+            .init(providerID: "openrouter", name: "OpenRouter", lines: ["$4.20"],
                   detail: "OpenRouter · Total usage $4.20 사용", accentHex: Palette.hexOpenRouter)
         ], mode: "남음")
-        let variants: [(name: String, notched: Bool, summary: UsageIslandSummary)] = [
-            ("island-pill", false, sample), ("island-notch", true, sample),
-            ("island-notch-two-lines", true, twoLines),
-            ("island-pill-empty", false, .init(items: [], mode: "사용"))
+        let wide = UsageIslandSummary(items: [
+            .init(providerID: "claude", name: "Claude", lines: ["$123,456,789,012,345.67"],
+                  detail: "Synthetic long dollar value · 사용", accentHex: Palette.hexClaude),
+            .init(providerID: "codex", name: "Codex", lines: ["123,456,789,012,345,678"],
+                  detail: "Synthetic long request count · 사용", accentHex: Palette.hexCodex)
+        ], mode: "사용")
+        let variants: [(name: String, notched: Bool, summary: UsageIslandSummary, state: String)] = [
+            ("island-pill", false, sample, "idle"), ("island-notch", true, sample, "idle"),
+            ("island-pill-hover", false, sample, "hover"), ("island-notch-hover", true, sample, "hover"),
+            ("island-pill-pressed", false, sample, "pressed"), ("island-notch-pressed", true, sample, "pressed"),
+            ("island-notch-two-lines", true, twoLines, "idle"),
+            ("island-pill-empty", false, .init(items: [], mode: "사용"), "idle"),
+            ("island-notch-wide-pressed", true, wide, "pressed")
         ]
         for variant in variants {
             let notched = variant.notched
+            let view = UsageIslandView(frame: .zero)
+            view.summary = variant.summary
             let layout = UsageIslandGeometry.make(
                 screen: CGRect(x: 0, y: 0, width: 1512, height: 982), safeTop: notched ? 38 : 0,
                 left: notched ? CGRect(x: 0, y: 944, width: 650, height: 38) : nil,
-                right: notched ? CGRect(x: 862, y: 944, width: 650, height: 38) : nil)
-            let view = UsageIslandView(frame: CGRect(origin: .zero, size: layout.frame.size))
+                right: notched ? CGRect(x: 862, y: 944, width: 650, height: 38) : nil,
+                wings: view.fittedWings())
+            view.frame = CGRect(origin: .zero, size: layout.panelFrame.size)
             view.geometry = layout
-            view.summary = variant.summary
-            guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(layout.frame.width * 2),
-                pixelsHigh: Int(layout.frame.height * 2), bitsPerSample: 8, samplesPerPixel: 4,
+            view.hovered = variant.state != "idle"
+            if variant.state == "pressed" { view.setScaleForPreview(UsageIslandView.pressedScale) }
+            guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(ceil(layout.panelFrame.width * 2)),
+                pixelsHigh: Int(ceil(layout.panelFrame.height * 2)), bitsPerSample: 8, samplesPerPixel: 4,
                 hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
                   let context = NSGraphicsContext(bitmapImageRep: rep)
             else { throw RenderError.bitmapUnavailable }
@@ -536,26 +829,63 @@ enum UsageIslandPreview {
         }, isOpen: { popover?.isShown == true }, onSetOpen: { shown, anchor in
             setOpen(shown, anchor: anchor)
         })
+        controller?.onGeometryChange = { popover?.performClose(nil) }
         controller?.update(summary: sample, enabled: true)
         if smoke {
             // Exercise a real NSPanel anchor and transient NSPopover with synthetic
             // mouse input, plus accessibility and disable/stop, without AppState.
             DispatchQueue.main.async {
+                let watcherStarted = controller?.isWatchingScreen == true
                 let firstClick = click() && popover?.isShown == true
                 let secondClick = click() && popover?.isShown == false
                 _ = controller?.view.accessibilityPerformPress()
                 let opened = popover?.isShown == true
-                _ = controller?.view.accessibilityPerformPress()
-                let closed = popover?.isShown == false
-                controller?.update(summary: sample, enabled: false)
-                let disabled = controller?.anchor == nil
-                controller?.update(summary: sample, enabled: true)
-                let reenabled = controller?.anchor != nil
-                controller?.stop()
-                controller?.update(summary: sample, enabled: true)
-                let stopped = controller?.anchor == nil
-                print("Island native popover smoke: firstClick=\(firstClick), secondClick=\(secondClick), opened=\(opened), closed=\(closed), disabled=\(disabled), reenabled=\(reenabled), stopped=\(stopped)")
-                exit(firstClick && secondClick && opened && closed && disabled && reenabled && stopped ? 0 : 1)
+                let originalFrame = controller?.view.geometry.frame
+                let refreshed = UsageIslandSummary(items: sample.items.map {
+                    UsageIslandItem(providerID: $0.providerID, name: $0.name, lines: $0.lines,
+                                    detail: $0.detail + " · refreshed", accentHex: $0.accentHex, lastUsedAt: $0.lastUsedAt)
+                }, mode: sample.mode)
+                controller?.update(summary: refreshed, enabled: true)
+                controller?.scheduleScreenCheck()
+                NSWorkspace.shared.notificationCenter.post(name: NSWorkspace.didActivateApplicationNotification,
+                                                           object: nil)
+                // Allow the 50ms click check, queued app activation, and a complete
+                // 1-second screen-watch tick before checking popup stability.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) {
+                    let stablePopover = popover?.isShown == true && controller?.view.geometry.frame == originalFrame
+                        && controller?.isWatchingScreen == true && controller?.hasPendingScreenCheck == false
+                    _ = controller?.view.accessibilityPerformPress()
+                    let closed = popover?.isShown == false
+                    _ = controller?.view.accessibilityPerformPress()
+                    let wider = UsageIslandSummary(items: sample.items.map {
+                        UsageIslandItem(providerID: $0.providerID, name: $0.name,
+                                        lines: $0.lines.map { _ in "$123,456,789,012,345.67" },
+                                        detail: $0.detail, accentHex: $0.accentHex, lastUsedAt: $0.lastUsedAt)
+                    }, mode: sample.mode)
+                    controller?.update(summary: wider, enabled: true)
+                    let reflowClosed = popover?.isShown == false && controller?.view.geometry.frame != originalFrame
+                    controller?.view.reduceMotion = false // Synthetic view only; never changes the OS setting.
+                    let animationStarted = sendMouse(.leftMouseDown) && controller?.view.isAnimatingScale == true
+                    controller?.scheduleScreenCheck()
+                    controller?.update(summary: wider, enabled: false)
+                    let disabled = controller?.anchor == nil && controller?.view.isAnimatingScale == false
+                        && controller?.view.scale == 1 && controller?.view.hovered == false
+                        && controller?.isWatchingScreen == false && controller?.hasPendingScreenCheck == false
+                    controller?.update(summary: wider, enabled: true)
+                    let reenabled = controller?.anchor != nil && controller?.isWatchingScreen == true
+                    _ = sendMouse(.leftMouseDown)
+                    controller?.scheduleScreenCheck()
+                    controller?.stop()
+                    controller?.update(summary: sample, enabled: true)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                        let stopped = controller?.anchor == nil && controller?.view.isAnimatingScale == false
+                            && controller?.view.scale == 1 && controller?.view.hovered == false
+                            && controller?.isWatchingScreen == false && controller?.hasPendingScreenCheck == false
+                        print("Island native popover smoke: watcherStarted=\(watcherStarted), firstClick=\(firstClick), secondClick=\(secondClick), opened=\(opened), stablePopover=\(stablePopover), closed=\(closed), reflowClosed=\(reflowClosed), animationStarted=\(animationStarted), disabled=\(disabled), reenabled=\(reenabled), stopped=\(stopped)")
+                        exit(watcherStarted && firstClick && secondClick && opened && stablePopover && closed && reflowClosed
+                             && animationStarted && disabled && reenabled && stopped ? 0 : 1)
+                    }
+                }
             }
         }
         app.run()
@@ -578,19 +908,24 @@ enum UsageIslandPreview {
         preview.contentViewController = content
         popover = preview
         NSApp.activate(ignoringOtherApps: true)
-        preview.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
+        let rect = (anchor as? UsageIslandView)?.popoverAnchorRect ?? anchor.bounds
+        preview.show(relativeTo: rect, of: anchor, preferredEdge: .minY)
+        preview.contentViewController?.view.window?.makeKey()
     }
 
     private static func click() -> Bool {
+        sendMouse(.leftMouseDown) && sendMouse(.leftMouseUp)
+    }
+
+    private static func sendMouse(_ type: NSEvent.EventType) -> Bool {
         guard let view = controller?.anchor, let window = view.window else { return false }
-        let point = view.convert(NSPoint(x: 30, y: view.bounds.midY), to: nil)
-        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-            guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
-                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
-                context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)
-            else { return false }
-            window.sendEvent(event)
-        }
+        let rect = (view as? UsageIslandView)?.popoverAnchorRect ?? view.bounds
+        let point = view.convert(NSPoint(x: rect.minX + 20, y: rect.midY), to: nil)
+        guard let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+            context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)
+        else { return false }
+        window.sendEvent(event)
         return true
     }
 }

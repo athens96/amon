@@ -357,7 +357,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
         let items = entries.map { entry in
             let lines = entry.usages.map { UsageIslandSummary.line(for: $0, showingRemaining: remaining) }
-            let detail = zip(entry.usages, lines).map { "\($0.meterLabel) \($1)" }.joined(separator: " · ")
+            let detail = zip(entry.usages, lines).map {
+                "\($0.meterLabel) \($1) \(UsageIslandSummary.modeLabel(for: $0, showingRemaining: remaining))"
+            }.joined(separator: " · ")
             return UsageIslandItem(
                 providerID: entry.id, name: entry.name, lines: lines,
                 detail: "\(entry.name) · \(detail)", accentHex: entry.accentHex,
@@ -547,7 +549,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.contentSize = Self.popoverSize
         popover.contentViewController?.view.setFrameSize(Self.popoverSize)
         NSApp.activate(ignoringOtherApps: true)
-        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
+        let anchorRect = (anchor as? UsageIslandView)?.popoverAnchorRect ?? anchor.bounds
+        popover.show(relativeTo: anchorRect, of: anchor, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
     }
 
