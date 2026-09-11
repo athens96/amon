@@ -9,6 +9,25 @@ import SwiftUI
 @main
 enum EntryPoint {
     static func main() {
+        // 합성 UI 검증은 AppState 생성 전에 분기해 실제 스캔·계정 조회 없이 실행한다.
+        if let index = CommandLine.arguments.firstIndex(of: "--island-render") {
+            guard CommandLine.arguments.count > index + 1 else {
+                fputs("Usage: AIMonitor --island-render <output-directory>\n", stderr)
+                exit(2)
+            }
+            do {
+                try UsageIslandPreview.render(directory: CommandLine.arguments[index + 1])
+            } catch {
+                fputs("Island rendering failed: \(error.localizedDescription)\n", stderr)
+                exit(1)
+            }
+            return
+        }
+        if CommandLine.arguments.contains("--island-preview")
+            || CommandLine.arguments.contains("--island-smoke") {
+            UsageIslandPreview.run(smoke: CommandLine.arguments.contains("--island-smoke"))
+            return
+        }
         if CommandLine.arguments.contains("--scan") {
             HeadlessScan.run()
             return
@@ -57,7 +76,7 @@ struct AIMonitorApp: App {
 /// AppKit 콜백은 메인 스레드에서 오므로 @MainActor 로 두어 AppState(@MainActor)
 /// 접근을 동기적으로 처리한다.
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// SwiftUI 루트와 반드시 같은 크기여야 한다. 별도 숫자를 두면 호스팅 뷰가
     /// 내용을 강제로 압축해 헤더와 오른쪽 내비게이션이 잘린다.
     private static let popoverSize = MenuBarContentView.preferredSize
@@ -65,6 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let state = AppState()
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
+    private var usageIsland: UsageIslandController?
     private var petOverlay: PetOverlayController?
     private var cancellables = Set<AnyCancellable>()
     private var reservedStatusItemLength: CGFloat = NSStatusItem.variableLength
@@ -75,6 +95,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 좌클릭 시 뜨는 SwiftUI 패널.
         popover.behavior = .transient
+        popover.delegate = self
         popover.animates = false
         popover.contentSize = Self.popoverSize
         let hosting = NSHostingController(
@@ -93,6 +114,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.target = self
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
+        usageIsland = UsageIslandController(
+            onOpen: { [weak self] anchor in self?.togglePopover(from: anchor) },
+            onClose: { [weak self] in self?.popover.performClose(nil) },
+            makeMenu: { [weak self] in self?.makeStatusContextMenu() ?? NSMenu() },
+            isOpen: { [weak self] in self?.popover.isShown ?? false },
+            onSetOpen: { [weak self] shown, anchor in
+                self?.setPopoverShown(shown, from: anchor)
+            }
+        )
+        usageIsland?.onGeometryChange = { [weak self] in self?.popover.performClose(nil) }
         setStatusIcon()
 
         petOverlay = PetOverlayController(
@@ -125,6 +156,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         state.settings.$menuBarQuotaEnabled
             .sink { [weak self] _ in Task { @MainActor in self?.setStatusIcon() } }
             .store(in: &cancellables)
+        state.settings.$islandEnabled
+            .sink { [weak self] _ in Task { @MainActor in self?.setStatusIcon() } }
+            .store(in: &cancellables)
         state.settings.$menuBarQuotaProviderID
             .sink { [weak self] _ in Task { @MainActor in self?.setStatusIcon() } }
             .store(in: &cancellables)
@@ -147,6 +181,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         state.settings.$localActivityEnabled
             .sink { [weak self] _ in Task { @MainActor in self?.setStatusIcon() } }
             .store(in: &cancellables)
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        cancellables.removeAll()
+        usageIsland?.stop()
+        popover.performClose(nil)
+    }
+
+    func popoverShouldClose(_ popover: NSPopover) -> Bool {
+        // 아일랜드를 다시 누를 때의 닫기는 mouseUp에서 처리한다. transient의
+        // mouseDown 자동 닫기가 먼저 실행되면 같은 클릭으로 다시 열릴 수 있다.
+        guard NSApp.currentEvent?.type == .leftMouseDown else { return true }
+        return !(usageIsland?.containsScreenPoint(NSEvent.mouseLocation) ?? false)
     }
 
     typealias MenuBarQuotaEntry = (
@@ -228,6 +275,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 순으로 폴백. 옆에 세션(5h) 쿼터 잔여 % 를 함께 표시한다(설정 토글).
     private func setStatusIcon() {
         guard let button = statusItem?.button else { return }
+        usageIsland?.update(summary: islandSummary(), enabled: state.settings.islandEnabled)
         // 프로바이더 공식 로고 우선 — 개별 보기 탭/우클릭 메뉴에서 고른 도구를 따라간다.
         let providerLogo = menuBarIconProviderID().flatMap { providerID -> NSImage? in
             let accentHex = state.liveProviders.runtime(id: providerID)?.provider.accentHex ?? Palette.accentHex
@@ -248,7 +296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 짧은 쿼터(세션 5h) % — 소스(자동=가장 많이 사용 / 고정 도구)와
         // 표기(사용/남은)는 설정을 따른다. 우클릭 메뉴에서 소스를 고른다.
         var quotaTooltipLine: String?
-        if state.settings.menuBarQuotaEnabled {
+        if state.settings.menuBarQuotaEnabled && !state.settings.islandEnabled {
             let entries = menuBarQuotaEntries()
             let showsRemaining = state.settings.menuBarQuotaShowsRemaining
             if !entries.isEmpty {
@@ -283,6 +331,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.attributedTitle = NSAttributedString(string: "")
         }
         button.toolTip = statusTooltip(quotaLine: quotaTooltipLine)
+    }
+
+    /// 이미 조회된 쿼터와 로컬 활동 시각만 투영한다. 별도 조회나 스캔은 하지 않는다.
+    private func islandSummary() -> UsageIslandSummary {
+        let providers = state.liveProviders
+        let explicit = !state.settings.menuBarQuotaProviderID.isEmpty
+            || providers.orderedRuntimes.contains {
+                state.settings.menuBarQuotaMeterSlots(for: $0.provider.id).contains { !$0.isEmpty }
+            }
+        let entries: [MenuBarQuotaEntry]
+        if explicit {
+            entries = menuBarQuotaEntries()
+        } else {
+            entries = providers.orderedRuntimes.compactMap { runtime in
+                let provider = runtime.provider
+                guard providers.enabledIDs.contains(provider.id),
+                      let usage = providers.menuBarUsage(id: provider.id) else { return nil }
+                return (provider.id, provider.displayName, provider.accentHex, [usage], true)
+            }
+        }
+        let remaining = state.settings.menuBarQuotaShowsRemaining
+        let lastUsed: [String: Date] = state.liveActivity.sessions.reduce(into: [:]) { dates, session in
+            dates[session.provider] = max(dates[session.provider] ?? .distantPast, session.updatedAt)
+        }
+        let items = entries.map { entry in
+            let lines = entry.usages.map { UsageIslandSummary.line(for: $0, showingRemaining: remaining) }
+            let detail = zip(entry.usages, lines).map { "\($0.meterLabel) \($1)" }.joined(separator: " · ")
+            return UsageIslandItem(
+                providerID: entry.id, name: entry.name, lines: lines,
+                detail: "\(entry.name) · \(detail)", accentHex: entry.accentHex,
+                lastUsedAt: lastUsed[entry.id]
+            )
+        }
+        return UsageIslandSummary(items: items, mode: remaining ? "남음" : "사용")
     }
 
     private func reserveStatusItemLength(for image: NSImage) {
@@ -385,7 +467,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func togglePopover(from sender: NSStatusBarButton) {
+    private func togglePopover(from sender: NSView) {
         setPopoverShown(!popover.isShown, from: sender)
     }
 
@@ -424,7 +506,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         )
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "패널 열기", action: #selector(openPanel), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "AI 사용량", action: #selector(openDashboard), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "세션", action: #selector(openHistory), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "설정", action: #selector(openSettings), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "펫 설정하기", action: #selector(openPetSettings), keyEquivalent: ""))
+        menu.addItem(.separator())
+        let island = NSMenuItem(title: "아일랜드 표시", action: #selector(toggleIsland), keyEquivalent: "")
+        island.state = state.settings.islandEnabled ? .on : .off
+        menu.addItem(island)
         menu.addItem(
             NSMenuItem(
                 title: state.settings.petEnabled ? "펫 잠재우기" : "펫 깨우기",
@@ -443,7 +532,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// transient popover가 바깥 클릭에 먼저 닫히더라도 다시 열리는 것을 막는다.
     private func setPopoverShown(
         _ shown: Bool,
-        from sender: NSStatusBarButton? = nil
+        from sender: NSView? = nil
     ) {
         if !shown {
             if popover.isShown {
@@ -452,7 +541,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         guard !popover.isShown,
-              let anchor = sender ?? statusItem.button
+              let anchor = sender ?? usageIsland?.anchor ?? statusItem.button
         else { return }
         state.scanOnAppear()  // 열 때 재스캔 (throttle 됨)
         popover.contentSize = Self.popoverSize
@@ -509,10 +598,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.runModal()
     }
 
-    @objc private func openPanel() {
-        if let button = statusItem.button, !popover.isShown {
-            togglePopover(from: button)
-        }
+    private func openPanel(on screen: MenuBarContentView.Screen, section: SettingsSection? = nil) {
+        state.settingsScrollTarget = section
+        state.panelScreen = screen
+        setPopoverShown(true)
+    }
+
+    @objc private func openDashboard() { openPanel(on: .dashboard) }
+    @objc private func openHistory() { openPanel(on: .history) }
+    @objc private func openSettings() { openPanel(on: .settings) }
+    @objc private func openPetSettings() { openPanel(on: .settings, section: .pet) }
+
+    @objc private func toggleIsland() {
+        // 표시 중인 앵커를 제거하기 전에 그 앵커에 붙은 팝오버를 닫는다.
+        popover.performClose(nil)
+        state.settings.islandEnabled.toggle()
     }
 
     @objc private func installUpdate() {

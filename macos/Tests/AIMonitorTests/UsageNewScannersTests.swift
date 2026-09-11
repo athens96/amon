@@ -156,26 +156,73 @@ final class UsageNewScannersTests: XCTestCase {
         XCTAssertEqual(onlyA.usage.total, 300)
     }
 
-    /// 실데이터: `~/.codex/sessions`(orca 하드링크 서브셋) + orca 를 병합해도 orca 단독과
-    /// 동일해야 한다(이중 집계 없음). 데이터 없으면 스킵.
-    func testCodexRealDataTwoRootsEqualOrcaAlone() throws {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let codex = home.appendingPathComponent(".codex/sessions").path
-        let orca = home.appendingPathComponent(
-            "Library/Application Support/orca/codex-runtime-home/home/sessions"
-        ).path
-        let fm = FileManager.default
-        var isDir: ObjCBool = false
-        guard fm.fileExists(atPath: codex, isDirectory: &isDir), isDir.boolValue,
-              fm.fileExists(atPath: orca, isDirectory: &isDir), isDir.boolValue
-        else { throw XCTSkip("codex/orca 실데이터 없음") }
+    /// 한 root 가 다른 root 의 복제 서브셋일 때만 병합 == 원본이다. 나중에 독립
+    /// 세션이 생기면 그 사용량도 보존해야 한다. 사용자의 실제 로그에는 이 관계를
+    /// 가정할 수 없으므로 임시 디렉터리에서 두 상태를 만들고 캐시를 유지한 채 확인한다.
+    func testCodexMirroredSubsetPreservesNewIndependentSessions() throws {
+        let timestamp = "2026-07-10T03:00:00Z"
+        let day = UsageScanner.dayKey(try XCTUnwrap(ISO8601DateFormatter().date(from: timestamp)))
+        func rollout(model: String, input: Int, cached: Int, output: Int, reasoning: Int) throws -> String {
+            let usage = [
+                "input_tokens": input, "cached_input_tokens": cached,
+                "output_tokens": output, "reasoning_output_tokens": reasoning,
+                "total_tokens": input + output,
+            ]
+            let records: [[String: Any]] = [
+                ["type": "turn_context", "payload": ["model": model]],
+                ["timestamp": timestamp, "type": "event_msg", "payload": [
+                    "type": "token_count", "info": [
+                        "total_token_usage": usage, "last_token_usage": usage,
+                    ],
+                ]],
+            ]
+            return try records.map {
+                String(decoding: try JSONSerialization.data(withJSONObject: $0), as: UTF8.self)
+            }.joined(separator: "\n") + "\n"
+        }
+
+        let sharedName = "2026/07/10/rollout-2026-07-10T03-00-00-shared.jsonl"
+        let shared = try write(
+            rollout(model: "gpt-5", input: 100, cached: 40, output: 20, reasoning: 5),
+            to: "orca/sessions/\(sharedName)"
+        )
+        _ = try write(
+            rollout(model: "gpt-5", input: 200, cached: 0, output: 30, reasoning: 0),
+            to: "orca/sessions/2026/07/10/rollout-2026-07-10T03-00-01-orca-only.jsonl"
+        )
+        let mirror = tempDir.appendingPathComponent("codex/sessions/\(sharedName)")
+        try FileManager.default.createDirectory(at: mirror.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: shared, to: mirror)
+        let codex = tempDir.appendingPathComponent("codex/sessions").path
+        let orca = tempDir.appendingPathComponent("orca/sessions").path
 
         UsageScanner.resetScanCache()
-        let both = UsageScanner.scanCodex(paths: [codex, orca], windowStart: .distantPast)
-        UsageScanner.resetScanCache()
+        defer { UsageScanner.resetScanCache() }
         let orcaOnly = UsageScanner.scanCodex(paths: [orca], windowStart: .distantPast)
-        XCTAssertEqual(both.sessionCount, orcaOnly.sessionCount)
-        XCTAssertEqual(both.usage.total, orcaOnly.usage.total)
+        XCTAssertEqual(orcaOnly.sessionCount, 2)
+        XCTAssertEqual(orcaOnly.usage, TokenUsage(input: 260, output: 50, cacheRead: 40, reasoning: 5, total: 350))
+        let mirrored = UsageScanner.scanCodex(paths: [codex, orca], windowStart: .distantPast)
+        XCTAssertEqual(mirrored.sessionCount, orcaOnly.sessionCount)
+        XCTAssertEqual(mirrored.usage, orcaOnly.usage)
+        XCTAssertEqual(mirrored.models, ["gpt-5": 350])
+        XCTAssertEqual(mirrored.daily[day], orcaOnly.usage)
+        XCTAssertEqual(mirrored.dailyByModel[day], ["gpt-5": orcaOnly.usage])
+
+        // 전용 root 에 새 세션이 생기면 더 이상 Orca 의 서브셋이 아니다.
+        _ = try write(
+            rollout(model: "gpt-5-mini", input: 50, cached: 10, output: 10, reasoning: 2),
+            to: "codex/sessions/2026/07/10/rollout-2026-07-10T03-00-02-codex-only.jsonl"
+        )
+        let unique = TokenUsage(input: 40, output: 10, cacheRead: 10, reasoning: 2, total: 60)
+        let expected = TokenUsage(input: 300, output: 60, cacheRead: 50, reasoning: 7, total: 410)
+        for roots in [[codex, orca], [orca, codex]] {
+            let combined = UsageScanner.scanCodex(paths: roots, windowStart: .distantPast)
+            XCTAssertEqual(combined.sessionCount, 3)
+            XCTAssertEqual(combined.usage, expected)
+            XCTAssertEqual(combined.models, ["gpt-5": 350, "gpt-5-mini": 60])
+            XCTAssertEqual(combined.daily[day], expected)
+            XCTAssertEqual(combined.dailyByModel[day], ["gpt-5": orcaOnly.usage, "gpt-5-mini": unique])
+        }
     }
 
     // MARK: - UsageStore 라운드트립

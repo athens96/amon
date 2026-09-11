@@ -17,6 +17,7 @@ let package = Package(
             resources: [
                 .process("Assets"),
                 .process("PetSprites"),
+                .process("IslandFonts"),
             ]
         ),
         .testTarget(

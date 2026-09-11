@@ -68,4 +68,72 @@ final class HostProcessScannerTests: XCTestCase {
         // 머신 상태에 의존하므로 내용은 단정하지 않는다 — 크래시/행 없이 도는지만 본다.
         _ = HostProcessScanner.candidates(processName: "claude")
     }
+
+    func testElectronHelpersResolveToTheMainHostPID() {
+        let parents: [pid_t: pid_t] = [100: 200, 200: 300, 300: 400, 400: 1]
+        let paths: [pid_t: String] = [
+            200: "/Applications/Paseo.app/Contents/Frameworks/Paseo Helper.app/Contents/MacOS/Paseo Helper",
+            300: "/Applications/Paseo.app/Contents/Frameworks/Paseo Helper.app/Contents/MacOS/Paseo Helper",
+            400: "/Applications/Paseo.app/Contents/MacOS/Paseo",
+        ]
+        let host = HostProcessScanner.topmostBundleAncestor(
+            startingAt: 100, parent: { parents[$0] }, executablePath: { paths[$0] }
+        )
+        XCTAssertEqual(host?.name, "Paseo")
+        XCTAssertEqual(host?.pid, 400)
+    }
+
+    func testAncestorStopsAtAnotherAppOrOutsideTheBundle() {
+        for outside in [
+            "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal",
+            "/Other/Paseo.app/Contents/MacOS/Paseo",
+            "/usr/bin/python3",
+        ] {
+            let parents: [pid_t: pid_t] = [100: 200, 200: 300, 300: 400]
+            let paths: [pid_t: String] = [
+                200: "/Applications/Paseo.app/Contents/MacOS/Paseo",
+                300: outside,
+                400: "/Applications/Paseo.app/Contents/MacOS/Paseo",
+            ]
+            let host = HostProcessScanner.topmostBundleAncestor(
+                startingAt: 100, parent: { parents[$0] }, executablePath: { paths[$0] }
+            )
+            XCTAssertEqual(host?.pid, 200, outside)
+        }
+    }
+
+    func testAncestorHandlesMissingPathsAndNeverInventsATmuxHost() {
+        let parents: [pid_t: pid_t] = [100: 200, 200: 300, 300: 1]
+        let paths: [pid_t: String] = [200: "/opt/homebrew/bin/tmux", 300: "/usr/bin/login"]
+        XCTAssertNil(HostProcessScanner.topmostBundleAncestor(
+            startingAt: 100, parent: { parents[$0] }, executablePath: { paths[$0] }
+        ))
+        XCTAssertNil(HostProcessScanner.topmostBundleAncestor(
+            startingAt: 100, parent: { parents[$0] }, executablePath: { _ in nil }
+        ))
+    }
+
+    func testAncestorLookupIsBoundedForChangingProcessTrees() {
+        var visits = 0
+        let host = HostProcessScanner.topmostBundleAncestor(
+            startingAt: 100,
+            parent: { $0 == 100 ? 200 : 100 },
+            executablePath: { _ in
+                visits += 1
+                return "/Applications/Paseo.app/Contents/MacOS/Paseo"
+            }
+        )
+        XCTAssertEqual(host?.name, "Paseo")
+        XCTAssertLessThanOrEqual(visits, 2)
+        XCTAssertNil(HostProcessScanner.topmostBundleAncestor(
+            startingAt: 100, parent: { $0 + 1 }, executablePath: { _ in nil }, maxDepth: 0
+        ))
+    }
+
+    func testOutermostBundlePathPreservesSpacesAndInstallationDirectory() {
+        XCTAssertEqual(HostProcessScanner.outermostBundlePath(
+            inPath: "/Users/test/Applications/Paseo Preview.app/Contents/Frameworks/Helper.app/Contents/MacOS/Helper"
+        ), "/Users/test/Applications/Paseo Preview.app")
+        XCTAssertNil(HostProcessScanner.outermostBundlePath(inPath: "/opt/homebrew/bin/codex"))
+    }
 }

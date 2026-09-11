@@ -81,6 +81,42 @@ enum HostProcessScanner {
         return name.isEmpty ? nil : String(name)
     }
 
+    /// 중첩된 Electron 헬퍼 경로에서도 가장 바깥 본체 번들 경로를 반환한다.
+    static func outermostBundlePath(inPath path: String) -> String? {
+        guard appBundleName(inPath: path) != nil,
+              let appRange = path.range(of: ".app/") else { return nil }
+        return String(path[..<appRange.upperBound].dropLast())
+    }
+
+    /// 가장 가까운 .app 을 찾은 뒤, 같은 본체 번들 안의 가장 위 PID 를 고른다.
+    /// CLI → Daemon Helper → Supervisor Helper → Paseo 체인에서 헬퍼 PID 를
+    /// 반환하면 말풍선 클릭이 본체 창 대신 활성화할 수 없는 헬퍼를 가리킨다.
+    static func topmostBundleAncestor(
+        startingAt pid: pid_t,
+        parent: (pid_t) -> pid_t?,
+        executablePath: (pid_t) -> String?,
+        maxDepth: Int = 15
+    ) -> (name: String, pid: pid_t)? {
+        guard maxDepth > 0 else { return nil }
+        var current = parent(pid)
+        var found: (name: String, pid: pid_t, bundle: String)?
+        var visited: Set<pid_t> = [pid]
+        for _ in 0..<maxDepth {
+            guard let ancestor = current, ancestor > 1,
+                  visited.insert(ancestor).inserted else { break }
+            if let path = executablePath(ancestor),
+               let app = appBundleName(inPath: path),
+               let bundle = outermostBundlePath(inPath: path) {
+                if let held = found, held.bundle != bundle { break }
+                found = (app, ancestor, bundle)
+            } else if found != nil {
+                break
+            }
+            current = parent(ancestor)
+        }
+        return found.map { ($0.name, $0.pid) }
+    }
+
     // MARK: - libproc 래퍼
 
     private static func allPIDs() -> [pid_t] {
@@ -135,18 +171,12 @@ enum HostProcessScanner {
         return String(cString: buffer)
     }
 
-    /// 부모 체인을 따라 가장 가까운 GUI 앱(.app)을 찾는다 — 훅 detect_host 와 동일.
+    /// 부모 체인을 따라 가장 가까운 GUI 앱(.app)의 본체 프로세스를 찾는다.
     private static func hostAncestor(of pid: pid_t) -> (name: String, pid: pid_t)? {
-        var current = bsdInfo(of: pid)?.pbi_ppid
-        for _ in 0..<15 {
-            guard let raw = current, raw > 1 else { return nil }
-            let ancestor = pid_t(raw)
-            if let path = executablePath(of: ancestor),
-               let app = appBundleName(inPath: path) {
-                return (app, ancestor)
-            }
-            current = bsdInfo(of: ancestor)?.pbi_ppid
-        }
-        return nil
+        topmostBundleAncestor(
+            startingAt: pid,
+            parent: { bsdInfo(of: $0).map { pid_t($0.pbi_ppid) } },
+            executablePath: executablePath(of:)
+        )
     }
 }

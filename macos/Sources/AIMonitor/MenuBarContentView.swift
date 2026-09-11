@@ -2,7 +2,7 @@ import SwiftUI
 
 /// 상태바 아이콘을 클릭하면 나타나는 패널.
 ///
-/// 헤더(제목·보기 방식·새로고침) + 본문 + 오른쪽 화면 내비게이션 + 푸터.
+/// 헤더(화면 전환·보기 방식·새로고침) + 본문 + 푸터.
 struct MenuBarContentView: View {
     /// SwiftUI 루트와 AppKit `NSPopover`가 함께 쓰는 실제 팝업 크기.
     ///
@@ -19,7 +19,7 @@ struct MenuBarContentView: View {
     /// 팝오버 화면 — 통합 대시보드(로컬 사용량 + 라이브 쿼터, 현재 활동 섹션 포함) ·
     /// 세션 기록(종료된 세션) · 설정.
     enum Screen: Hashable, CaseIterable { case dashboard, history, settings }
-    @State private var screen: Screen = .dashboard
+    private var screen: Screen { state.panelScreen }
 
     /// 브랜드 1차 색상 — Interactive Violet. docs/DESIGN.html 참조. 토큰 출처: Palette.accent
     static let accent = Palette.accent
@@ -102,7 +102,7 @@ struct MenuBarContentView: View {
     private var screenSwitcher: some View {
         HStack(spacing: 8) {
             Button {
-                withAnimation(.easeOut(duration: 0.15)) { screen = screen.next }
+                withAnimation(.easeOut(duration: 0.15)) { state.panelScreen = screen.next }
             } label: {
                 HStack(spacing: 3) {
                     Text(headerTitle)
@@ -130,7 +130,7 @@ struct MenuBarContentView: View {
             HStack(spacing: 3) {
                 ForEach(Screen.allCases.filter { $0 != screen }, id: \.self) { item in
                     Button {
-                        withAnimation(.easeOut(duration: 0.15)) { screen = item }
+                        withAnimation(.easeOut(duration: 0.15)) { state.panelScreen = item }
                     } label: {
                         Image(systemName: item.symbolName)
                             .font(.amonBody)
