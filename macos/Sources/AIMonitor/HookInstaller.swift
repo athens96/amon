@@ -342,11 +342,15 @@ def detect_host():
     tmux 서버처럼 체인에 .app 이 없으면 (None, None) — 앱은 세션 이동을 제공하지
     않는다(확인될 때만 이동). 경로의 첫 .app 세그먼트 = 가장 바깥 번들이므로 헬퍼
     프로세스(…/Orca.app/Contents/…/Helper)여도 앱 이름은 바르게 나온다."""
+    # 같은 본체 번들의 헬퍼 체인은 가장 위 PID 를 기록한다.
+    found = None  # (name, pid, bundle_prefix)
+    visited = set()
     try:
         pid = os.getppid()
         for _ in range(15):
-            if pid <= 1:
+            if pid <= 1 or pid in visited:
                 break
+            visited.add(pid)
             r = subprocess.run(
                 ["/bin/ps", "-p", str(pid), "-o", "ppid=,comm="],
                 timeout=2,
@@ -360,13 +364,19 @@ def detect_host():
                 break
             parts = out.split(None, 1)
             comm = parts[1] if len(parts) > 1 else ""
-            m = re.search(r"/([^/]+)\.app/", comm)
+            m = re.search(r"^(.*?/([^/]+)\.app)/", comm)
             if m:
-                return (m.group(1)[:64], pid)
+                bundle, name = m.group(1), m.group(2)[:64]
+                if found is None or found[2] == bundle:
+                    found = (name, pid, bundle)
+                else:
+                    break
+            elif found is not None and "/" in comm:
+                break  # 번들 밖 실경로 — 이름만 남은 헬퍼 comm 은 계속 오른다.
             pid = int(parts[0])
     except Exception:
         pass
-    return (None, None)
+    return (found[0], found[1]) if found else (None, None)
 
 
 def ensure_host(data):

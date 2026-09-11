@@ -35,6 +35,10 @@ final class AppState: ObservableObject {
     @Published var isScanning = false
     @Published var lastScan: Date? = nil
 
+    /// 헤더와 메뉴바·아일랜드·펫의 바로가기가 같은 패널 화면을 선택한다.
+    @Published var panelScreen: MenuBarContentView.Screen = .dashboard
+    @Published var settingsScrollTarget: SettingsSection?
+
     /// 에이전트 대시보드 업로드 상태.
     @Published var dashboardOutcome: ReportOutcome = .idle
 

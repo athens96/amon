@@ -49,6 +49,11 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(menuBarQuotaEnabled, forKey: "menubar.quota") }
     }
 
+    /// 화면 상단 아일랜드에 쿼터를 표시한다. 끄면 기존 메뉴바 표시 설정을 따른다.
+    @Published var islandEnabled: Bool {
+        didSet { defaults.set(islandEnabled, forKey: "island.enabled") }
+    }
+
     /// 메뉴바 % 의 소스 — ""(기본) = 가장 많이 사용한 도구 자동 선택,
     /// 그 외엔 고정할 providerID. 우클릭 메뉴 또는 프로바이더 카드에서 선택한다.
     @Published var menuBarQuotaProviderID: String {
@@ -179,12 +184,13 @@ final class AppSettings: ObservableObject {
         set { defaults.set(newValue, forKey: "dashboard.lastErrorAt") }
     }
 
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
 
-    init() {
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         // 초기화 시엔 didSet 이 호출되지 않으므로 저장 부작용 없이 로드된다.
         func load(_ tool: AITool) -> String {
-            UserDefaults.standard.string(forKey: Self.key(tool)) ?? tool.defaultPath
+            defaults.string(forKey: Self.key(tool)) ?? tool.defaultPath
         }
         claudePath = load(.claudeCode)
         codexPath = load(.codex)
@@ -193,25 +199,26 @@ final class AppSettings: ObservableObject {
         geminiPath = load(.gemini)
         qwenPath = load(.qwen)
         copilotPath = load(.copilot)
-        serverURL = UserDefaults.standard.string(forKey: "server.url") ?? ""
-        userKey = UserDefaults.standard.string(forKey: "server.userKey") ?? ""
-        let idx = UserDefaults.standard.object(forKey: "icon.index") as? Int ?? 0
+        serverURL = defaults.string(forKey: "server.url") ?? ""
+        userKey = defaults.string(forKey: "server.userKey") ?? ""
+        let idx = defaults.object(forKey: "icon.index") as? Int ?? 0
         iconIndex = min(max(idx, 0), AppIcons.iconCount - 1)
-        useCustomIcon = UserDefaults.standard.object(forKey: "icon.useCustom") as? Bool ?? false
-        customIconPath = UserDefaults.standard.string(forKey: "icon.customPath") ?? ""
-        quotaAlertsEnabled = UserDefaults.standard.object(forKey: "quota.alerts") as? Bool ?? true
-        autoUpdateEnabled = UserDefaults.standard.object(forKey: "update.auto") as? Bool ?? true
-        menuBarQuotaEnabled = UserDefaults.standard.object(forKey: "menubar.quota") as? Bool ?? true
+        useCustomIcon = defaults.object(forKey: "icon.useCustom") as? Bool ?? false
+        customIconPath = defaults.string(forKey: "icon.customPath") ?? ""
+        quotaAlertsEnabled = defaults.object(forKey: "quota.alerts") as? Bool ?? true
+        autoUpdateEnabled = defaults.object(forKey: "update.auto") as? Bool ?? true
+        menuBarQuotaEnabled = defaults.object(forKey: "menubar.quota") as? Bool ?? true
+        islandEnabled = defaults.object(forKey: "island.enabled") as? Bool ?? true
         let loadedQuotaProviderID =
-            UserDefaults.standard.string(forKey: "menubar.quotaProvider") ?? ""
+            defaults.string(forKey: "menubar.quotaProvider") ?? ""
         let loadedPrimaryMeter =
-            UserDefaults.standard.string(forKey: "menubar.quotaMeter") ?? ""
+            defaults.string(forKey: "menubar.quotaMeter") ?? ""
         let loadedSecondMeter =
-            UserDefaults.standard.string(forKey: "menubar.quotaMeter.second") ?? ""
+            defaults.string(forKey: "menubar.quotaMeter.second") ?? ""
         menuBarQuotaProviderID = loadedQuotaProviderID
         menuBarQuotaMeterLabel = loadedPrimaryMeter
         menuBarQuotaSecondMeterLabel = loadedSecondMeter
-        var loadedMeterSlots = Self.loadMeterSlots(from: UserDefaults.standard)
+        var loadedMeterSlots = Self.loadMeterSlots(from: defaults)
         if !loadedQuotaProviderID.isEmpty, loadedMeterSlots[loadedQuotaProviderID] == nil {
             let migrated = Self.normalizedMeterSlots([loadedPrimaryMeter, loadedSecondMeter])
             if migrated.contains(where: { !$0.isEmpty }) {
@@ -220,45 +227,45 @@ final class AppSettings: ObservableObject {
         }
         menuBarQuotaMeterSlotsByProvider = loadedMeterSlots
         menuBarQuotaShowsRemaining =
-            UserDefaults.standard.object(forKey: "menubar.quotaRemaining") as? Bool ?? false
-        dashboardMode = UserDefaults.standard.string(forKey: "ui.dashboardMode") ?? "all"
-        selectedProviderTab = UserDefaults.standard.string(forKey: "ui.selectedTab") ?? ""
-        hideInactiveAccounts = UserDefaults.standard.object(forKey: "ui.hideInactive") as? Bool ?? true
+            defaults.object(forKey: "menubar.quotaRemaining") as? Bool ?? false
+        dashboardMode = defaults.string(forKey: "ui.dashboardMode") ?? "all"
+        selectedProviderTab = defaults.string(forKey: "ui.selectedTab") ?? ""
+        hideInactiveAccounts = defaults.object(forKey: "ui.hideInactive") as? Bool ?? true
         localActivityEnabled =
-            UserDefaults.standard.object(forKey: "localActivity.enabled") as? Bool ?? false
-        petEnabled = UserDefaults.standard.object(forKey: "pet.enabled") as? Bool ?? true
+            defaults.object(forKey: "localActivity.enabled") as? Bool ?? false
+        petEnabled = defaults.object(forKey: "pet.enabled") as? Bool ?? true
         let loadedPetSpriteVersion =
-            UserDefaults.standard.object(forKey: "pet.spriteVersion") as? Int ?? 1
+            defaults.object(forKey: "pet.spriteVersion") as? Int ?? 1
         // amon 기본값을 따르되 명시적으로 고른 번들/커스텀 펫은 유지한다.
         let petMigration = BundledPetMigration.resolve(
-            storedVersion: UserDefaults.standard.object(forKey: "pet.migration") as? Int,
-            storedBundledID: UserDefaults.standard.string(forKey: "pet.bundledID"),
-            storedSpritePath: UserDefaults.standard.string(forKey: "pet.spritePath") ?? "",
+            storedVersion: defaults.object(forKey: "pet.migration") as? Int,
+            storedBundledID: defaults.string(forKey: "pet.bundledID"),
+            storedSpritePath: defaults.string(forKey: "pet.spritePath") ?? "",
             storedSpriteVersion: CodexPetSpriteVersion(rawValue: loadedPetSpriteVersion)?.rawValue ?? 1
         )
         petBundledID = petMigration.resolvedPet.id
         petSpritePath = petMigration.spritePath
         petSpriteVersion = petMigration.spriteVersion
-        petSpriteRevision = UserDefaults.standard.object(forKey: "pet.spriteRevision") as? Int ?? 0
+        petSpriteRevision = defaults.object(forKey: "pet.spriteRevision") as? Int ?? 0
         if petMigration.persists {
-            UserDefaults.standard.set(
+            defaults.set(
                 BundledPetMigration.currentVersion,
                 forKey: "pet.migration"
             )
-            UserDefaults.standard.removeObject(forKey: "pet.bundledID")
-            UserDefaults.standard.set(petMigration.spritePath, forKey: "pet.spritePath")
-            UserDefaults.standard.set(petMigration.spriteVersion, forKey: "pet.spriteVersion")
+            defaults.removeObject(forKey: "pet.bundledID")
+            defaults.set(petMigration.spritePath, forKey: "pet.spritePath")
+            defaults.set(petMigration.spriteVersion, forKey: "pet.spriteVersion")
         }
         petShowsCurrentTask =
-            UserDefaults.standard.object(forKey: "pet.showsCurrentTask") as? Bool ?? true
+            defaults.object(forKey: "pet.showsCurrentTask") as? Bool ?? true
         petReadyAutoHideSeconds =
-            UserDefaults.standard.object(forKey: "pet.readyAutoHideSeconds") as? Double
+            defaults.object(forKey: "pet.readyAutoHideSeconds") as? Double
             ?? PetBubbleVisibility.defaultReadyAutoHideDelay
         petBubbleWidth =
-            UserDefaults.standard.object(forKey: "pet.bubbleWidth") as? Double
+            defaults.object(forKey: "pet.bubbleWidth") as? Double
             ?? PetOverlayGeometry.defaultBubbleSize.width
         petBubbleHeight =
-            UserDefaults.standard.object(forKey: "pet.bubbleHeight") as? Double
+            defaults.object(forKey: "pet.bubbleHeight") as? Double
             ?? PetOverlayGeometry.defaultBubbleSize.height
         // dashboard.syncEnabled 토글은 제거됨 — 서버 연동(URL+유저 키) 설정이 곧 전송 동의.
     }

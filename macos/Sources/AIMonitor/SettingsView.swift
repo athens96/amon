@@ -2,6 +2,8 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+enum SettingsSection: Hashable { case pet }
+
 /// 설정 화면 — 3개 카테고리로 나뉜다:
 /// 기본 설정(자동 실행·업데이트·알림·메뉴바 표시) / 로컬 데이터 설정(도구별 로그
 /// 경로·로컬 현재 활동) / 서버 연동 설정(URL·유저 키 + 집계 사용량 업로드).
@@ -10,75 +12,99 @@ struct SettingsView: View {
     @EnvironmentObject private var settings: AppSettings
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                // ── 기본 설정 ────────────────────────────────────────────
-                SettingsCategoryHeader(icon: "gearshape", title: "기본 설정")
+        ScrollViewReader { proxy in
+            ScrollView {
+                settingsContent
+            }
+            .onAppear { scrollToRequestedSection(using: proxy) }
+            .onChange(of: state.settingsScrollTarget) { _ in
+                scrollToRequestedSection(using: proxy)
+            }
+        }
+    }
 
-                LaunchAtLoginRow()
+    private func scrollToRequestedSection(using proxy: ScrollViewProxy) {
+        guard let target = state.settingsScrollTarget else { return }
+        // 새 화면이 배치된 다음 이동해야 팝오버 밖에서 요청한 바로가기도 동작한다.
+        DispatchQueue.main.async {
+            guard state.panelScreen == .settings,
+                  state.settingsScrollTarget == target else { return }
+            proxy.scrollTo(target, anchor: .top)
+            state.settingsScrollTarget = nil
+        }
+    }
 
-                AutoUpdateRow()
+    private var settingsContent: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            // ── 기본 설정 ────────────────────────────────────────────
+            SettingsCategoryHeader(icon: "gearshape", title: "기본 설정")
 
-                PetSettingsRow()
+            LaunchAtLoginRow()
 
-                // IconPickerRow() — amon 기본 아이콘·커스텀 파일 픽커는 숨김.
-                // 메뉴바 아이콘이 프로바이더 공식 로고(ProviderIcons)를 따라가면서
-                // 수동 선택이 무의미해졌다. 프로바이더 미감지 시 폴백으로만 쓰인다.
+            AutoUpdateRow()
 
-                QuotaAlertsRow()
+            IslandSettingsRow()
 
-                MenuBarQuotaRow()
+            PetSettingsRow()
+                .id(SettingsSection.pet)
 
-                Divider()
+            // IconPickerRow() — amon 기본 아이콘·커스텀 파일 픽커는 숨김.
+            // 메뉴바 아이콘이 프로바이더 공식 로고(ProviderIcons)를 따라가면서
+            // 수동 선택이 무의미해졌다. 프로바이더 미감지 시 폴백으로만 쓰인다.
 
-                // ── 로컬 데이터 설정 ─────────────────────────────────────
-                SettingsCategoryHeader(icon: "folder", title: "로컬 데이터 설정")
+            QuotaAlertsRow()
 
-                LiveActivityRow()
+            MenuBarQuotaRow()
 
-                Text("각 도구의 로그 폴더를 지정하세요. 변경 후 아래 '다시 스캔'을 누르면 반영됩니다.")
-                    .font(.amonBody)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            Divider()
 
-                ForEach(AITool.allCases) { tool in
-                    PathEditor(tool: tool)
-                }
+            // ── 로컬 데이터 설정 ─────────────────────────────────────
+            SettingsCategoryHeader(icon: "folder", title: "로컬 데이터 설정")
 
-                Button {
-                    state.scan()
-                } label: {
-                    HStack {
-                        Spacer()
-                        Label("다시 스캔", systemImage: "arrow.clockwise")
-                        Spacer()
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(MenuBarContentView.accent)
-                .disabled(state.isScanning)
-                .padding(.top, 4)
+            LiveActivityRow()
 
-                Divider()
+            Text("각 도구의 로그 폴더를 지정하세요. 변경 후 아래 '다시 스캔'을 누르면 반영됩니다.")
+                .font(.amonBody)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
-                // ── 서버 연동 설정 ───────────────────────────────────────
-                // 서버에는 meta + 일자별 집계 사용량만 업로드한다.
-                SettingsCategoryHeader(
-                    icon: "antenna.radiowaves.left.and.right", title: "서버 연동 설정"
-                )
+            ForEach(AITool.allCases) { tool in
+                PathEditor(tool: tool)
+            }
 
-                ServerSection()
-
+            Button {
+                state.scan()
+            } label: {
                 HStack {
                     Spacer()
-                    Text("amon \(AppInfo.version)")
-                        .font(.amonCaption)
-                        .foregroundStyle(.tertiary)
+                    Label("다시 스캔", systemImage: "arrow.clockwise")
                     Spacer()
                 }
             }
-            .padding(16)
+            .buttonStyle(.borderedProminent)
+            .tint(MenuBarContentView.accent)
+            .disabled(state.isScanning)
+            .padding(.top, 4)
+
+            Divider()
+
+            // ── 서버 연동 설정 ───────────────────────────────────────
+            // 서버에는 meta + 일자별 집계 사용량만 업로드한다.
+            SettingsCategoryHeader(
+                icon: "antenna.radiowaves.left.and.right", title: "서버 연동 설정"
+            )
+
+            ServerSection()
+
+            HStack {
+                Spacer()
+                Text("amon \(AppInfo.version)")
+                    .font(.amonCaption)
+                    .foregroundStyle(.tertiary)
+                Spacer()
+            }
         }
+        .padding(16)
     }
 }
 
@@ -359,7 +385,20 @@ private struct LiveActivityRow: View {
     }
 }
 
-/// 메뉴바 아이콘 옆 세션(5h) 쿼터 % 표시 토글 + 표기 방식(사용/남은) 선택.
+private struct IslandSettingsRow: View {
+    @EnvironmentObject private var settings: AppSettings
+
+    var body: some View {
+        CompactSettingToggleRow(
+            icon: "menubar.rectangle",
+            title: "화면 상단 아일랜드 표시",
+            description: "노치 양옆 또는 화면 위쪽에 최근 사용한 도구의 한도를 표시합니다. 누르면 패널이 열리고, 우클릭하면 화면 이동과 설정 메뉴가 나옵니다.",
+            isOn: $settings.islandEnabled
+        )
+    }
+}
+
+/// 메뉴바 표시 설정과 메뉴바·아일랜드가 공유하는 사용/남은 표기 방식.
 private struct MenuBarQuotaRow: View {
     @EnvironmentObject private var settings: AppSettings
 
@@ -368,8 +407,9 @@ private struct MenuBarQuotaRow: View {
             CompactSettingToggleRow(
                 icon: "percent",
                 title: "메뉴바에 세션 쿼터 % 표시",
-                description: "기본은 가장 많이 사용한 도구의 5시간(세션) 쿼터 %입니다. 각 그래프 하단의 '상태창 보기' 토글로 위/아래 두 항목을 선택할 수 있습니다. 사용 90% 초과 시 빨간색.",
-                isOn: $settings.menuBarQuotaEnabled
+                description: "아일랜드를 끄면 이 설정에 따라 메뉴바에 쿼터를 표시합니다. 각 그래프 하단의 '상태창 보기'로 표시할 항목을 고를 수 있습니다.",
+                isOn: $settings.menuBarQuotaEnabled,
+                enabled: !settings.islandEnabled
             )
 
             CompactSettingToggleRow(
@@ -377,7 +417,7 @@ private struct MenuBarQuotaRow: View {
                 title: "남은 %로 표시",
                 description: "끄면 사용한 %(기본), 켜면 남은 %(100 − 사용)를 표시합니다.",
                 isOn: $settings.menuBarQuotaShowsRemaining,
-                enabled: settings.menuBarQuotaEnabled
+                enabled: settings.islandEnabled || settings.menuBarQuotaEnabled
             )
             .padding(.top, 6)
         }
