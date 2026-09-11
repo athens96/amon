@@ -16,10 +16,10 @@ final class UsageIslandGeometryTests: XCTestCase {
         XCTAssertEqual(layout.frame.maxX - layout.wingWidth, right.minX)
     }
 
-    func testNonNotchPillIsCenteredWithoutAnAssumedCameraGap() {
+    func testNonNotchPillIsCenteredWithSeparationBetweenProviderIcons() {
         let screen = CGRect(x: 1920, y: -400, width: 1920, height: 1080)
         let layout = UsageIslandGeometry.make(screen: screen, safeTop: 0, left: nil, right: nil)
-        XCTAssertEqual(layout.gap, 0)
+        XCTAssertEqual(layout.gap, 28)
         XCTAssertEqual(layout.frame.midX, screen.midX)
         XCTAssertEqual(layout.frame.maxY, screen.maxY)
         XCTAssertEqual(layout.frame.height, 32)
@@ -87,7 +87,7 @@ final class UsageIslandGeometryTests: XCTestCase {
         let screen = CGRect(x: 0, y: 0, width: 800, height: 600)
         let layout = UsageIslandGeometry.make(screen: screen, safeTop: .nan, left: nil, right: nil)
         XCTAssertEqual(layout.frame.height, 32)
-        XCTAssertEqual(layout.gap, 0)
+        XCTAssertEqual(layout.gap, 28)
     }
 
     func testAuxiliaryAreasAwayFromTheTopUseTheCameraFallback() {
@@ -101,7 +101,7 @@ final class UsageIslandGeometryTests: XCTestCase {
 
     func testSummaryLimitsVisibleProvidersButKeepsAllMetersInTooltip() {
         let items = (1...4).map { UsageIslandItem(providerID: "\($0)", name: "Provider \($0)",
-                                                lines: ["10% 남음", "20% 남음"], detail: "Provider \($0) · Session 10% 남음 · Week 20% 남음") }
+                                                lines: ["10%", "20%"], detail: "Provider \($0) · Session 10% 남음 · Week 20% 남음") }
         let summary = UsageIslandSummary(items: items, mode: "남음")
         XCTAssertEqual(summary.visible, Array(items.prefix(2)))
         XCTAssertEqual(summary.overflow, 2)
@@ -114,7 +114,7 @@ final class UsageIslandGeometryTests: XCTestCase {
 
 final class UsageIslandRecencyAndColorTests: XCTestCase {
     private func item(_ id: String, lastUsed: TimeInterval?) -> UsageIslandItem {
-        UsageIslandItem(providerID: id, name: id, lines: ["1% 사용"], detail: id,
+        UsageIslandItem(providerID: id, name: id, lines: ["1%"], detail: id,
                         lastUsedAt: lastUsed.map { Date(timeIntervalSince1970: $0) })
     }
 
@@ -198,9 +198,12 @@ final class UsageIslandViewTests: XCTestCase {
                                                          format: .count(suffix: ""), used: 12, limit: 0)
         let limited = LiveProvidersManager.MenuBarUsage(meterLabel: "Session", isSession: true,
                                                        format: .percent, used: 42, limit: 100)
-        XCTAssertEqual(UsageIslandSummary.line(for: unlimited, showingRemaining: true), "12 사용")
-        XCTAssertEqual(UsageIslandSummary.line(for: limited, showingRemaining: true), "58% 남음")
-        XCTAssertEqual(UsageIslandSummary.line(for: limited, showingRemaining: false), "42% 사용")
+        XCTAssertEqual(UsageIslandSummary.line(for: unlimited, showingRemaining: true), "12")
+        XCTAssertEqual(UsageIslandSummary.modeLabel(for: unlimited, showingRemaining: true), "사용")
+        XCTAssertEqual(UsageIslandSummary.line(for: limited, showingRemaining: true), "58%")
+        XCTAssertEqual(UsageIslandSummary.modeLabel(for: limited, showingRemaining: true), "남음")
+        XCTAssertEqual(UsageIslandSummary.line(for: limited, showingRemaining: false), "42%")
+        XCTAssertEqual(UsageIslandSummary.modeLabel(for: limited, showingRemaining: false), "사용")
     }
 
     func testMoneyAndRequestMetersRespectTheirActualLimits() {
@@ -210,10 +213,34 @@ final class UsageIslandViewTests: XCTestCase {
             format: .dollars, used: 4, limit: 0)
         let requests = LiveProvidersManager.MenuBarUsage(meterLabel: "Requests", isSession: false,
             format: .count(suffix: ""), used: 25, limit: 100)
-        XCTAssertEqual(UsageIslandSummary.line(for: money, showingRemaining: false), "20% 사용")
-        XCTAssertEqual(UsageIslandSummary.line(for: money, showingRemaining: true), "80% 남음")
-        XCTAssertEqual(UsageIslandSummary.line(for: unboundedMoney, showingRemaining: true), "$4.00 사용")
-        XCTAssertEqual(UsageIslandSummary.line(for: requests, showingRemaining: true), "75% 남음")
+        XCTAssertEqual(UsageIslandSummary.line(for: money, showingRemaining: false), "20%")
+        XCTAssertEqual(UsageIslandSummary.line(for: money, showingRemaining: true), "80%")
+        XCTAssertEqual(UsageIslandSummary.line(for: unboundedMoney, showingRemaining: true), "$4.00")
+        XCTAssertEqual(UsageIslandSummary.line(for: requests, showingRemaining: true), "75%")
+        XCTAssertEqual(UsageIslandSummary.modeLabel(for: money, showingRemaining: false), "사용")
+        XCTAssertEqual(UsageIslandSummary.modeLabel(for: money, showingRemaining: true), "남음")
+        XCTAssertEqual(UsageIslandSummary.modeLabel(for: unboundedMoney, showingRemaining: true), "사용")
+        XCTAssertEqual(UsageIslandSummary.modeLabel(for: requests, showingRemaining: true), "남음")
+    }
+
+    func testUnboundedValuesStayNumericAndUsedAcrossBothDisplayModes() {
+        let meters: [(LiveProvidersManager.MenuBarUsage, String)] = [
+            (.init(meterLabel: "Total usage", isSession: false, format: .dollars, used: 4, limit: 0), "$4.00"),
+            (.init(meterLabel: "Requests", isSession: false, format: .count(suffix: " requests"), used: 12, limit: 0), "12"),
+            (.init(meterLabel: "Requests", isSession: false, format: .count(suffix: ""), used: 12, limit: -1), "12"),
+        ]
+        for (meter, number) in meters {
+            for remaining in [false, true] {
+                XCTAssertEqual(UsageIslandSummary.line(for: meter, showingRemaining: remaining), number)
+                XCTAssertEqual(UsageIslandSummary.modeLabel(for: meter, showingRemaining: remaining), "사용",
+                               "An unbounded meter has no remaining allowance to label")
+            }
+        }
+        let percent = LiveProvidersManager.MenuBarUsage(meterLabel: "Session", isSession: true,
+            format: .percent, used: 67, limit: 0)
+        XCTAssertEqual(UsageIslandSummary.line(for: percent, showingRemaining: true), "33%")
+        XCTAssertEqual(UsageIslandSummary.modeLabel(for: percent, showingRemaining: true), "남음",
+                       "A percentage already supplies a bounded ratio without a separate numeric limit")
     }
 
     func testSmallSlotsKeepIconsAndTextInsideTheAvailableWing() {
@@ -226,15 +253,12 @@ final class UsageIslandViewTests: XCTestCase {
             XCTAssertLessThanOrEqual(layout.text.maxX, rect.maxX)
         }
     }
-    func testTransparentCornersAreExcludedFromHitRegion() {
+    func testFlatTopKeepsOnlyTheLowerCornersTransparent() {
         let rect = CGRect(x: 0, y: 0, width: 288, height: 32)
-        let pill = UsageIslandView.shape(in: rect, notched: false)
-        XCTAssertFalse(pill.contains(CGPoint(x: 1, y: 1)))
-        XCTAssertFalse(pill.contains(CGPoint(x: 1, y: 31)))
-        XCTAssertTrue(pill.contains(CGPoint(x: 144, y: 16)))
-        let notch = UsageIslandView.shape(in: rect, notched: true)
-        XCTAssertFalse(notch.contains(CGPoint(x: 1, y: 1)))
-        XCTAssertTrue(notch.contains(CGPoint(x: 1, y: 31)))
+        let outline = UsageIslandView.shape(in: rect)
+        XCTAssertFalse(outline.contains(CGPoint(x: 1, y: 1)))
+        XCTAssertTrue(outline.contains(CGPoint(x: 1, y: 31)))
+        XCTAssertTrue(outline.contains(CGPoint(x: 144, y: 16)))
     }
 
     func testAccessiblePressUsesTheSameExistingPanelCallback() {
@@ -258,16 +282,20 @@ final class UsageIslandViewTests: XCTestCase {
 
     func testHitTestingConvertsFromTheSuperviewCoordinateSystem() {
         let parent = NSView(frame: CGRect(x: 0, y: 0, width: 600, height: 200))
-        let view = UsageIslandView(frame: CGRect(x: 40, y: 70, width: 288, height: 32))
+        let view = makeView()
+        view.setFrameOrigin(NSPoint(x: 40, y: 70))
         parent.addSubview(view)
-        XCTAssertTrue(view.hitTest(NSPoint(x: 184, y: 86)) === view)
-        XCTAssertNil(view.hitTest(NSPoint(x: 41, y: 71)))
+        let rect = view.popoverAnchorRect
+        let center = view.convert(NSPoint(x: rect.midX, y: rect.midY), to: parent)
+        let corner = view.convert(NSPoint(x: rect.minX + 1, y: rect.minY + 1), to: parent)
+        XCTAssertTrue(view.hitTest(center) === view)
+        XCTAssertNil(view.hitTest(corner))
         view.isHidden = true
-        XCTAssertNil(view.hitTest(NSPoint(x: 184, y: 86)))
+        XCTAssertNil(view.hitTest(center))
     }
 
     func testClickCapturesCloseIntentBeforeTransientDismissal() throws {
-        let view = UsageIslandView(frame: CGRect(x: 0, y: 0, width: 288, height: 32))
+        let view = makeView()
         var shown = true
         var targets: [Bool] = []
         view.isOpen = { shown }
@@ -278,24 +306,25 @@ final class UsageIslandViewTests: XCTestCase {
         }
         view.prepareMousePress()
         shown = false // AppKit's transient popover dismissal between down and up.
-        view.mouseDown(with: try mouseEvent(.leftMouseDown))
-        view.mouseUp(with: try mouseEvent(.leftMouseUp))
+        view.mouseDown(with: try mouseEvent(.leftMouseDown, in: view))
+        view.mouseUp(with: try mouseEvent(.leftMouseUp, in: view))
         XCTAssertEqual(targets, [false], "The second click must close, not reopen the panel")
-        view.mouseDown(with: try mouseEvent(.leftMouseDown))
-        view.mouseUp(with: try mouseEvent(.leftMouseUp))
+        view.mouseDown(with: try mouseEvent(.leftMouseDown, in: view))
+        view.mouseUp(with: try mouseEvent(.leftMouseUp, in: view))
         XCTAssertEqual(targets, [false, true])
     }
 
     func testDraggingOutCancelsTheClickAndClearsItsCapturedIntent() throws {
-        let view = UsageIslandView(frame: CGRect(x: 0, y: 0, width: 288, height: 32))
+        let view = makeView()
         var targets: [Bool] = []
         view.onSetOpen = { value, _ in targets.append(value) }
-        view.mouseDown(with: try mouseEvent(.leftMouseDown))
-        view.mouseUp(with: try mouseEvent(.leftMouseUp, point: CGPoint(x: 300, y: 40)))
+        view.mouseDown(with: try mouseEvent(.leftMouseDown, in: view))
+        view.mouseUp(with: try mouseEvent(.leftMouseUp, in: view,
+            point: CGPoint(x: view.bounds.maxX + 20, y: view.bounds.maxY + 20)))
         XCTAssertTrue(targets.isEmpty)
         view.isOpen = { true }
-        view.mouseDown(with: try mouseEvent(.leftMouseDown))
-        view.mouseUp(with: try mouseEvent(.leftMouseUp))
+        view.mouseDown(with: try mouseEvent(.leftMouseDown, in: view))
+        view.mouseUp(with: try mouseEvent(.leftMouseUp, in: view))
         XCTAssertEqual(targets, [false])
     }
 
@@ -371,8 +400,21 @@ final class UsageIslandViewTests: XCTestCase {
         XCTAssertEqual(reloaded.petSpritePath, settings.petSpritePath)
     }
 
-    private func mouseEvent(_ type: NSEvent.EventType, point: CGPoint = CGPoint(x: 144, y: 16)) throws -> NSEvent {
-        try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 1,
+    private func makeView() -> UsageIslandView {
+        let geometry = UsageIslandGeometry.make(screen: CGRect(x: 0, y: 0, width: 1200, height: 800),
+            safeTop: 0, left: nil, right: nil)
+        let view = UsageIslandView(frame: CGRect(origin: .zero, size: geometry.panelFrame.size))
+        view.geometry = geometry
+        view.reduceMotion = true
+        return view
+    }
+
+    private func mouseEvent(_ type: NSEvent.EventType, in view: UsageIslandView,
+                            point: CGPoint? = nil) throws -> NSEvent {
+        let anchor = view.popoverAnchorRect
+        let local = point ?? CGPoint(x: anchor.midX, y: anchor.midY)
+        let location = view.convert(local, to: nil)
+        return try XCTUnwrap(NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: 1,
             windowNumber: 0, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
     }
 
